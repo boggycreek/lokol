@@ -19,24 +19,33 @@ BASELINE_COMMIT=$(git rev-parse HEAD)
 echo "Baseline bookmark: $BASELINE_COMMIT"
 
 # 2. Formulate the Claude Code-like TUI UX improvement task contract
-TASK_PROMPT="TASK: Improve the TUI in pkg/tui/tui.go to have a Claude Code developer experience style.
-Target File: pkg/tui/tui.go
-Requirement:
-In pkg/tui/tui.go, locate 'case actionExecutedMsg:' and replace the box formatting:
-Change:
+TASK_PROMPT="TASK: Improve the TUI in pkg/tui/tui.go to adopt the Claude Code style.
+Problem: When an action finishes, tui.go prints:
 		box := outputBoxStyle.Render(fmt.Sprintf(\"OUTPUT:\n%s\", output))
 		m.appendLog(box + \"\n\")
-To:
-		m.appendLog(\"✓ Executed successfully\n\")
+Goal: Replace those 2 lines in pkg/tui/tui.go with:
+		m.appendLog(\"✓ Done\n\")
 
-How to apply:
-Use python3 or sed to replace those lines in pkg/tui/tui.go.
-Verify with: go test ./test/... && go build -o bin/quik ./cmd/quik
-Finally, finish with:
-<action name=\"task_finish\">TUI output cleaned up</action>"
+Run this python command to apply the edit:
+python3 -c '
+with open(\"pkg/tui/tui.go\", \"r\") as f:
+    s = f.read()
+target = \"\"\"\t\tbox := outputBoxStyle.Render(fmt.Sprintf(\"OUTPUT:\\n%s\", output))\n\t\tm.appendLog(box + \"\\n\")\"\"\"
+replacement = \"\t\tm.appendLog(\\\"✓ Done\\\\n\\\")\"
+if target in s:
+    s = s.replace(target, replacement)
+    with open(\"pkg/tui/tui.go\", \"w\") as f:
+        f.write(s)
+    print(\"REPLACED\")
+else:
+    print(\"TARGET NOT FOUND\")
+'
+
+Then run: go test ./test/... && go build -o bin/quik ./cmd/quik
+Finally, call <action name=\"task_finish\">TUI streamlined</action>"
 
 echo "[2/5] Dispatching task to local GPU model via 'quik exec' in YOLO mode..."
-./bin/quik exec --max-turns=15 "$TASK_PROMPT"
+./bin/quik exec --max-turns=10 "$TASK_PROMPT"
 
 echo "[3/5] Assessing changes made by local GPU agent..."
 git diff --stat
