@@ -11,10 +11,9 @@ import (
 	"github.com/boggycreek/lokol/pkg/model"
 	"github.com/boggycreek/lokol/pkg/probe"
 	"github.com/boggycreek/lokol/pkg/tui"
+	"github.com/boggycreek/lokol/pkg/version"
 	tea "github.com/charmbracelet/bubbletea"
 )
-
-const version = "0.1.0"
 
 func main() {
 	// Top-level flags
@@ -72,7 +71,7 @@ func main() {
 				runExec(*execEngine, *execMaxTurns, prompt)
 				return
 			case "version":
-				fmt.Printf("lokol version %s\n", version)
+				fmt.Printf("lokol %s (commit: %s, built: %s)\n", version.Version, version.GitCommit, version.BuildDate)
 				return
 			}
 		}
@@ -96,7 +95,7 @@ func main() {
 		}
 		runExec(*execEngine, *execMaxTurns, prompt)
 	case "version":
-		fmt.Printf("lokol version %s\n", version)
+		fmt.Printf("lokol %s (commit: %s, built: %s)\n", version.Version, version.GitCommit, version.BuildDate)
 	default:
 		printUsage()
 		os.Exit(1)

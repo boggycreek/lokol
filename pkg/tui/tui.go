@@ -8,6 +8,7 @@ import (
 
 	"github.com/boggycreek/lokol/pkg/agent"
 	"github.com/boggycreek/lokol/pkg/probe"
+	"github.com/boggycreek/lokol/pkg/version"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -421,7 +422,7 @@ func (m Model) View() string {
 		gpuInfo = fmt.Sprintf("%s (%s)", m.hardware.GPUName, m.hardware.HumanVRAM())
 	}
 
-	header := headerStyle.Render(" ⚡ lokol v0.1.0 ") + "  " +
+	header := headerStyle.Render(fmt.Sprintf(" ⚡ lokol %s ", version.Version)) + "  " +
 		hudStyle.Render(fmt.Sprintf("GPU: %s", gpuInfo))
 	if m.yoloMode {
 		yoloBadge := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FF5555")).Render(" [YOLO ACTIVE]")
