@@ -29,9 +29,26 @@ lokol/
 
 ## Quick Start
 
-### Build
+### Installation
+
+Install `lokol` into your user home directory conforming to the XDG Base Directory specification (`~/.local/bin`, `~/.local/share/lokol`, `~/.config/lokol`):
+
 ```bash
-go build -o bin/lokol ./cmd/lokol
+curl -fsSL https://raw.githubusercontent.com/boggycreek/lokol/main/install.sh | bash
+```
+
+Customization flags can be passed to the installer:
+```bash
+# Custom binary directory or specific release version
+curl -fsSL https://raw.githubusercontent.com/boggycreek/lokol/main/install.sh | bash -s -- --bin-dir /usr/local/bin --version v0.1.0-alpha.1
+
+# Force build from source
+curl -fsSL https://raw.githubusercontent.com/boggycreek/lokol/main/install.sh | bash -s -- --build-from-source
+```
+
+### Manual Build
+```bash
+make build
 ```
 
 ### Probe Host Hardware
