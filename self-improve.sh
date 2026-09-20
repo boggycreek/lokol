@@ -20,25 +20,27 @@ echo "Baseline bookmark: $BASELINE_COMMIT"
 
 # 2. Formulate the Claude Code-like TUI UX improvement task contract
 TASK_PROMPT="TASK: Improve the TUI in pkg/tui/tui.go to adopt the Claude Code style.
-Problem: When an action finishes, tui.go prints:
+Problem: When an action finishes, tui.go prints the raw command output into the chat viewport:
 		box := outputBoxStyle.Render(fmt.Sprintf(\"OUTPUT:\n%s\", output))
 		m.appendLog(box + \"\n\")
-Goal: Replace those 2 lines in pkg/tui/tui.go with:
-		m.appendLog(\"✓ Done\n\")
+Goal: Replace those 2 lines in pkg/tui/tui.go with a clean 1-line acknowledgment:
+		m.appendLog(\"✓ Executed successfully\n\")
 
 Run this python command to apply the edit:
 python3 -c '
 with open(\"pkg/tui/tui.go\", \"r\") as f:
-    s = f.read()
-target = \"\"\"\t\tbox := outputBoxStyle.Render(fmt.Sprintf(\"OUTPUT:\\n%s\", output))\n\t\tm.appendLog(box + \"\\n\")\"\"\"
-replacement = \"\t\tm.appendLog(\\\"✓ Done\\\\n\\\")\"
-if target in s:
-    s = s.replace(target, replacement)
-    with open(\"pkg/tui/tui.go\", \"w\") as f:
-        f.write(s)
-    print(\"REPLACED\")
-else:
-    print(\"TARGET NOT FOUND\")
+    lines = f.readlines()
+new_lines = []
+for line in lines:
+    if \"box := outputBoxStyle.Render\" in line:
+        continue
+    elif \"m.appendLog(box + \" in line:
+        new_lines.append(\"\t\tm.appendLog(\\\"✓ Executed successfully\\\\n\\\")\n\")
+    else:
+        new_lines.append(line)
+with open(\"pkg/tui/tui.go\", \"w\") as f:
+    f.writelines(new_lines)
+print(\"UPDATED_TUI\")
 '
 
 Then run: go test ./test/... && go build -o bin/quik ./cmd/quik
