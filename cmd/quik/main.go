@@ -198,8 +198,10 @@ func runProbe(simVRAM float64) {
 	fmt.Printf("Optimal Model  : %s\n", rec.ModelName)
 	fmt.Printf("HuggingFace    : %s / %s\n", rec.HFRepo, rec.HFFile)
 	fmt.Printf("Max Context    : %d tokens (KV Cache Quant: %s)\n", rec.ContextLength, rec.KVCacheQuant)
+	fmt.Printf("Engine Slots   : %d slot (-np %d, 100%% VRAM allocated to active agent)\n", rec.ParallelSlots, rec.ParallelSlots)
 	fmt.Printf("GPU Offload    : %d layers (Est VRAM: ~%d MB)\n", rec.GPULayers, rec.EstimatedVRAMMB)
 	fmt.Println("--------------------------------------------------")
 	fmt.Printf("Notes: %s\n", rec.Notes)
 	fmt.Println("==================================================")
 }
+
