@@ -46,8 +46,8 @@ print(\"UPDATED_TUI\")
 Then run: go test ./test/... && go build -o bin/quik ./cmd/quik
 Finally, call <action name=\"task_finish\">TUI streamlined</action>"
 
-echo "[2/5] Dispatching task to local GPU model via 'quik exec' in YOLO mode..."
-./bin/quik exec --max-turns=10 "$TASK_PROMPT"
+echo "[2/5] Dispatching task to local GPU model via 'quik -p' in YOLO mode..."
+./bin/quik --max-turns=10 -p "$TASK_PROMPT"
 
 echo "[3/5] Assessing changes made by local GPU agent..."
 git diff --stat

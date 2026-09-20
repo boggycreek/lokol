@@ -37,9 +37,11 @@ summary of completed task
 Rules:
 1. Always state your intent briefly before taking an action.
 2. Only output ONE action per response.
-3. For modifying files: do NOT use git apply with fake line offsets. Instead, use sed, python3 -c, or write the file directly using 'cat << 'EOF' > path/to/file'.
-4. Verify all changes with commands (e.g. go test, go build).
-5. When finished, call task_finish.`
+3. Do NOT repeat a command that has already succeeded. Check the output in <action_result>.
+4. When you have executed the command and received the expected output in <action_result>, immediately finish with <action name="task_finish">.
+5. For modifying files: do NOT use git apply with fake line offsets. Instead, use sed, python3 -c, or write the file directly using 'cat << 'EOF' > path/to/file'.
+6. Verify all changes with commands (e.g. go test, go build).
+7. When finished, call task_finish.`
 
 // Client communicates with the local llama-server instance.
 type Client struct {
@@ -66,7 +68,8 @@ type StreamChatRequest struct {
 	Messages    []Message `json:"messages"`
 	Stream      bool      `json:"stream"`
 	Temperature float64   `json:"temperature"`
-	Stop        []string  `json:"stop"`
+	MaxTokens   int       `json:"max_tokens,omitempty"`
+	Stop        []string  `json:"stop,omitempty"`
 }
 
 type ChatChunkResponse struct {
@@ -85,7 +88,7 @@ func (c *Client) StreamResponse(ctx context.Context, history []Message, tokenCha
 		Messages:    history,
 		Stream:      true,
 		Temperature: 0.1,
-		Stop:        []string{"</action>"},
+		MaxTokens:   4096,
 	}
 
 	data, err := json.Marshal(reqBody)
@@ -148,8 +151,9 @@ func (c *Client) StreamResponse(ctx context.Context, history []Message, tokenCha
 
 // Action represents a parsed agent tool call.
 type Action struct {
-	Name    string
-	Command string
+	Name         string
+	Command      string
+	CleanThought string // Prose explanation before the action tag
 }
 
 // ParseAction extracts <action name="...">...</action> from agent text.
@@ -160,6 +164,7 @@ func ParseAction(text string) *Action {
 		return nil
 	}
 
+	thought := strings.TrimSpace(text[:idx])
 	rest := text[idx+len(startTag):]
 	quoteIdx := strings.Index(rest, "\">")
 	if quoteIdx == -1 {
@@ -175,13 +180,14 @@ func ParseAction(text string) *Action {
 	if endIdx != -1 {
 		command = strings.TrimSpace(payload[:endIdx])
 	} else {
-		// Stop token may have caught it without the literal closing tag
+		// Stop token or generation end may have caught it without the literal closing tag
 		command = strings.TrimSpace(payload)
 	}
 
 	return &Action{
-		Name:    name,
-		Command: command,
+		Name:         name,
+		Command:      command,
+		CleanThought: thought,
 	}
 }
 

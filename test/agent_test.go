@@ -13,6 +13,7 @@ func TestParseAction(t *testing.T) {
 		wantAction  bool
 		wantName    string
 		wantCommand string
+		wantThought string
 	}{
 		{
 			name:        "valid bash action",
@@ -20,6 +21,7 @@ func TestParseAction(t *testing.T) {
 			wantAction:  true,
 			wantName:    "exec_bash",
 			wantCommand: "git status",
+			wantThought: "I will check the git status.",
 		},
 		{
 			name:        "valid finish action",
@@ -27,6 +29,7 @@ func TestParseAction(t *testing.T) {
 			wantAction:  true,
 			wantName:    "task_finish",
 			wantCommand: "Refactoring complete.",
+			wantThought: "Done!",
 		},
 		{
 			name:        "no action present",
@@ -34,6 +37,7 @@ func TestParseAction(t *testing.T) {
 			wantAction:  false,
 			wantName:    "",
 			wantCommand: "",
+			wantThought: "",
 		},
 	}
 
@@ -49,6 +53,9 @@ func TestParseAction(t *testing.T) {
 				}
 				if act.Command != tt.wantCommand {
 					t.Errorf("got command %q, want %q", act.Command, tt.wantCommand)
+				}
+				if act.CleanThought != tt.wantThought {
+					t.Errorf("got thought %q, want %q", act.CleanThought, tt.wantThought)
 				}
 			} else {
 				if act != nil {

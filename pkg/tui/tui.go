@@ -226,7 +226,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tokenMsg:
 		if m.state == stateStreaming {
 			m.currentResp += string(msg)
-			m.viewport.SetContent(m.chatLog + agentStyle.Render("quik: ") + m.currentResp)
+			// Filter out action XML from the live stream display
+			displayStr := m.currentResp
+			if idx := strings.Index(displayStr, "<action"); idx != -1 {
+				displayStr = strings.TrimSpace(displayStr[:idx])
+			}
+			if displayStr != "" {
+				m.viewport.SetContent(m.chatLog + agentStyle.Render("quik: ") + displayStr)
+			}
 			m.viewport.GotoBottom()
 			return m, waitForToken(m.tokenChan)
 		}
@@ -234,17 +241,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case streamDoneMsg:
 		if m.state == stateStreaming {
 			response := m.currentResp
-			m.appendLog(agentStyle.Render("quik: ") + response + "\n")
 			m.history = append(m.history, agent.Message{Role: "assistant", Content: response})
 
 			// Check for actions
 			act := agent.ParseAction(response)
 			if act != nil && act.Name == "exec_bash" {
 				m.pendingAct = act
+				if act.CleanThought != "" {
+					m.appendLog(agentStyle.Render("quik: ") + act.CleanThought + "\n")
+				}
 				if m.yoloMode {
 					// YOLO Mode: execute immediately without waiting for user approval
 					m.state = stateExecutingAction
-					m.appendLog(outputBoxStyle.Render("⚡ [YOLO AUTO-EXEC]: " + act.Command) + "\n")
+					m.appendLog("⚡ Executing: " + act.Command + "\n")
 					return m, executeAction(act)
 				}
 
@@ -254,8 +263,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					act.Name, act.Command,
 				))
 				m.appendLog("\n" + box + "\n")
+			} else if act != nil && act.Name == "task_finish" {
+				m.state = stateIdle
+				if act.CleanThought != "" {
+					m.appendLog(agentStyle.Render("quik: ") + act.CleanThought + "\n")
+				}
+				m.appendLog("✅ Complete: " + act.Command + "\n")
 			} else {
 				m.state = stateIdle
+				m.appendLog(agentStyle.Render("quik: ") + response + "\n")
 			}
 			return m, nil
 		}

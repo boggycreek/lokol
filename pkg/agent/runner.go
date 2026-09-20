@@ -31,16 +31,42 @@ func (r *Runner) Run(ctx context.Context, initialPrompt string) (string, error) 
 
 		errChan := make(chan error, 1)
 		go func() {
-			reply, err := r.Client.StreamResponse(ctx, history, tokenChan)
-			assistantReply.WriteString(reply)
+			_, err := r.Client.StreamResponse(ctx, history, tokenChan)
 			close(tokenChan)
 			errChan <- err
 		}()
 
+		var pendingTokens strings.Builder
+		suppressTokens := false
+
 		for token := range tokenChan {
-			if r.OnOutput != nil {
-				r.OnOutput("token", token)
+			assistantReply.WriteString(token)
+			if suppressTokens {
+				continue
 			}
+
+			pendingTokens.WriteString(token)
+			str := pendingTokens.String()
+
+			if strings.Contains(str, "<action") {
+				suppressTokens = true
+				continue
+			}
+
+			// If str ends with a prefix of "<action", wait for next tokens before printing
+			if strings.HasSuffix(str, "<") ||
+				strings.HasSuffix(str, "<a") ||
+				strings.HasSuffix(str, "<ac") ||
+				strings.HasSuffix(str, "<act") ||
+				strings.HasSuffix(str, "<acti") ||
+				strings.HasSuffix(str, "<actio") {
+				continue
+			}
+
+			if r.OnOutput != nil {
+				r.OnOutput("token", str)
+			}
+			pendingTokens.Reset()
 		}
 
 		if err := <-errChan; err != nil {
@@ -75,7 +101,11 @@ func (r *Runner) Run(ctx context.Context, initialPrompt string) (string, error) 
 			}
 
 			if r.OnOutput != nil {
-				r.OnOutput("result", out)
+				if err != nil {
+					r.OnOutput("error", fmt.Sprintf("Error: %v\n%s", err, out))
+				} else {
+					r.OnOutput("result", out)
+				}
 			}
 
 			history = append(history, Message{Role: "user", Content: toolResult})
