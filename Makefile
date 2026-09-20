@@ -11,6 +11,14 @@ LDFLAGS=-ldflags "-s -w \
 	-X github.com/boggycreek/lokol/pkg/version.GitCommit=$(COMMIT) \
 	-X github.com/boggycreek/lokol/pkg/version.BuildDate=$(DATE)"
 
+# Enforce XDG Base Directory specification and prevent GOROOT pollution
+unexport GOROOT
+XDG_DATA_HOME ?= $(HOME)/.local/share
+XDG_CACHE_HOME ?= $(HOME)/.cache
+export GOPATH = $(XDG_DATA_HOME)/go
+export GOCACHE = $(XDG_CACHE_HOME)/go-build
+export GOBIN = $(HOME)/.local/bin
+
 all: test build
 
 build:
