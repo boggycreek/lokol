@@ -1,6 +1,6 @@
 # Architecture Decision Records (ADRs)
 
-This directory contains the Architecture Decision Records for the `quik` project.
+This directory contains the Architecture Decision Records for the `lokol` project.
 
 | Number | Title | Status | Date |
 | :--- | :--- | :--- | :--- |
@@ -9,3 +9,4 @@ This directory contains the Architecture Decision Records for the `quik` project
 | [ADR-0003](0003-deterministic-agent-protocol.md) | Deterministic Agent Protocol vs JSON Schema Tool Calling | Accepted | 2026-09-19 |
 | [ADR-0004](0004-terminal-interface-strategy.md) | Terminal Interface Strategy (Bubble Tea TUI vs Headless CLI) | Accepted | 2026-09-19 |
 | [ADR-0005](0005-typesafe-ai-hybrid-evaluations.md) | Hybrid Evaluations and Fast Routing with TypeSafe AI (Jev / "not-a-llm") | Proposed | 2026-09-19 |
+| [ADR-0006](0006-xdg-base-directory-specification.md) | XDG Base Directory Standard Adoption | Accepted | 2026-09-20 |
