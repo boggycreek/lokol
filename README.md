@@ -25,6 +25,7 @@ lokol/
 │   ├── tools/
 │   │   └── refinery/       # Context refinery: bounded reads, AST outlines, test filtering
 │   ├── tui/                # Interactive Bubble Tea terminal UI with live context HUD
+│   ├── update/             # Release updater: GitHub release fetching, semver targets, asset extraction
 │   └── version/            # Build-time version metadata (injected via ldflags)
 ├── go.mod
 └── README.md
@@ -77,6 +78,21 @@ make build
 ### Run Autonomous Task
 ```bash
 ./bin/lokol -p "Run the tests and inspect the repository"
+```
+
+### Self-Update & Release Management
+```bash
+# Update to latest stable release
+lokol update
+
+# Include unstable pre-releases / alpha builds
+lokol update --pre
+
+# Update to a specific semver release
+lokol update --version=v0.1.0-alpha.1
+
+# List all available published releases from GitHub
+lokol update --list
 ```
 
 ---
