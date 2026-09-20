@@ -19,20 +19,24 @@ BASELINE_COMMIT=$(git rev-parse HEAD)
 echo "Baseline bookmark: $BASELINE_COMMIT"
 
 # 2. Formulate the Claude Code-like TUI UX improvement task contract
-TASK_PROMPT="You are improving the TUI in pkg/tui/tui.go.
-Goal: Adopt the Claude Code developer experience style.
-Specifically:
-1. Do NOT dump raw tool output or execution logs into the chat viewport.
-2. In pkg/tui/tui.go, when actionExecutedMsg is handled, only print a clean, minimal 1-line acknowledgment:
-   e.g. '✓ Executed: <command>' (or '✗ Failed: <command>' if error).
-   Do NOT print 'OUTPUT:' boxes or full command output in m.appendLog.
-3. Keep the full output only in toolResult inside m.history for context, not visible on the chat stream.
-4. If the agent emits an explanation or question, show that cleanly.
-5. Inspect pkg/tui/tui.go, edit it, and verify by running: go test ./test/... && go build -o bin/quik ./cmd/quik
-6. When done, call <action name=\"task_finish\">TUI streamlined</action>."
+TASK_PROMPT="TASK: Improve the TUI in pkg/tui/tui.go to have a Claude Code developer experience style.
+Target File: pkg/tui/tui.go
+Requirement:
+In pkg/tui/tui.go, locate 'case actionExecutedMsg:' and replace the box formatting:
+Change:
+		box := outputBoxStyle.Render(fmt.Sprintf(\"OUTPUT:\n%s\", output))
+		m.appendLog(box + \"\n\")
+To:
+		m.appendLog(\"✓ Executed successfully\n\")
+
+How to apply:
+Use python3 or sed to replace those lines in pkg/tui/tui.go.
+Verify with: go test ./test/... && go build -o bin/quik ./cmd/quik
+Finally, finish with:
+<action name=\"task_finish\">TUI output cleaned up</action>"
 
 echo "[2/5] Dispatching task to local GPU model via 'quik exec' in YOLO mode..."
-./bin/quik exec --max-turns=10 "$TASK_PROMPT"
+./bin/quik exec --max-turns=15 "$TASK_PROMPT"
 
 echo "[3/5] Assessing changes made by local GPU agent..."
 git diff --stat

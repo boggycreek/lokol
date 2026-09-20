@@ -37,7 +37,9 @@ summary of completed task
 Rules:
 1. Always state your intent briefly before taking an action.
 2. Only output ONE action per response.
-3. Keep answers concise. Do not talk endlessly; write code and verify with commands.`
+3. For modifying files: do NOT use git apply with fake line offsets. Instead, use sed, python3 -c, or write the file directly using 'cat << 'EOF' > path/to/file'.
+4. Verify all changes with commands (e.g. go test, go build).
+5. When finished, call task_finish.`
 
 // Client communicates with the local llama-server instance.
 type Client struct {
