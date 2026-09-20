@@ -17,6 +17,7 @@ import (
 	"github.com/boggycreek/lokol/pkg/probe"
 	"github.com/boggycreek/lokol/pkg/setup"
 	"github.com/boggycreek/lokol/pkg/tui"
+	"github.com/boggycreek/lokol/pkg/update"
 	"github.com/boggycreek/lokol/pkg/version"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -47,6 +48,12 @@ func main() {
 	setupCmd := flag.NewFlagSet("setup", flag.ExitOnError)
 	setupDownload := setupCmd.Bool("download-model", false, "Automatically download recommended GGUF weights if missing")
 	setupSimVRAM := setupCmd.Float64("simulate-vram-gib", 0, "Simulate a specific VRAM amount in GiB")
+
+	updateCmd := flag.NewFlagSet("update", flag.ExitOnError)
+	updatePre := updateCmd.Bool("pre", false, "Allow updating to unstable pre-release versions")
+	updateCmd.BoolVar(updatePre, "prerelease", false, "Allow updating to unstable pre-release versions (alias)")
+	updateTargetVer := updateCmd.String("version", "", "Target specific semver version to install (e.g. v0.1.0-alpha.1)")
+	updateList := updateCmd.Bool("list", false, "List available releases from GitHub without installing")
 
 	if len(os.Args) < 2 {
 		printUsage()
@@ -84,6 +91,10 @@ func main() {
 				}
 				runExec(*execEngine, *execMaxTurns, prompt)
 				return
+			case "update":
+				_ = updateCmd.Parse(flag.Args()[1:])
+				runUpdate(*updatePre, *updateTargetVer, *updateList)
+				return
 			case "version":
 				fmt.Printf("lokol %s (commit: %s, built: %s)\n", version.Version, version.GitCommit, version.BuildDate)
 				return
@@ -111,6 +122,9 @@ func main() {
 			os.Exit(1)
 		}
 		runExec(*execEngine, *execMaxTurns, prompt)
+	case "update":
+		_ = updateCmd.Parse(os.Args[2:])
+		runUpdate(*updatePre, *updateTargetVer, *updateList)
 	case "version":
 		fmt.Printf("lokol %s (commit: %s, built: %s)\n", version.Version, version.GitCommit, version.BuildDate)
 	default:
@@ -123,12 +137,26 @@ func printUsage() {
 	fmt.Println("lokol - Local-first autonomous AI agent for consumer GPUs")
 	fmt.Println()
 	fmt.Println("Usage:")
-	fmt.Println("  lokol setup [--download-model]        Bootstrap environment, probe hardware & check dependencies")
-	fmt.Println("  lokol probe [--simulate-vram-gib=X]   Probe host capabilities and compute optimal model tier")
-	fmt.Println("  lokol chat  [--engine=...] [--yolo]   Start interactive Bubble Tea TUI agent session")
-	fmt.Println("  lokol exec  [--engine=...] <prompt>   Run autonomous agent in headless mode")
-	fmt.Println("  lokol [-p | --prompt] \"<prompt>\"      Run agent in headless mode directly")
-	fmt.Println("  lokol version                         Display version")
+	fmt.Println("  lokol setup  [--download-model]       Bootstrap environment, probe hardware & check dependencies")
+	fmt.Println("  lokol probe  [--simulate-vram-gib=X]  Probe host capabilities and compute optimal model tier")
+	fmt.Println("  lokol chat   [--engine=...] [--yolo]  Start interactive Bubble Tea TUI agent session")
+	fmt.Println("  lokol exec   [--engine=...] <prompt>  Run autonomous agent in headless mode")
+	fmt.Println("  lokol update [--pre] [--version=vX]   Update to latest release from GitHub (or specific version)")
+	fmt.Println("  lokol update --list                   List all published releases available on GitHub")
+	fmt.Println("  lokol [-p | --prompt] \"<prompt>\"     Run agent in headless mode directly")
+	fmt.Println("  lokol version                        Display version")
+}
+
+func runUpdate(allowPre bool, targetVersion string, listOnly bool) {
+	err := update.Run(update.Options{
+		Prerelease: allowPre,
+		Version:    targetVersion,
+		ListOnly:   listOnly,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Update error: %v\n", err)
+		os.Exit(1)
+	}
 }
 
 func runSetup(downloadModel bool, simVRAM float64) {
