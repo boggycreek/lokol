@@ -135,6 +135,12 @@ echo "  Config Directory : ${XDG_CONFIG_HOME}"
 echo
 echo "[3/5] Installing lokol binary..."
 
+# Export XDG paths for any Go operations and unset inherited GOROOT
+export GOPATH="${XDG_DATA_HOME:-${HOME}/.local/share}/go"
+export GOCACHE="${XDG_CACHE_HOME:-${HOME}/.cache}/go-build"
+export GOBIN="${TARGET_BIN_DIR}"
+unset GOROOT
+
 install_from_source() {
   echo "  Building lokol from source..."
   if ! command -v go >/dev/null 2>&1; then
@@ -155,31 +161,24 @@ install_from_source() {
   )
 }
 
-CURRENT_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || echo "")"
-
-if [ "${BUILD_FROM_SOURCE}" = false ] && [ -n "${CURRENT_SCRIPT_DIR}" ] && [ -f "${CURRENT_SCRIPT_DIR}/go.mod" ] && [ -d "${CURRENT_SCRIPT_DIR}/cmd/lokol" ]; then
-  # Running from inside existing local clone
-  echo "  Detected existing local repository checkout at: ${CURRENT_SCRIPT_DIR}"
-  if command -v go >/dev/null 2>&1; then
-    echo "  Compiling static binary..."
-    (cd "${CURRENT_SCRIPT_DIR}" && make build)
-    cp -f "${CURRENT_SCRIPT_DIR}/bin/lokol" "${TARGET_BIN_DIR}/lokol"
-  else
-    echo "Error: Go compiler required when installing from local source checkout." >&2
-    exit 1
-  fi
-elif [ "${BUILD_FROM_SOURCE}" = false ]; then
-  # Attempt to fetch prebuilt static binary from GitHub Releases
+download_prebuilt_release() {
   ARTIFACT_NAME="lokol-${OS}-${ARCH}"
   TARBALL_NAME="${ARTIFACT_NAME}.tar.gz"
 
-  if [ "${REQUESTED_VERSION}" = "latest" ]; then
-    RELEASE_URL="https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/latest/download/${TARBALL_NAME}"
-  else
-    RELEASE_URL="https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/download/${REQUESTED_VERSION}/${TARBALL_NAME}"
+  RESOLVED_TAG="${REQUESTED_VERSION}"
+  if [ "${RESOLVED_TAG}" = "latest" ]; then
+    # Query GitHub API to resolve latest release tag (including pre-releases/alphas)
+    echo "  Resolving latest release tag from GitHub..."
+    RESOLVED_TAG="$(curl -sSL "https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases" 2>/dev/null | grep '"tag_name":' | head -n 1 | cut -d '"' -f 4 || echo "")"
+    if [ -z "${RESOLVED_TAG}" ]; then
+      RESOLVED_TAG="v0.1.0-alpha.1"
+    fi
+    echo "  Latest release tag: ${RESOLVED_TAG}"
   fi
 
-  echo "  Attempting to download prebuilt static release: ${TARBALL_NAME}..."
+  RELEASE_URL="https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/download/${RESOLVED_TAG}/${TARBALL_NAME}"
+
+  echo "  Attempting to download prebuilt static release: ${TARBALL_NAME} (${RESOLVED_TAG})..."
   TMP_DIR="$(mktemp -d)"
   trap 'rm -rf "${TMP_DIR}"' EXIT
 
@@ -191,13 +190,35 @@ elif [ "${BUILD_FROM_SOURCE}" = false ]; then
     mv -f "${TMP_DIR}/${ARTIFACT_NAME}" "${TARGET_BIN_DIR}/lokol"
     chmod +x "${TARGET_BIN_DIR}/lokol"
     echo "  Successfully downloaded and installed static binary to ${TARGET_BIN_DIR}/lokol"
+    return 0
   else
-    echo "  Release binary not reachable (HTTP ${HTTP_STATUS}) or private release."
-    echo "  Falling back to compiling from source..."
+    echo "  Release binary not reachable (HTTP ${HTTP_STATUS})."
+    return 1
+  fi
+}
+
+CURRENT_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || echo "")"
+
+if [ "${BUILD_FROM_SOURCE}" = true ]; then
+  if [ -n "${CURRENT_SCRIPT_DIR}" ] && [ -f "${CURRENT_SCRIPT_DIR}/go.mod" ] && [ -d "${CURRENT_SCRIPT_DIR}/cmd/lokol" ]; then
+    echo "  Detected local repository checkout at: ${CURRENT_SCRIPT_DIR}"
+    echo "  Compiling static binary from local source..."
+    (cd "${CURRENT_SCRIPT_DIR}" && make build)
+    cp -f "${CURRENT_SCRIPT_DIR}/bin/lokol" "${TARGET_BIN_DIR}/lokol"
+  else
     install_from_source
   fi
 else
-  install_from_source
+  # Default path: Download prebuilt static binary (zero Go dependencies required)
+  if ! download_prebuilt_release; then
+    echo "  Falling back to compiling from source..."
+    if [ -n "${CURRENT_SCRIPT_DIR}" ] && [ -f "${CURRENT_SCRIPT_DIR}/go.mod" ] && [ -d "${CURRENT_SCRIPT_DIR}/cmd/lokol" ]; then
+      (cd "${CURRENT_SCRIPT_DIR}" && make build)
+      cp -f "${CURRENT_SCRIPT_DIR}/bin/lokol" "${TARGET_BIN_DIR}/lokol"
+    else
+      install_from_source
+    fi
+  fi
 fi
 
 chmod +x "${TARGET_BIN_DIR}/lokol"
