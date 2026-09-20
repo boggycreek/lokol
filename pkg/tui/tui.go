@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/boggycreek/quik/pkg/agent"
 	"github.com/boggycreek/quik/pkg/probe"
@@ -26,6 +27,7 @@ type tokenMsg string
 type streamDoneMsg string
 type actionExecutedMsg string
 type errMsg error
+type slotTickMsg *agent.SlotStatus
 
 // Model is the Bubble Tea application state.
 // Bubble Tea requires Model to be passed by value in Update/View,
@@ -45,8 +47,10 @@ type Model struct {
 	yoloMode    bool
 	width       int
 	height      int
+	slotStatus  *agent.SlotStatus
 	err         error
 }
+
 
 var (
 	headerStyle = lipgloss.NewStyle().
@@ -114,8 +118,23 @@ func New(client *agent.Client, hw *probe.HardwareProfile, yoloMode bool) Model {
 	return m
 }
 
+func pollSlotStatus(client *agent.Client) tea.Cmd {
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		slot, err := client.GetSlotStatus(ctx)
+		if err != nil {
+			return nil
+		}
+		return slotTickMsg(slot)
+	}
+}
+
 func (m Model) Init() tea.Cmd {
-	return textarea.Blink
+	return tea.Batch(
+		textarea.Blink,
+		pollSlotStatus(m.client),
+	)
 }
 
 func waitForToken(tokenChan chan string) tea.Cmd {
@@ -170,13 +189,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var vpCmd tea.Cmd
 
 	switch msg := msg.(type) {
+	case slotTickMsg:
+		if msg != nil {
+			m.slotStatus = msg
+		}
+		// Schedule next poll in 3 seconds
+		return m, tea.Tick(3*time.Second, func(t time.Time) tea.Msg {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			slot, err := m.client.GetSlotStatus(ctx)
+			if err != nil {
+				return nil
+			}
+			return slotTickMsg(slot)
+		})
+
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
 		headerHeight := 2
 		inputHeight := 5
+		spacing := 5
+		vpHeight := msg.Height - headerHeight - inputHeight - spacing
+		if vpHeight < 5 {
+			vpHeight = 5
+		}
 		m.viewport.Width = msg.Width - 4
-		m.viewport.Height = msg.Height - headerHeight - inputHeight - 2
+		m.viewport.Height = vpHeight
 		m.textarea.SetWidth(msg.Width - 4)
 
 	case tea.KeyMsg:
@@ -190,6 +229,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				m.appendLog("🛡️ [SAFE MODE ENGAGED] Manual action approval required.\n")
 			}
+			return m, nil
+		case tea.KeyPgUp:
+			m.viewport.LineUp(5)
+			return m, nil
+		case tea.KeyPgDown:
+			m.viewport.LineDown(5)
 			return m, nil
 		case tea.KeyEnter:
 			if m.state == stateWaitingActionApproval {
@@ -217,6 +262,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				)
 			}
 		}
+
+		// Allow Alt+Up/Down or Ctrl+Up/Down for scrolling when typing in textarea
+		if msg.Type == tea.KeyUp && (msg.Alt || m.state != stateIdle) {
+			m.viewport.LineUp(2)
+			return m, nil
+		}
+		if msg.Type == tea.KeyDown && (msg.Alt || m.state != stateIdle) {
+			m.viewport.LineDown(2)
+			return m, nil
+		}
+
 
 		if m.state == stateWaitingActionApproval {
 			switch msg.String() {
@@ -360,12 +416,36 @@ func (m Model) View() string {
 		header += yoloBadge
 	}
 
+	// Real-time Context / KV Cache HUD
+	if m.slotStatus != nil && m.slotStatus.NCtx > 0 {
+		ctxUsed := m.slotStatus.NPromptTokens
+		ctxMax := m.slotStatus.NCtx
+		pct := (float64(ctxUsed) / float64(ctxMax)) * 100
+
+		// Engine / Memory Status
+		engineStatus := "Pure VRAM"
+		if pct > 90.0 {
+			engineStatus = "High Pressure"
+		}
+
+		hudCtxStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#50FA7B")).Bold(true)
+		if pct > 75.0 {
+			hudCtxStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFB86C")).Bold(true)
+		}
+		if pct > 90.0 {
+			hudCtxStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF5555")).Bold(true)
+		}
+
+		ctxStr := fmt.Sprintf(" | Context: %d/%d (%.1f%%) [%s]", ctxUsed, ctxMax, pct, engineStatus)
+		header += hudCtxStyle.Render(ctxStr)
+	}
+
 	var statusLine string
 	switch m.state {
 	case stateIdle:
-		statusLine = "[Ready] Press Enter to send | [Ctrl+Y] Toggle YOLO | [Ctrl+C] Quit"
+		statusLine = "[Ready] Press Enter to send | [PgUp/PgDn] Scroll | [Ctrl+Y] Toggle YOLO | [Ctrl+C] Quit"
 	case stateStreaming:
-		statusLine = "[Generating] Receiving tokens from local engine..."
+		statusLine = "[Generating] Receiving tokens from local engine... | [PgUp/PgDn] Scroll"
 	case stateWaitingActionApproval:
 		statusLine = "[Approval Needed] Review command above. Press [Y] to Approve, [N] to Deny | [Ctrl+Y] Auto-approve all"
 	case stateExecutingAction:
@@ -379,3 +459,4 @@ func (m Model) View() string {
 		m.textarea.View(),
 	)
 }
+

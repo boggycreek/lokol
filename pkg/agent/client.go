@@ -219,3 +219,64 @@ func ExecuteBash(ctx context.Context, command string) (string, error) {
 	}
 	return outputStr, err
 }
+
+// SlotStatus represents the real-time context and processing metrics from llama-server /slots.
+type SlotStatus struct {
+	ID              int  `json:"id"`
+	NCtx            int  `json:"n_ctx"`
+	NPromptTokens   int  `json:"n_prompt_tokens"`
+	IsProcessing    bool `json:"is_processing"`
+	NextTokenRemain int  `json:"-"`
+	NDecoded        int  `json:"-"`
+}
+
+// GetSlotStatus queries the llama-server /slots endpoint to get real-time context token usage.
+func (c *Client) GetSlotStatus(ctx context.Context) (*SlotStatus, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", c.BaseURL+"/slots", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("slots endpoint returned %d", resp.StatusCode)
+	}
+
+	var rawSlots []struct {
+		ID            int  `json:"id"`
+		NCtx          int  `json:"n_ctx"`
+		NPromptTokens int  `json:"n_prompt_tokens"`
+		IsProcessing  bool `json:"is_processing"`
+		NextToken     []struct {
+			NRemain  int `json:"n_remain"`
+			NDecoded int `json:"n_decoded"`
+		} `json:"next_token"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&rawSlots); err != nil {
+		return nil, err
+	}
+
+	if len(rawSlots) == 0 {
+		return nil, fmt.Errorf("no slots returned")
+	}
+
+	status := &SlotStatus{
+		ID:            rawSlots[0].ID,
+		NCtx:          rawSlots[0].NCtx,
+		NPromptTokens: rawSlots[0].NPromptTokens,
+		IsProcessing:  rawSlots[0].IsProcessing,
+	}
+	if len(rawSlots[0].NextToken) > 0 {
+		status.NextTokenRemain = rawSlots[0].NextToken[0].NRemain
+		status.NDecoded = rawSlots[0].NextToken[0].NDecoded
+	}
+
+	return status, nil
+}
+

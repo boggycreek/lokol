@@ -44,7 +44,7 @@ func SelectOptimalModel(p *probe.HardwareProfile) Recommendation {
 			KVCacheQuant:    "q8_0",
 			GPULayers:       99,
 			EstimatedVRAMMB: 6600,
-			Notes:           "100% VRAM offload. 64k pure-VRAM context with Q8_0 KV cache (~66 t/s). ~5.5 GB VRAM headroom remaining.",
+			Notes:           "100% VRAM offload. 64k pure-VRAM context with Q8_0 KV cache (~66 t/s). ~5.5 GB VRAM headroom remaining. (Use -ctk q4_0 -ctv q4_0 for 128k context without RAM offload)",
 		}
 	}
 
@@ -55,29 +55,29 @@ func SelectOptimalModel(p *probe.HardwareProfile) Recommendation {
 			ModelName:       "Qwen 2.5 Coder 7B Instruct (Q4_K_M)",
 			HFRepo:          "Qwen/Qwen2.5-Coder-7B-Instruct-GGUF",
 			HFFile:          "qwen2.5-coder-7b-instruct-q4_k_m.gguf",
-			ContextLength:   16384,
-			KVCacheQuant:    "q8_0",
+			ContextLength:   32768,
+			KVCacheQuant:    "q4_0",
 			GPULayers:       99,
-			EstimatedVRAMMB: 5200,
-			Notes:           "100% VRAM offload. 16k context fits comfortably in 6GB-8GB VRAM cards.",
+			EstimatedVRAMMB: 5400,
+			Notes:           "100% VRAM offload with Q4_0 KV cache. 32k context fits cleanly in 6GB-8GB VRAM cards with zero host RAM spillover.",
 		}
 	}
 
 	// Tier 3: 4 GiB to 6 GiB VRAM (ThinkPad X1 Extreme Gen 1 w/ GTX 1650 Max-Q 4GB)
 	if p.HasNVIDIA && vramGiB >= 3.5 {
 		// When the dGPU is fully dedicated to compute (Intel iGPU handles X11/Wayland display),
-		// we have the full ~3.9 GB available. Qwen 2.5 Coder 3B with 32k Q8_0 KV uses ~2.9 GB,
-		// leaving ~1 GB safety margin.
+		// we have the full ~3.9 GB available. Qwen 2.5 Coder 3B with 32k Q4_0 KV uses ~2.4 GB,
+		// leaving ~1.5 GB safety margin.
 		return Recommendation{
 			Tier:            Tier3ConstrainedGPU,
 			ModelName:       "Qwen 2.5 Coder 3B Instruct (Q4_K_M)",
 			HFRepo:          "Qwen/Qwen2.5-Coder-3B-Instruct-GGUF",
 			HFFile:          "qwen2.5-coder-3b-instruct-q4_k_m.gguf",
 			ContextLength:   32768,
-			KVCacheQuant:    "q8_0",
+			KVCacheQuant:    "q4_0",
 			GPULayers:       99,
-			EstimatedVRAMMB: 2950,
-			Notes: fmt.Sprintf("Dedicated compute dGPU profile (GTX 1650 Max-Q 4GB, Intel iGPU for display). Q4_K_M weights (~1.9 GB) + 32k Q8_0 KV cache (~1.05 GB) offloaded 100%% to VRAM. High throughput with zero CPU context spillover."),
+			EstimatedVRAMMB: 2450,
+			Notes: fmt.Sprintf("Dedicated compute dGPU profile (GTX 1650 Max-Q 4GB, Intel iGPU for display). Q4_K_M weights (~1.9 GB) + 32k Q4_0 KV cache (~0.55 GB) offloaded 100%% to VRAM. High throughput with zero CPU context spillover."),
 		}
 	}
 

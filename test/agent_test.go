@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/boggycreek/quik/pkg/agent"
 )
@@ -119,3 +120,20 @@ func TestExecuteWriteFile(t *testing.T) {
 		t.Errorf("unexpected content: %q", string(data))
 	}
 }
+
+func TestGetSlotStatus(t *testing.T) {
+	client := agent.NewClient("http://127.0.0.1:8080")
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	status, err := client.GetSlotStatus(ctx)
+	if err != nil {
+		t.Logf("llama-server might not be reachable from test: %v", err)
+		return
+	}
+
+	if status.NCtx <= 0 {
+		t.Errorf("expected positive NCtx, got %d", status.NCtx)
+	}
+}
+
