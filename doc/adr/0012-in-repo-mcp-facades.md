@@ -24,7 +24,7 @@ We adopt the **Facade Pattern across ALL Model Context Protocol (MCP) servers** 
 
 ```mermaid
 flowchart TD
-    subgraph AgentRuntime ["lokol Agent Engine"]
+    subgraph AgentRuntime ["lokol Agent Runtime"]
         LLM["Local LLM (Qwen 7B / 3B / MoE)"]
         StreamParser["Action Delimiter Stream Parser\n(<action name=\"tool_name\">)"]
         MCPClient["Standard MCP Client (stdio JSON-RPC)"]

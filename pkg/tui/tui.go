@@ -102,7 +102,7 @@ func New(client *agent.Client, hw *probe.HardwareProfile, yoloMode bool) Model {
 	ta.ShowLineNumbers = false
 
 	vp := viewport.New(80, 20)
-	initialText := "⚡ Welcome to lokol. Deterministic, local-first autonomous coding engine.\nType your request below and press Enter to begin.\n\n"
+	initialText := "⚡ Welcome to lokol. Local-first autonomous AI agent.\nType your request below and press Enter to begin.\n\n"
 	if yoloMode {
 		initialText += "⚡ [YOLO MODE ENGAGED] Autonomous command execution without confirmation.\n\n"
 	}

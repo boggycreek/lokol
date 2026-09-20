@@ -7,12 +7,12 @@ Accepted
 2026-09-20
 
 ## Context
-Initially, `lokol` was conceived strictly as an autonomous agentic coding engine, loading coding-specialized model weights (e.g. `Qwen 2.5 Coder 7B/3B`) and imposing code-specific tool schemas and system prompts on every startup.
+Initially, `lokol` was conceived strictly as an autonomous agentic coding agent, loading coding-specialized model weights (e.g. `Qwen 2.5 Coder 7B/3B`) and imposing code-specific tool schemas and system prompts on every startup.
 
 However, many users seek an accessible, private, local assistant for daily natural language tasks: conversation, document summarization, analytical reasoning, and writing. In these common contexts:
 1. Hardcoding coding-specific system prompts wastes precious context tokens.
 2. Coding models often produce rigid, code-focused outputs even when prompted for prose or conversational answers.
-3. Forcing code tooling on install alienates users who want a simple, high-performance private chatbot.
+3. Forcing code tooling on install alienates users who want a simple, fast, private chatbot.
 
 We need to decide the baseline user persona and model selection strategy for `lokol`.
 

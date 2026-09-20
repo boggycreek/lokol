@@ -120,7 +120,7 @@ func main() {
 }
 
 func printUsage() {
-	fmt.Println("lokol - High Performance Local-First Autonomous Coding Engine")
+	fmt.Println("lokol - Local-first autonomous AI agent for consumer GPUs")
 	fmt.Println()
 	fmt.Println("Usage:")
 	fmt.Println("  lokol setup [--download-model]        Bootstrap environment, probe hardware & check dependencies")
