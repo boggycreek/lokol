@@ -107,8 +107,9 @@ If you are using lokol, feel free to inspect and fork the code under the terms o
 
 ---
 
-## License
+## License & Acknowledgements
 
-This project is licensed under the terms of the [MIT License](LICENSE).
-Copyright &copy; 2026 Boggy Creek Software LLC.
+- **Root License**: This project is licensed under the terms of the [MIT License](LICENSE). Copyright &copy; 2026 Boggy Creek Software LLC.
+- **Acknowledgements**: See [ACKNOWLEDGEMENTS.md](ACKNOWLEDGEMENTS.md) for human-centric recognition and appreciation of our foundational open-source pillars, upstream models, and ecosystem maintainers.
+- **Third-Party Notices**: See [NOTICES.md](NOTICES.md) for full legal notices, copyright statements, and redistributable licenses for third-party dependencies.
 
