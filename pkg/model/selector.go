@@ -3,7 +3,7 @@ package model
 import (
 	"fmt"
 
-	"github.com/boggycreek/quik/pkg/probe"
+	"github.com/boggycreek/lokol/pkg/probe"
 )
 
 // Tier represents hardware classification tier.

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/boggycreek/quik/pkg/agent"
-	"github.com/boggycreek/quik/pkg/probe"
+	"github.com/boggycreek/lokol/pkg/agent"
+	"github.com/boggycreek/lokol/pkg/probe"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -87,7 +87,7 @@ var (
 // New creates and initializes the TUI model.
 func New(client *agent.Client, hw *probe.HardwareProfile, yoloMode bool) Model {
 	ta := textarea.New()
-	ta.Placeholder = "Ask quik to inspect code, run tests, or refactor files..."
+	ta.Placeholder = "Ask lokol to inspect code, run tests, or refactor files..."
 	ta.Focus()
 	ta.Prompt = "│ "
 	ta.CharLimit = 1000
@@ -96,7 +96,7 @@ func New(client *agent.Client, hw *probe.HardwareProfile, yoloMode bool) Model {
 	ta.ShowLineNumbers = false
 
 	vp := viewport.New(80, 20)
-	initialText := "⚡ Welcome to quik. High-performance, local-first autonomous coding engine.\nType your request below and press Enter to begin.\n\n"
+	initialText := "⚡ Welcome to lokol. Deterministic, local-first autonomous coding engine.\nType your request below and press Enter to begin.\n\n"
 	if yoloMode {
 		initialText += "⚡ [YOLO MODE ENGAGED] Autonomous command execution without confirmation.\n\n"
 	}
@@ -301,7 +301,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				displayStr = strings.TrimSpace(displayStr[:idx])
 			}
 			if displayStr != "" {
-				m.viewport.SetContent(m.chatLog + agentStyle.Render("quik: ") + displayStr)
+				m.viewport.SetContent(m.chatLog + agentStyle.Render("lokol: ") + displayStr)
 			}
 			m.viewport.GotoBottom()
 			return m, waitForToken(m.tokenChan)
@@ -317,7 +317,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if act != nil && (act.Name == "exec_bash" || act.Name == "replace_file" || act.Name == "write_file") {
 				m.pendingAct = act
 				if act.CleanThought != "" {
-					m.appendLog(agentStyle.Render("quik: ") + act.CleanThought + "\n")
+					m.appendLog(agentStyle.Render("lokol: ") + act.CleanThought + "\n")
 				}
 				if m.yoloMode {
 					// YOLO Mode: execute immediately without waiting for user approval
@@ -352,12 +352,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else if act != nil && act.Name == "task_finish" {
 				m.state = stateIdle
 				if act.CleanThought != "" {
-					m.appendLog(agentStyle.Render("quik: ") + act.CleanThought + "\n")
+					m.appendLog(agentStyle.Render("lokol: ") + act.CleanThought + "\n")
 				}
 				m.appendLog("✅ Complete: " + act.Command + "\n")
 			} else {
 				m.state = stateIdle
-				m.appendLog(agentStyle.Render("quik: ") + response + "\n")
+				m.appendLog(agentStyle.Render("lokol: ") + response + "\n")
 			}
 			return m, nil
 		}
@@ -409,7 +409,7 @@ func (m Model) View() string {
 		gpuInfo = fmt.Sprintf("%s (%s)", m.hardware.GPUName, m.hardware.HumanVRAM())
 	}
 
-	header := headerStyle.Render(" ⚡ quik v0.1.0 ") + "  " +
+	header := headerStyle.Render(" ⚡ lokol v0.1.0 ") + "  " +
 		hudStyle.Render(fmt.Sprintf("GPU: %s", gpuInfo))
 	if m.yoloMode {
 		yoloBadge := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FF5555")).Render(" [YOLO ACTIVE]")

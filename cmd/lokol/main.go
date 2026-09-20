@@ -7,10 +7,10 @@ import (
 	"os"
 	"strings"
 
-	"github.com/boggycreek/quik/pkg/agent"
-	"github.com/boggycreek/quik/pkg/model"
-	"github.com/boggycreek/quik/pkg/probe"
-	"github.com/boggycreek/quik/pkg/tui"
+	"github.com/boggycreek/lokol/pkg/agent"
+	"github.com/boggycreek/lokol/pkg/model"
+	"github.com/boggycreek/lokol/pkg/probe"
+	"github.com/boggycreek/lokol/pkg/tui"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -72,7 +72,7 @@ func main() {
 				runExec(*execEngine, *execMaxTurns, prompt)
 				return
 			case "version":
-				fmt.Printf("quik version %s\n", version)
+				fmt.Printf("lokol version %s\n", version)
 				return
 			}
 		}
@@ -96,7 +96,7 @@ func main() {
 		}
 		runExec(*execEngine, *execMaxTurns, prompt)
 	case "version":
-		fmt.Printf("quik version %s\n", version)
+		fmt.Printf("lokol version %s\n", version)
 	default:
 		printUsage()
 		os.Exit(1)
@@ -104,14 +104,14 @@ func main() {
 }
 
 func printUsage() {
-	fmt.Println("quik - High Performance Local-First Coding Agent Engine")
+	fmt.Println("lokol - High Performance Local-First Autonomous Coding Engine")
 	fmt.Println()
 	fmt.Println("Usage:")
-	fmt.Println("  quik [-p | --prompt] \"<prompt>\"      Run agent in headless mode directly")
-	fmt.Println("  quik chat  [--engine=...] [--yolo]   Start interactive Bubble Tea TUI agent session")
-	fmt.Println("  quik exec  [--engine=...] <prompt>   Run autonomous agent in headless mode")
-	fmt.Println("  quik probe [--simulate-vram-gib=X]   Probe host capabilities and compute optimal model tier")
-	fmt.Println("  quik version                         Display version")
+	fmt.Println("  lokol [-p | --prompt] \"<prompt>\"      Run agent in headless mode directly")
+	fmt.Println("  lokol chat  [--engine=...] [--yolo]   Start interactive Bubble Tea TUI agent session")
+	fmt.Println("  lokol exec  [--engine=...] <prompt>   Run autonomous agent in headless mode")
+	fmt.Println("  lokol probe [--simulate-vram-gib=X]   Probe host capabilities and compute optimal model tier")
+	fmt.Println("  lokol version                         Display version")
 }
 
 func runExec(engineURL string, maxTurns int, prompt string) {
@@ -130,19 +130,16 @@ func runExec(engineURL string, maxTurns int, prompt string) {
 				fmt.Printf("\n⚡ Editing: %s\n", content)
 			case "write_file":
 				fmt.Printf("\n⚡ Writing: %s\n", content)
-			case "result":
-				fmt.Println("✓ Done")
-			case "error":
-				fmt.Printf("✗ %s\n", content)
-			case "finish":
+			case "task_finish":
 				fmt.Printf("\n✅ Complete: %s\n", content)
 			}
 		},
 	}
 
-	_, err := runner.Run(context.Background(), prompt)
+	ctx := context.Background()
+	_, err := runner.Run(ctx, prompt)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "\nAgent error: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
 }
@@ -165,7 +162,7 @@ func runChat(engineURL string, yolo bool) {
 
 func runProbe(simVRAM float64) {
 	fmt.Println("==================================================")
-	fmt.Println("   quik System Hardware Capability Probe")
+	fmt.Println("   lokol System Hardware Capability Probe")
 	fmt.Println("==================================================")
 
 	hw, err := probe.Detect()

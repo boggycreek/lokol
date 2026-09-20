@@ -1,12 +1,12 @@
-package quik_test
+package lokol_test
 
 import (
 	"strings"
 	"testing"
 
-	"github.com/boggycreek/quik/pkg/agent"
-	"github.com/boggycreek/quik/pkg/probe"
-	"github.com/boggycreek/quik/pkg/tui"
+	"github.com/boggycreek/lokol/pkg/agent"
+	"github.com/boggycreek/lokol/pkg/probe"
+	"github.com/boggycreek/lokol/pkg/tui"
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -27,8 +27,8 @@ func TestTUISmokeTest(t *testing.T) {
 
 	// 2. Initial View render test (verify no panic and HUD rendering)
 	viewOutput := m.View()
-	if !strings.Contains(viewOutput, "quik") {
-		t.Errorf("expected view to contain 'quik', got %s", viewOutput)
+	if !strings.Contains(viewOutput, "lokol") {
+		t.Errorf("expected view to contain 'lokol', got %s", viewOutput)
 	}
 	if !strings.Contains(viewOutput, "RTX 3060") {
 		t.Errorf("expected view to contain 'RTX 3060', got %s", viewOutput)

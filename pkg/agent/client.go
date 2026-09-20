@@ -20,7 +20,7 @@ type Message struct {
 }
 
 // SystemPrompt provides lean, deterministic instructions tailored for 7B/3B models.
-const SystemPrompt = `You are quik, an ultra-fast local coding agent.
+const SystemPrompt = `You are lokol, a deterministic, local-first autonomous coding agent.
 Solve coding tasks deterministically by inspecting files, writing code, and testing.
 
 Available Action Formats:
@@ -215,7 +215,7 @@ func ExecuteBash(ctx context.Context, command string) (string, error) {
 	out, err := cmd.CombinedOutput()
 	outputStr := string(out)
 	if len(outputStr) > 4000 {
-		outputStr = outputStr[:4000] + "\n...[output truncated by quik for context hygiene]"
+		outputStr = outputStr[:4000] + "\n...[output truncated by lokol for context hygiene]"
 	}
 	return outputStr, err
 }

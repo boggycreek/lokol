@@ -1,4 +1,4 @@
-package quik_test
+package lokol_test
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/boggycreek/quik/pkg/agent"
+	"github.com/boggycreek/lokol/pkg/agent"
 )
 
 func TestParseAction(t *testing.T) {

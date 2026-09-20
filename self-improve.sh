@@ -1,46 +1,40 @@
 #!/bin/bash
 set -euo pipefail
 
-# self-improve.sh: Orchestrates local GPU self-improvement of quik using quik itself.
+# self-improve.sh: Orchestrates local GPU self-improvement of lokol using lokol itself.
 
-WORKSPACE="/home/brian/Workspaces/boggycreek/quik"
+WORKSPACE="/home/brian/Workspaces/boggycreek/lokol"
+if [ ! -d "$WORKSPACE" ]; then
+    WORKSPACE="/home/brian/Workspaces/boggycreek/quik"
+fi
 cd "$WORKSPACE"
 
 echo "=========================================================="
-echo "   quik Self-Improvement Harness (Running on Local GPU)   "
+echo "   lokol Self-Improvement Harness (Running on Local GPU)  "
 echo "=========================================================="
 
 # 1. Baseline verification
 echo "[1/5] Verifying baseline tests and compiling binary..."
 go test ./test/...
-go build -o bin/quik ./cmd/quik
+go build -o bin/lokol ./cmd/lokol
 
 BASELINE_COMMIT=$(git rev-parse HEAD)
 echo "Baseline bookmark: $BASELINE_COMMIT"
 
 # 2. Formulate the self-improvement task contract
-TASK_PROMPT="TASK: In pkg/tui/tui.go, update the Welcome header message in the New() function.
-Use <action name=\"replace_file\"> to update the initialText line:
-<path>pkg/tui/tui.go</path>
-<target>
-	initialText := \"Welcome to quik. Deterministic, local-first coding agent engine.\nType your request below and press Enter to begin.\n\n\"
-</target>
-<replacement>
-	initialText := \"⚡ Welcome to quik. High-performance, local-first autonomous coding engine.\nType your request below and press Enter to begin.\n\n\"
-</replacement>
+TASK_PROMPT="TASK: In README.md, ensure all references are updated to lokol.
+Then run: go test ./test/... && go build -o bin/lokol ./cmd/lokol
+Finally, call <action name=\"task_finish\">All tests passing and binary verified</action>"
 
-Then run: go test ./test/... && go build -o bin/quik ./cmd/quik
-Finally, call <action name=\"task_finish\">Welcome message updated</action>"
-
-echo "[2/5] Dispatching task to local GPU model via 'quik -p' in YOLO mode..."
-./bin/quik --max-turns=10 -p "$TASK_PROMPT"
+echo "[2/5] Dispatching task to local GPU model via 'lokol -p' in YOLO mode..."
+./bin/lokol --max-turns=10 -p "$TASK_PROMPT"
 
 echo "[3/5] Assessing changes made by local GPU agent..."
 git diff --stat
 
 # 4. Assess regression vs advancement
 echo "[4/5] Running test suite and build verification..."
-if go test ./test/... && go build -o bin/quik ./cmd/quik; then
+if go test ./test/... && go build -o bin/lokol ./cmd/lokol; then
     echo "✅ Tests passed and binary built cleanly!"
     
     # Check if files were actually modified
@@ -48,8 +42,8 @@ if go test ./test/... && go build -o bin/quik ./cmd/quik; then
         echo "⚠️ No changes were made by the agent."
     else
         echo "[5/5] Advancement confirmed! Committing advancement bookmark..."
-        git add pkg/tui/tui.go
-        git commit -m "feat(tui): streamline chat stream to Claude Code minimal ack style (written by local quik agent)"
+        git add -u
+        git commit -m "chore(lokol): automated self-improvement update (written by local lokol agent)"
         echo "Advancement committed: $(git rev-parse HEAD)"
     fi
 else

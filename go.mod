@@ -1,4 +1,4 @@
-module github.com/boggycreek/quik
+module github.com/boggycreek/lokol
 
 go 1.25.8
 
