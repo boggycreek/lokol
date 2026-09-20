@@ -109,6 +109,56 @@ func (r *Runner) Run(ctx context.Context, initialPrompt string) (string, error) 
 			}
 
 			history = append(history, Message{Role: "user", Content: toolResult})
+		} else if act.Name == "replace_file" {
+			input, _ := ParseReplaceFileInput(act.Command)
+			path := "file"
+			if input != nil {
+				path = input.Path
+			}
+			if r.OnOutput != nil {
+				r.OnOutput("replace_file", path)
+			}
+
+			out, err := ExecuteReplaceFile(ctx, act.Command)
+			toolResult := fmt.Sprintf("<action_result>\n%s\n</action_result>", out)
+			if err != nil {
+				toolResult = fmt.Sprintf("<action_result>\n[Edit error: %v]\n</action_result>", err)
+			}
+
+			if r.OnOutput != nil {
+				if err != nil {
+					r.OnOutput("error", fmt.Sprintf("Error: %v", err))
+				} else {
+					r.OnOutput("result", out)
+				}
+			}
+
+			history = append(history, Message{Role: "user", Content: toolResult})
+		} else if act.Name == "write_file" {
+			input, _ := ParseWriteFileInput(act.Command)
+			path := "file"
+			if input != nil {
+				path = input.Path
+			}
+			if r.OnOutput != nil {
+				r.OnOutput("write_file", path)
+			}
+
+			out, err := ExecuteWriteFile(ctx, act.Command)
+			toolResult := fmt.Sprintf("<action_result>\n%s\n</action_result>", out)
+			if err != nil {
+				toolResult = fmt.Sprintf("<action_result>\n[Write error: %v]\n</action_result>", err)
+			}
+
+			if r.OnOutput != nil {
+				if err != nil {
+					r.OnOutput("error", fmt.Sprintf("Error: %v", err))
+				} else {
+					r.OnOutput("result", out)
+				}
+			}
+
+			history = append(history, Message{Role: "user", Content: toolResult})
 		}
 	}
 

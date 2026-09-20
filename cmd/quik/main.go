@@ -126,6 +126,10 @@ func runExec(engineURL string, maxTurns int, prompt string) {
 				fmt.Print(content)
 			case "exec_bash":
 				fmt.Printf("\n⚡ Executing: %s\n", content)
+			case "replace_file":
+				fmt.Printf("\n⚡ Editing: %s\n", content)
+			case "write_file":
+				fmt.Printf("\n⚡ Writing: %s\n", content)
 			case "result":
 				fmt.Println("✓ Done")
 			case "error":

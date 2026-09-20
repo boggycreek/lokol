@@ -144,9 +144,22 @@ func executeAction(act *agent.Action) tea.Cmd {
 		if act == nil {
 			return actionExecutedMsg("")
 		}
-		out, err := agent.ExecuteBash(context.Background(), act.Command)
+		var out string
+		var err error
+
+		switch act.Name {
+		case "exec_bash":
+			out, err = agent.ExecuteBash(context.Background(), act.Command)
+		case "replace_file":
+			out, err = agent.ExecuteReplaceFile(context.Background(), act.Command)
+		case "write_file":
+			out, err = agent.ExecuteWriteFile(context.Background(), act.Command)
+		default:
+			return actionExecutedMsg(fmt.Sprintf("[Unknown action: %s]", act.Name))
+		}
+
 		if err != nil {
-			return actionExecutedMsg(fmt.Sprintf("[Command Error: %v]\n%s", err, out))
+			return actionExecutedMsg(fmt.Sprintf("[Error: %v]\n%s", err, out))
 		}
 		return actionExecutedMsg(out)
 	}
@@ -245,7 +258,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			// Check for actions
 			act := agent.ParseAction(response)
-			if act != nil && act.Name == "exec_bash" {
+			if act != nil && (act.Name == "exec_bash" || act.Name == "replace_file" || act.Name == "write_file") {
 				m.pendingAct = act
 				if act.CleanThought != "" {
 					m.appendLog(agentStyle.Render("quik: ") + act.CleanThought + "\n")
@@ -253,13 +266,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.yoloMode {
 					// YOLO Mode: execute immediately without waiting for user approval
 					m.state = stateExecutingAction
-					m.appendLog("⚡ Executing: " + act.Command + "\n")
+					switch act.Name {
+					case "exec_bash":
+						m.appendLog("⚡ Executing: " + act.Command + "\n")
+					case "replace_file":
+						input, _ := agent.ParseReplaceFileInput(act.Command)
+						p := "file"
+						if input != nil {
+							p = input.Path
+						}
+						m.appendLog("⚡ Editing: " + p + "\n")
+					case "write_file":
+						input, _ := agent.ParseWriteFileInput(act.Command)
+						p := "file"
+						if input != nil {
+							p = input.Path
+						}
+						m.appendLog("⚡ Writing: " + p + "\n")
+					}
 					return m, executeAction(act)
 				}
 
 				m.state = stateWaitingActionApproval
 				box := actionBoxStyle.Render(fmt.Sprintf(
-					"PROPOSED ACTION: %s\nCommand: %s\n\nPress [Enter] or [Y] to approve, [N] to reject",
+					"PROPOSED ACTION: %s\nPayload:\n%s\n\nPress [Enter] or [Y] to approve, [N] to reject",
 					act.Name, act.Command,
 				))
 				m.appendLog("\n" + box + "\n")

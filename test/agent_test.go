@@ -1,6 +1,10 @@
 package quik_test
 
 import (
+	"context"
+	"fmt"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/boggycreek/quik/pkg/agent"
@@ -63,5 +67,55 @@ func TestParseAction(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestExecuteReplaceFile(t *testing.T) {
+	// Create a temp file
+	tmpDir := t.TempDir()
+	filePath := tmpDir + "/test.txt"
+	initialContent := "Hello world\nFoo bar baz\nEnding line"
+	if err := os.WriteFile(filePath, []byte(initialContent), 0644); err != nil {
+		t.Fatalf("failed to write temp file: %v", err)
+	}
+
+	payload := fmt.Sprintf("<path>%s</path>\n<target>Foo bar baz</target>\n<replacement>Quik replaced this</replacement>", filePath)
+	out, err := agent.ExecuteReplaceFile(context.Background(), payload)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "Successfully replaced") {
+		t.Errorf("unexpected output: %s", out)
+	}
+
+	updated, err := os.ReadFile(filePath)
+	if err != nil {
+		t.Fatalf("failed to read updated file: %v", err)
+	}
+	expected := "Hello world\nQuik replaced this\nEnding line"
+	if string(updated) != expected {
+		t.Errorf("got %q, want %q", string(updated), expected)
+	}
+}
+
+func TestExecuteWriteFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	filePath := tmpDir + "/nested/subdir/hello.go"
+	payload := fmt.Sprintf("<path>%s</path>\n<content>package main\n\nfunc main() {}\n</content>", filePath)
+
+	out, err := agent.ExecuteWriteFile(context.Background(), payload)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(out, "Successfully wrote") {
+		t.Errorf("unexpected output: %s", out)
+	}
+
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		t.Fatalf("failed to read created file: %v", err)
+	}
+	if string(data) != "package main\n\nfunc main() {}" {
+		t.Errorf("unexpected content: %q", string(data))
 	}
 }

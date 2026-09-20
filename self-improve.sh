@@ -18,33 +18,19 @@ go build -o bin/quik ./cmd/quik
 BASELINE_COMMIT=$(git rev-parse HEAD)
 echo "Baseline bookmark: $BASELINE_COMMIT"
 
-# 2. Formulate the Claude Code-like TUI UX improvement task contract
-TASK_PROMPT="TASK: Improve the TUI in pkg/tui/tui.go to adopt the Claude Code style.
-Problem: When an action finishes, tui.go prints the raw command output into the chat viewport:
-		box := outputBoxStyle.Render(fmt.Sprintf(\"OUTPUT:\n%s\", output))
-		m.appendLog(box + \"\n\")
-Goal: Replace those 2 lines in pkg/tui/tui.go with a clean 1-line acknowledgment:
-		m.appendLog(\"✓ Executed successfully\n\")
-
-Run this python command to apply the edit:
-python3 -c '
-with open(\"pkg/tui/tui.go\", \"r\") as f:
-    lines = f.readlines()
-new_lines = []
-for line in lines:
-    if \"box := outputBoxStyle.Render\" in line:
-        continue
-    elif \"m.appendLog(box + \" in line:
-        new_lines.append(\"\t\tm.appendLog(\\\"✓ Executed successfully\\\\n\\\")\n\")
-    else:
-        new_lines.append(line)
-with open(\"pkg/tui/tui.go\", \"w\") as f:
-    f.writelines(new_lines)
-print(\"UPDATED_TUI\")
-'
+# 2. Formulate the self-improvement task contract
+TASK_PROMPT="TASK: In pkg/tui/tui.go, update the Welcome header message in the New() function.
+Use <action name=\"replace_file\"> to update the initialText line:
+<path>pkg/tui/tui.go</path>
+<target>
+	initialText := \"Welcome to quik. Deterministic, local-first coding agent engine.\nType your request below and press Enter to begin.\n\n\"
+</target>
+<replacement>
+	initialText := \"⚡ Welcome to quik. High-performance, local-first autonomous coding engine.\nType your request below and press Enter to begin.\n\n\"
+</replacement>
 
 Then run: go test ./test/... && go build -o bin/quik ./cmd/quik
-Finally, call <action name=\"task_finish\">TUI streamlined</action>"
+Finally, call <action name=\"task_finish\">Welcome message updated</action>"
 
 echo "[2/5] Dispatching task to local GPU model via 'quik -p' in YOLO mode..."
 ./bin/quik --max-turns=10 -p "$TASK_PROMPT"
