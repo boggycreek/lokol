@@ -130,7 +130,13 @@ func runExec(engineURL string, maxTurns int, prompt string) {
 				fmt.Printf("\n⚡ Editing: %s\n", content)
 			case "write_file":
 				fmt.Printf("\n⚡ Writing: %s\n", content)
-			case "task_finish":
+			case "read_outline":
+				fmt.Printf("\n⚡ Reading Outline: %s\n", content)
+			case "read_window":
+				fmt.Printf("\n⚡ Reading Window: %s\n", content)
+			case "run_test":
+				fmt.Printf("\n⚡ Verifying Tests: %s\n", content)
+			case "task_finish", "finish":
 				fmt.Printf("\n✅ Complete: %s\n", content)
 			}
 		},

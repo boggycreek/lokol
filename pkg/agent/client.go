@@ -24,12 +24,19 @@ const SystemPrompt = `You are lokol, a deterministic, local-first autonomous cod
 Solve coding tasks deterministically by inspecting files, writing code, and testing.
 
 Available Action Formats:
-1. To run a bash command (e.g. tests, builds, git, inspection):
-<action name="exec_bash">
-command here
+1. To inspect high-level types, structs, and function signatures of a file WITHOUT dumping full code:
+<action name="read_outline">
+<path>relative/path/to/file</path>
 </action>
 
-2. To replace exact text in an existing file (PREFERRED for editing code):
+2. To inspect a specific line window of a file (e.g. lines 20-50):
+<action name="read_window">
+<path>relative/path/to/file</path>
+<start>20</start>
+<end>50</end>
+</action>
+
+3. To replace exact text in an existing file (PREFERRED for editing code):
 <action name="replace_file">
 <path>relative/path/to/file</path>
 <target>
@@ -40,7 +47,7 @@ new replacement lines
 </replacement>
 </action>
 
-3. To create or overwrite a whole file:
+4. To create or overwrite a whole file:
 <action name="write_file">
 <path>relative/path/to/file</path>
 <content>
@@ -48,7 +55,17 @@ file content here
 </content>
 </action>
 
-4. When your task is complete:
+5. To run test suites with clean, filtered failure assertions (PREFERRED over exec_bash for tests):
+<action name="run_test">
+go test -v ./...
+</action>
+
+6. To run arbitrary bash commands (e.g. git, builds):
+<action name="exec_bash">
+command here
+</action>
+
+7. When your task is complete:
 <action name="task_finish">
 summary of completed task
 </action>
@@ -56,10 +73,12 @@ summary of completed task
 Rules:
 1. Always state your intent briefly before taking an action.
 2. Only output ONE action per response.
-3. For modifying code: ALWAYS prefer <action name="replace_file">. Never use git apply with fake line numbers.
-4. Do NOT repeat a command or edit that has already succeeded. Check <action_result>.
-5. Verify changes with commands (e.g. go test, go build).
-6. When finished, call task_finish.`
+3. CONTEXT HYGIENE: Never use cat or head to read whole files. Use <action name="read_outline"> first, then <action name="read_window">.
+4. For tests: ALWAYS use <action name="run_test"> so output is clean and compact.
+5. For modifying code: ALWAYS prefer <action name="replace_file">. Never use git apply with fake line numbers.
+6. Verify changes with <action name="run_test">.
+7. When finished, call task_finish.`
+
 
 // Client communicates with the local llama-server instance.
 type Client struct {
@@ -174,39 +193,98 @@ type Action struct {
 	CleanThought string // Prose explanation before the action tag
 }
 
-// ParseAction extracts <action name="...">...</action> from agent text.
+// ParseAction extracts <action name="...">...</action> or fallback JSON actions from agent text.
 func ParseAction(text string) *Action {
 	startTag := "<action name=\""
 	idx := strings.Index(text, startTag)
-	if idx == -1 {
-		return nil
+	if idx != -1 {
+		thought := strings.TrimSpace(text[:idx])
+		rest := text[idx+len(startTag):]
+		quoteIdx := strings.Index(rest, "\">")
+		if quoteIdx != -1 {
+			name := rest[:quoteIdx]
+			payload := rest[quoteIdx+2:]
+
+			endTag := "</action>"
+			endIdx := strings.Index(payload, endTag)
+			var command string
+			if endIdx != -1 {
+				command = strings.TrimSpace(payload[:endIdx])
+			} else {
+				command = strings.TrimSpace(payload)
+			}
+
+			return &Action{
+				Name:         name,
+				Command:      command,
+				CleanThought: thought,
+			}
+		}
 	}
 
-	thought := strings.TrimSpace(text[:idx])
-	rest := text[idx+len(startTag):]
-	quoteIdx := strings.Index(rest, "\">")
-	if quoteIdx == -1 {
-		return nil
+	// Fallback: Check if model generated JSON action like {"name": "...", ...}
+	jsonIdx := strings.Index(text, "```json")
+	var jsonBlock string
+	var thought string
+	if jsonIdx != -1 {
+		thought = strings.TrimSpace(text[:jsonIdx])
+		rest := text[jsonIdx+7:]
+		endJson := strings.Index(rest, "```")
+		if endJson != -1 {
+			jsonBlock = strings.TrimSpace(rest[:endJson])
+		} else {
+			jsonBlock = strings.TrimSpace(rest)
+		}
+	} else if strings.HasPrefix(strings.TrimSpace(text), "{") {
+		jsonBlock = strings.TrimSpace(text)
 	}
 
-	name := rest[:quoteIdx]
-	payload := rest[quoteIdx+2:]
-
-	endTag := "</action>"
-	endIdx := strings.Index(payload, endTag)
-	var command string
-	if endIdx != -1 {
-		command = strings.TrimSpace(payload[:endIdx])
-	} else {
-		// Stop token or generation end may have caught it without the literal closing tag
-		command = strings.TrimSpace(payload)
+	if jsonBlock != "" {
+		var raw map[string]interface{}
+		if err := json.Unmarshal([]byte(jsonBlock), &raw); err == nil {
+			if name, ok := raw["name"].(string); ok {
+				// Reconstruct XML payload according to action type
+				var cmd string
+				switch name {
+				case "read_outline":
+					if p, ok := raw["path"].(string); ok {
+						cmd = fmt.Sprintf("<path>%s</path>", p)
+					}
+				case "read_window":
+					p, _ := raw["path"].(string)
+					start, _ := raw["start"].(float64)
+					end, _ := raw["end"].(float64)
+					cmd = fmt.Sprintf("<path>%s</path>\n<start>%d</start>\n<end>%d</end>", p, int(start), int(end))
+				case "replace_file":
+					p, _ := raw["path"].(string)
+					t, _ := raw["target"].(string)
+					r, _ := raw["replacement"].(string)
+					cmd = fmt.Sprintf("<path>%s</path>\n<target>%s</target>\n<replacement>%s</replacement>", p, t, r)
+				case "write_file":
+					p, _ := raw["path"].(string)
+					c, _ := raw["content"].(string)
+					cmd = fmt.Sprintf("<path>%s</path>\n<content>%s</content>", p, c)
+				case "exec_bash", "run_test":
+					if c, ok := raw["command"].(string); ok {
+						cmd = c
+					}
+				case "task_finish":
+					if s, ok := raw["summary"].(string); ok {
+						cmd = s
+					}
+				}
+				if cmd != "" {
+					return &Action{
+						Name:         name,
+						Command:      cmd,
+						CleanThought: thought,
+					}
+				}
+			}
+		}
 	}
 
-	return &Action{
-		Name:         name,
-		Command:      command,
-		CleanThought: thought,
-	}
+	return nil
 }
 
 // ExecuteBash runs a command locally and returns combined stdout/stderr.

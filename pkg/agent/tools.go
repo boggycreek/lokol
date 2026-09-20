@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/boggycreek/lokol/pkg/tools/refinery"
 )
 
 // ReplaceFileInput specifies parameters for an exact substring replacement in a file.
@@ -132,3 +134,35 @@ func extractTagContent(xml, tag string) string {
 	val = strings.TrimSuffix(val, "\n")
 	return val
 }
+
+// ExecuteReadOutline returns the outline of types and function signatures for a file.
+func ExecuteReadOutline(ctx context.Context, payload string) (string, error) {
+	path := strings.TrimSpace(extractTagContent(payload, "path"))
+	if path == "" {
+		path = strings.TrimSpace(payload)
+	}
+	return refinery.ReadOutline(path)
+}
+
+// ExecuteReadWindow returns a bounded range of lines for a file.
+func ExecuteReadWindow(ctx context.Context, payload string) (string, error) {
+	input, err := refinery.ParseReadWindowPayload(payload)
+	if err != nil {
+		return "", err
+	}
+	return refinery.ReadWindow(input.Path, input.StartLine, input.EndLine)
+}
+
+// ExecuteRunTest runs a test command and returns a noise-filtered result.
+func ExecuteRunTest(ctx context.Context, command string) (string, error) {
+	command = strings.TrimSpace(command)
+	res, err := refinery.RunTestVerifier(ctx, command)
+	if err != nil {
+		return "", err
+	}
+	if res.Passed {
+		return res.Summary, nil
+	}
+	return fmt.Sprintf("%s\n\nFailures:\n%s", res.Summary, res.ErrorOutput), nil
+}
+

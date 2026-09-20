@@ -159,8 +159,39 @@ func (r *Runner) Run(ctx context.Context, initialPrompt string) (string, error) 
 			}
 
 			history = append(history, Message{Role: "user", Content: toolResult})
+		} else if act.Name == "read_outline" {
+			if r.OnOutput != nil {
+				r.OnOutput("read_outline", act.Command)
+			}
+			out, err := ExecuteReadOutline(ctx, act.Command)
+			toolResult := fmt.Sprintf("<action_result>\n%s\n</action_result>", out)
+			if err != nil {
+				toolResult = fmt.Sprintf("<action_result>\n[Outline error: %v]\n</action_result>", err)
+			}
+			history = append(history, Message{Role: "user", Content: toolResult})
+		} else if act.Name == "read_window" {
+			if r.OnOutput != nil {
+				r.OnOutput("read_window", act.Command)
+			}
+			out, err := ExecuteReadWindow(ctx, act.Command)
+			toolResult := fmt.Sprintf("<action_result>\n%s\n</action_result>", out)
+			if err != nil {
+				toolResult = fmt.Sprintf("<action_result>\n[Read error: %v]\n</action_result>", err)
+			}
+			history = append(history, Message{Role: "user", Content: toolResult})
+		} else if act.Name == "run_test" {
+			if r.OnOutput != nil {
+				r.OnOutput("run_test", act.Command)
+			}
+			out, err := ExecuteRunTest(ctx, act.Command)
+			toolResult := fmt.Sprintf("<action_result>\n%s\n</action_result>", out)
+			if err != nil {
+				toolResult = fmt.Sprintf("<action_result>\n[Test execution error: %v]\n</action_result>", err)
+			}
+			history = append(history, Message{Role: "user", Content: toolResult})
 		}
 	}
 
 	return "", fmt.Errorf("exceeded max turns (%d) without completing task", r.MaxTurns)
 }
+

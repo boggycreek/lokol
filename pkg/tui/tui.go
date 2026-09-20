@@ -173,6 +173,12 @@ func executeAction(act *agent.Action) tea.Cmd {
 			out, err = agent.ExecuteReplaceFile(context.Background(), act.Command)
 		case "write_file":
 			out, err = agent.ExecuteWriteFile(context.Background(), act.Command)
+		case "read_outline":
+			out, err = agent.ExecuteReadOutline(context.Background(), act.Command)
+		case "read_window":
+			out, err = agent.ExecuteReadWindow(context.Background(), act.Command)
+		case "run_test":
+			out, err = agent.ExecuteRunTest(context.Background(), act.Command)
 		default:
 			return actionExecutedMsg(fmt.Sprintf("[Unknown action: %s]", act.Name))
 		}
@@ -314,7 +320,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			// Check for actions
 			act := agent.ParseAction(response)
-			if act != nil && (act.Name == "exec_bash" || act.Name == "replace_file" || act.Name == "write_file") {
+			if act != nil && (act.Name == "exec_bash" || act.Name == "replace_file" || act.Name == "write_file" || act.Name == "read_outline" || act.Name == "read_window" || act.Name == "run_test") {
 				m.pendingAct = act
 				if act.CleanThought != "" {
 					m.appendLog(agentStyle.Render("lokol: ") + act.CleanThought + "\n")
@@ -339,6 +345,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							p = input.Path
 						}
 						m.appendLog("⚡ Writing: " + p + "\n")
+					case "read_outline":
+						m.appendLog("⚡ Reading Outline: " + strings.TrimSpace(act.Command) + "\n")
+					case "read_window":
+						m.appendLog("⚡ Reading Window: " + strings.TrimSpace(act.Command) + "\n")
+					case "run_test":
+						m.appendLog("⚡ Verifying Tests: " + strings.TrimSpace(act.Command) + "\n")
 					}
 					return m, executeAction(act)
 				}
