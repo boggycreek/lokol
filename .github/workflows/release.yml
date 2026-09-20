@@ -1,0 +1,129 @@
+# Copyright (c) 2026 Boggy Creek Software LLC
+#
+# Use of this source code is governed by an MIT-style
+# license that can be found in the LICENSE file.
+
+name: CI & Static Binary Release
+
+on:
+  push:
+    branches: [ main ]
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    name: Test & Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+
+      - name: Run unit tests
+        run: go test -v -race ./test/...
+
+      - name: Verify build
+        run: go build -o bin/lokol ./cmd/lokol
+
+  release:
+    name: Build & Publish Static Binaries
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            artifact_name: lokol-linux-amd64
+          - goos: linux
+            goarch: arm64
+            artifact_name: lokol-linux-arm64
+          - goos: darwin
+            goarch: amd64
+            artifact_name: lokol-darwin-amd64
+          - goos: darwin
+            goarch: arm64
+            artifact_name: lokol-darwin-arm64
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+
+      - name: Build static binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          TAG_NAME="${GITHUB_REF#refs/tags/}"
+          COMMIT=$(git rev-parse --short HEAD)
+          BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          LDFLAGS="-s -w \
+            -X github.com/boggycreek/lokol/pkg/version.Version=${TAG_NAME} \
+            -X github.com/boggycreek/lokol/pkg/version.GitCommit=${COMMIT} \
+            -X github.com/boggycreek/lokol/pkg/version.BuildDate=${BUILD_DATE}"
+          
+          mkdir -p dist
+          go build -ldflags "$LDFLAGS" -o "dist/${{ matrix.artifact_name }}" ./cmd/lokol
+          chmod +x "dist/${{ matrix.artifact_name }}"
+          
+          # Create compressed tarball
+          cd dist
+          tar -czvf "${{ matrix.artifact_name }}.tar.gz" "${{ matrix.artifact_name }}"
+          sha256sum "${{ matrix.artifact_name }}.tar.gz" > "${{ matrix.artifact_name }}.tar.gz.sha256"
+          cd ..
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: dist/${{ matrix.artifact_name }}.tar.gz*
+
+  publish:
+    name: Create GitHub Release
+    needs: release
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all built artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Flatten release assets
+        run: |
+          mkdir -p release-assets
+          find artifacts/ -type f -name "*.tar.gz*" -exec cp {} release-assets/ \;
+          cd release-assets
+          sha256sum *.tar.gz > checksums.txt
+          ls -la
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+          prerelease: true
+          generate_release_notes: true
+          title: "lokol ${{ github.ref_name }} (Alpha)"

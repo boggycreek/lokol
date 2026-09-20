@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- Copyright (c) 2026 Boggy Creek Software LLC
+       Use of this source code is governed by an MIT-style
+       license that can be found in the LICENSE file. -->
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>lokol (Alpha) — High-Performance Local-First Autonomous Coding Engine</title>
+  <meta name="description" content="High-performance, local-first autonomous coding and agent engine engineered to run directly against consumer GPUs without bulky runtime middleware or bloated JSON schema tool harnesses.">
+  <link rel="stylesheet" href="assets/css/style.css?v=1">
+</head>
+<body>
+
+  <!-- Alpha Status Banner -->
+  <div class="alpha-banner">
+    <span class="alpha-tag">Alpha</span>
+    <span>lokol is in active <strong>Alpha development</strong> (v0.1.0-alpha). Hardware tiering, local inference engine supervisor, and autonomous execution loops are actively evolving.</span>
+  </div>
+
+  <!-- Navigation -->
+  <header>
+    <div class="nav-container">
+      <a href="#" class="logo">
+        <span class="logo-badge">lokol</span>
+        <span>lokol Engine</span>
+        <span class="badge-alpha">Alpha</span>
+      </a>
+      <nav class="nav-links">
+        <a href="#features">Philosophy</a>
+        <a href="#quickstart">Quick Start</a>
+        <a href="https://github.com/boggycreek/lokol" class="btn-github" target="_blank" rel="noopener">
+          <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/>
+          </svg>
+          <span>GitHub</span>
+        </a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Hero Section -->
+  <section class="hero">
+    <div class="hero-pill">
+      <span>⚡ Project Stage: Alpha • Local-First Sovereign AI</span>
+    </div>
+    <h1>High-Performance Local-First<br><span>Autonomous AI Coding Engine</span></h1>
+    <p>
+      Engineered to run directly against consumer GPUs (12GB down to 4GB VRAM) without bulky runtime middleware, 
+      bloated JSON schemas, or cloud API dependencies.
+    </p>
+
+    <div class="hero-actions">
+      <a href="#quickstart" class="btn-primary">Install Now (Alpha)</a>
+      <a href="https://github.com/boggycreek/lokol/blob/main/doc/adr/README.md" class="btn-secondary" target="_blank" rel="noopener">Read Architecture (ADRs)</a>
+    </div>
+
+    <!-- Terminal Mockup -->
+    <div class="terminal-card">
+      <div class="terminal-header">
+        <div class="dot red"></div>
+        <div class="dot yellow"></div>
+        <div class="dot green"></div>
+        <span class="terminal-title">bash — lokol CLI</span>
+      </div>
+      <div class="terminal-body">
+        <p><span class="comment"># Probe host capabilities (GPU VRAM, AVX2, RAM) & select model tier</span></p>
+        <p><span class="cmd">$</span> lokol probe</p>
+        <br>
+        <p><span class="comment"># Verify local dependencies, engine health, and weights</span></p>
+        <p><span class="cmd">$</span> lokol setup</p>
+        <br>
+        <p><span class="comment"># Launch interactive Bubble Tea TUI with real-time KV cache gauge</span></p>
+        <p><span class="cmd">$</span> lokol chat --yolo</p>
+        <br>
+        <p><span class="comment"># Execute an autonomous, deterministic coding task headless</span></p>
+        <p><span class="cmd">$</span> lokol -p "Inspect the failing unit test and fix the assertion"</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Key Features -->
+  <section class="features-section" id="features">
+    <div class="section-title">
+      <h2>Architectural Pillars</h2>
+      <p>Lean, predictable agent execution optimized for consumer hardware.</p>
+    </div>
+
+    <div class="grid-3">
+      <div class="feature-card">
+        <div class="feature-icon">⚡</div>
+        <h3>Zero Intermediate Abstractions</h3>
+        <p>Bypasses multi-layered Node.js/Python frameworks in favor of a single, static Go binary and managed <code>llama-server</code> supervisor.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">🎯</div>
+        <h3>Hardware-Aware Tiering</h3>
+        <p>Probes GPU VRAM, CPU vector extensions (AVX2/AVX-512), and RAM to configure optimal model weights, KV cache quantization, and context length.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">💻</div>
+        <h3>Constrained Hardware Support</h3>
+        <p>First-class support for 4GB VRAM mobile dGPUs (such as GTX 1650 Max-Q) using 3B Q4 models with dedicated pure-VRAM Q4_0 KV caching.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">🛡️</div>
+        <h3>Deterministic Tool Calling</h3>
+        <p>Eliminates JSON formatting hallucinations on small 7B/3B models via explicit action delimiters (<code>&lt;action&gt;</code>) and native Go mechanical tools.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">📁</div>
+        <h3>XDG Standard Compliance</h3>
+        <p>Strict adherence to XDG Base Directory specification: unprivileged non-root install in <code>~/.local/bin</code> and clean state partitioning.</p>
+      </div>
+
+      <div class="feature-card">
+        <div class="feature-icon">🔌</div>
+        <h3>In-Repo MCP Facades</h3>
+        <p>Provides invariant tooling surfaces for memory, AST outlining, and noise-gated test verifications without bloating context.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Quick Start -->
+  <section class="features-section" id="quickstart" style="background-color: var(--bg-secondary); border-top: 1px solid var(--border-color); border-bottom: 1px solid var(--border-color);">
+    <div class="section-title">
+      <h2>One-Line Installation</h2>
+      <p>Install lokol directly into your user home directory conforming to XDG standards.</p>
+    </div>
+
+    <div class="terminal-card">
+      <div class="terminal-header">
+        <div class="dot red"></div>
+        <div class="dot yellow"></div>
+        <div class="dot green"></div>
+        <span class="terminal-title">curl — installer</span>
+      </div>
+      <div class="terminal-body">
+        <p><span class="comment"># Download and install the latest static binary release</span></p>
+        <p><span class="cmd">curl</span> -fsSL https://raw.githubusercontent.com/boggycreek/lokol/main/install.sh | bash</p>
+      </div>
+    </div>
+
+    <div class="alpha-note" style="margin-top: 2rem; padding: 1.25rem; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px; font-size: 0.9rem; color: var(--text-muted); text-align: center;">
+      ⚠️ <strong>Alpha Notice:</strong> lokol is in active Alpha development. Interfaces, model matrices, and runtime contracts are subject to iteration.
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer>
+    <p>&copy; 2026 Boggy Creek Software LLC. Governed by an MIT License. Currently in <strong>Alpha</strong> stage.</p>
+    <p style="margin-top: 0.5rem;"><a href="https://github.com/boggycreek/lokol" target="_blank" rel="noopener">View source on GitHub</a></p>
+  </footer>
+
+</body>
+</html>
