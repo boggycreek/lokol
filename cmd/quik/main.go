@@ -1,9 +1,11 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/boggycreek/quik/pkg/agent"
 	"github.com/boggycreek/quik/pkg/model"
@@ -22,6 +24,10 @@ func main() {
 	engineURL := chatCmd.String("engine", "http://127.0.0.1:8080", "URL of local llama-server engine")
 	yolo := chatCmd.Bool("yolo", false, "Engage YOLO mode: autonomous bash execution without interactive approval")
 
+	execCmd := flag.NewFlagSet("exec", flag.ExitOnError)
+	execEngine := execCmd.String("engine", "http://127.0.0.1:8080", "URL of local llama-server engine")
+	execMaxTurns := execCmd.Int("max-turns", 15, "Max turns for agent loop")
+
 	if len(os.Args) < 2 {
 		printUsage()
 		os.Exit(1)
@@ -34,6 +40,14 @@ func main() {
 	case "chat":
 		_ = chatCmd.Parse(os.Args[2:])
 		runChat(*engineURL, *yolo)
+	case "exec":
+		_ = execCmd.Parse(os.Args[2:])
+		prompt := strings.Join(execCmd.Args(), " ")
+		if prompt == "" {
+			fmt.Fprintln(os.Stderr, "Error: prompt required for exec")
+			os.Exit(1)
+		}
+		runExec(*execEngine, *execMaxTurns, prompt)
 	case "version":
 		fmt.Printf("quik version %s\n", version)
 	default:
@@ -48,7 +62,36 @@ func printUsage() {
 	fmt.Println("Usage:")
 	fmt.Println("  quik probe [--simulate-vram-gib=X]  Probe host capabilities and compute optimal model tier")
 	fmt.Println("  quik chat  [--engine=...] [--yolo]  Start interactive Bubble Tea TUI agent session")
+	fmt.Println("  quik exec  [--engine=...] <prompt>  Run autonomous agent in headless mode")
 	fmt.Println("  quik version                        Display version")
+}
+
+func runExec(engineURL string, maxTurns int, prompt string) {
+	client := agent.NewClient(engineURL)
+	runner := &agent.Runner{
+		Client:   client,
+		MaxTurns: maxTurns,
+		YOLO:     true,
+		OnOutput: func(role, content string) {
+			switch role {
+			case "token":
+				fmt.Print(content)
+			case "exec_bash":
+				fmt.Printf("\n⚡ [EXEC]: %s\n", content)
+			case "result":
+				fmt.Printf("[RESULT (%d bytes)]\n", len(content))
+			case "finish":
+				fmt.Printf("\n✅ [FINISH]: %s\n", content)
+			}
+		},
+	}
+
+	result, err := runner.Run(context.Background(), prompt)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "\nAgent error: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("\n--- Task Summary ---\n%s\n", result)
 }
 
 func runChat(engineURL string, yolo bool) {
