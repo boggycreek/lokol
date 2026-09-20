@@ -10,3 +10,5 @@ This directory contains the Architecture Decision Records for the `lokol` projec
 | [ADR-0004](0004-terminal-interface-strategy.md) | Terminal Interface Strategy (Bubble Tea TUI vs Headless CLI) | Accepted | 2026-09-19 |
 | [ADR-0005](0005-typesafe-ai-hybrid-evaluations.md) | Hybrid Evaluations and Fast Routing with TypeSafe AI (Jev / "not-a-llm") | Proposed | 2026-09-19 |
 | [ADR-0006](0006-xdg-base-directory-specification.md) | XDG Base Directory Standard Adoption | Accepted | 2026-09-20 |
+| [ADR-0007](0007-generalized-personas-and-model-matrix.md) | Generalized Personas & Model Matrix (General, MoE, Coding) | Accepted | 2026-09-20 |
+| [ADR-0008](0008-xdg-persistent-memory-and-vector-mcp-facade.md) | Persistent Memory Architecture via Local Vector DB & MCP Facade | Accepted | 2026-09-20 |
