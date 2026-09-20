@@ -262,8 +262,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case actionExecutedMsg:
 		output := string(msg)
-		box := outputBoxStyle.Render(fmt.Sprintf("OUTPUT:\n%s", output))
-		m.appendLog(box + "\n")
+		m.appendLog("✓ Executed successfully\n")
 
 		// Feed tool output back to agent history
 		toolResult := fmt.Sprintf("<action_result>\n%s\n</action_result>", output)
