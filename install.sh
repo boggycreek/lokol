@@ -40,9 +40,12 @@ Options:
   --version <tag>      Specify release version to install (e.g. v0.1.0-alpha.1, or 'latest')
   --bin-dir <path>     Target directory for lokol executable (default: ~/.local/bin)
   --build-from-source  Force local git clone and Go compilation instead of prebuilt binary
+  --skip-setup         Skip initial setup probe and dependency bootstrap
   -h, --help           Show this help message
 EOF
 }
+
+SKIP_SETUP=false
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -56,6 +59,10 @@ while [ $# -gt 0 ]; do
       ;;
     --build-from-source)
       BUILD_FROM_SOURCE=true
+      shift
+      ;;
+    --skip-setup)
+      SKIP_SETUP=true
       shift
       ;;
     -h|--help)
@@ -76,7 +83,7 @@ echo "========================================"
 echo
 
 # 1. Platform Detection
-echo "[1/4] Detecting operating system and architecture..."
+echo "[1/5] Detecting operating system and architecture..."
 OS_RAW="$(uname -s)"
 ARCH_RAW="$(uname -m)"
 
@@ -112,7 +119,7 @@ echo "  Platform: ${OS_PRETTY} (${OS}/${ARCH})"
 
 # 2. Directory Preparation (XDG Compliance)
 echo
-echo "[2/4] Preparing XDG installation directories..."
+echo "[2/5] Preparing XDG installation directories..."
 mkdir -p "${TARGET_BIN_DIR}"
 mkdir -p "${XDG_DATA_HOME}"
 mkdir -p "${XDG_CONFIG_HOME}"
@@ -123,7 +130,7 @@ echo "  Config Directory : ${XDG_CONFIG_HOME}"
 
 # 3. Installation Execution
 echo
-echo "[3/4] Installing lokol binary..."
+echo "[3/5] Installing lokol binary..."
 
 install_from_source() {
   echo "  Building lokol from source..."
@@ -194,7 +201,7 @@ chmod +x "${TARGET_BIN_DIR}/lokol"
 
 # 4. PATH Verification
 echo
-echo "[4/4] Verifying PATH environment..."
+echo "[4/5] Verifying PATH environment..."
 LOKOL_PATH_OK=false
 IFS=':' read -ra PATH_ENTRIES <<< "${PATH}"
 for entry in "${PATH_ENTRIES[@]}"; do
@@ -203,6 +210,13 @@ for entry in "${PATH_ENTRIES[@]}"; do
     break
   fi
 done
+
+# 5. Initial Hardware & Dependency Setup
+if [ "${SKIP_SETUP}" = false ]; then
+  echo
+  echo "[5/5] Running initial setup and hardware probe..."
+  "${TARGET_BIN_DIR}/lokol" setup || true
+fi
 
 echo
 echo "========================================"
@@ -224,7 +238,7 @@ else
   echo "✓ ${TARGET_BIN_DIR} is in your PATH. You can start using lokol immediately:"
   echo
   echo "    lokol --help"
+  echo "    lokol setup"
   echo "    lokol chat --yolo"
-  echo "    lokol probe"
 fi
 echo

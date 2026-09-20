@@ -46,9 +46,20 @@ curl -fsSL https://raw.githubusercontent.com/boggycreek/lokol/main/install.sh | 
 curl -fsSL https://raw.githubusercontent.com/boggycreek/lokol/main/install.sh | bash -s -- --build-from-source
 ```
 
+Upon installation, `install.sh` automatically invokes `lokol setup`, which performs a hardware probe, checks inference engine dependencies (`llama` / `llama-server`), verifies optimal model weights, and tests engine connectivity.
+
 ### Manual Build
 ```bash
 make build
+```
+
+### Environment Setup & Dependency Verification
+```bash
+# Run environment setup & dependency audit
+./bin/lokol setup
+
+# Automatically download recommended model weights if missing
+./bin/lokol setup --download-model
 ```
 
 ### Probe Host Hardware

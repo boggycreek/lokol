@@ -10,6 +10,7 @@ import (
 	"github.com/boggycreek/lokol/pkg/agent"
 	"github.com/boggycreek/lokol/pkg/model"
 	"github.com/boggycreek/lokol/pkg/probe"
+	"github.com/boggycreek/lokol/pkg/setup"
 	"github.com/boggycreek/lokol/pkg/tui"
 	"github.com/boggycreek/lokol/pkg/version"
 	tea "github.com/charmbracelet/bubbletea"
@@ -38,6 +39,10 @@ func main() {
 	execEngine := execCmd.String("engine", "http://127.0.0.1:8080", "URL of local llama-server engine")
 	execMaxTurns := execCmd.Int("max-turns", 15, "Max turns for agent loop")
 
+	setupCmd := flag.NewFlagSet("setup", flag.ExitOnError)
+	setupDownload := setupCmd.Bool("download-model", false, "Automatically download recommended GGUF weights if missing")
+	setupSimVRAM := setupCmd.Float64("simulate-vram-gib", 0, "Simulate a specific VRAM amount in GiB")
+
 	if len(os.Args) < 2 {
 		printUsage()
 		os.Exit(1)
@@ -53,6 +58,10 @@ func main() {
 		// If remaining arguments exist after parsing flags
 		if flag.NArg() > 0 {
 			switch flag.Arg(0) {
+			case "setup":
+				_ = setupCmd.Parse(flag.Args()[1:])
+				runSetup(*setupDownload, *setupSimVRAM)
+				return
 			case "probe":
 				_ = probeCmd.Parse(flag.Args()[1:])
 				runProbe(*simVRAM)
@@ -80,6 +89,9 @@ func main() {
 	}
 
 	switch os.Args[1] {
+	case "setup":
+		_ = setupCmd.Parse(os.Args[2:])
+		runSetup(*setupDownload, *setupSimVRAM)
 	case "probe":
 		_ = probeCmd.Parse(os.Args[2:])
 		runProbe(*simVRAM)
@@ -106,11 +118,23 @@ func printUsage() {
 	fmt.Println("lokol - High Performance Local-First Autonomous Coding Engine")
 	fmt.Println()
 	fmt.Println("Usage:")
-	fmt.Println("  lokol [-p | --prompt] \"<prompt>\"      Run agent in headless mode directly")
+	fmt.Println("  lokol setup [--download-model]        Bootstrap environment, probe hardware & check dependencies")
+	fmt.Println("  lokol probe [--simulate-vram-gib=X]   Probe host capabilities and compute optimal model tier")
 	fmt.Println("  lokol chat  [--engine=...] [--yolo]   Start interactive Bubble Tea TUI agent session")
 	fmt.Println("  lokol exec  [--engine=...] <prompt>   Run autonomous agent in headless mode")
-	fmt.Println("  lokol probe [--simulate-vram-gib=X]   Probe host capabilities and compute optimal model tier")
+	fmt.Println("  lokol [-p | --prompt] \"<prompt>\"      Run agent in headless mode directly")
 	fmt.Println("  lokol version                         Display version")
+}
+
+func runSetup(downloadModel bool, simVRAM float64) {
+	_, err := setup.Run(setup.Options{
+		DownloadModel: downloadModel,
+		SimulateVRAM:  simVRAM,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Setup error: %v\n", err)
+		os.Exit(1)
+	}
 }
 
 func runExec(engineURL string, maxTurns int, prompt string) {
