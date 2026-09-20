@@ -1,4 +1,4 @@
-# ADR 0012: In-Repo MCP Servers as Architectural Facades for Predictable Action Token Generation
+# ADR 0012: In-Repo MCP Servers as Architectural Facades for Deterministic Tool Call Invocations
 
 ## Status
 Accepted
@@ -9,8 +9,8 @@ Accepted
 ## Context
 Running local models (e.g. 7B and 3B parameter models) as autonomous agents requires solving two interrelated problems:
 
-1. **Token Generation Reliability (The "Action Token" Problem)**:
-   Small local models cannot reliably emit complex, deeply nested JSON tool schemas or handle volatile third-party tool interfaces. Variations in parameter naming, nested payloads, or unescaped characters cause syntax breakdown, catastrophic looping, and parsing failures (as identified in [ADR-0003](0003-deterministic-agent-protocol.md)). The model needs an **invariant, lean, highly predictable action token contract** (e.g. `<action name="read_outline">`, `<action name="remember">`, `<action name="search_code">`).
+1. **Tool Invocation Reliability (The Bounded Tool Surface Problem)**:
+   Small local models cannot reliably emit complex, deeply nested JSON tool schemas or handle volatile third-party tool interfaces. Variations in parameter naming, nested payloads, or unescaped characters cause syntax breakdown, catastrophic looping, and parsing failures (as identified in [ADR-0003](0003-deterministic-agent-protocol.md)). The model requires an **invariant, lean, highly predictable tool calling surface** using explicit action delimiters (e.g. `<action name="read_outline">`, `<action name="remember">`, `<action name="search_code">`).
 
 2. **Underlying Volatility & Bloat (The Tool Churn Problem)**:
    The underlying tools and backends that an agent needs (compilers, AST parsers, test runners, vector databases like Qdrant/sqlite-vec, memory stores, external APIs) change constantly and produce noisy, voluminous output. If raw tools or volatile third-party APIs are bound directly to the agent loop, either:
@@ -26,7 +26,7 @@ We adopt the **Facade Pattern across ALL Model Context Protocol (MCP) servers** 
 flowchart TD
     subgraph AgentRuntime ["lokol Agent Engine"]
         LLM["Local LLM (Qwen 7B / 3B / MoE)"]
-        StreamParser["Deterministic Action Token Stream Parser\n(<action name=\"tool_name\">)"]
+        StreamParser["Action Delimiter Stream Parser\n(<action name=\"tool_name\">)"]
         MCPClient["Standard MCP Client (stdio JSON-RPC)"]
     end
 
@@ -43,7 +43,7 @@ flowchart TD
         FileSystem["Raw Disk / Git Workspace"]
     end
 
-    LLM -->|Emits predictable tokens| StreamParser
+    LLM -->|Emits tool call invocations| StreamParser
     StreamParser --> MCPClient
     MCPClient <==>|Invariant MCP Protocol| Refinery
     MCPClient <==>|Invariant MCP Protocol| MemoryFacade
@@ -55,10 +55,10 @@ flowchart TD
     MemoryFacade -.->|Embeds query| Embedder
 ```
 
-### 1. Invariant Action Token Boundary
-Every MCP server authored and maintained in `lokol` exists to provide an **invariant, contract-guaranteed facade** tailored specifically for small model token generation:
+### 1. Invariant Tool Call Boundary
+Every MCP server authored and maintained in `lokol` exists to provide an **invariant, contract-guaranteed tooling facade** tailored specifically for small model invocation reliability:
 - The agent prompt only exposes minimal, stable action names and flat, non-nested parameters.
-- The LLM generates tokens against this stable facade, completely insulated from how the underlying tasks are actually performed.
+- The LLM emits tool call invocations against this stable facade, completely insulated from how the underlying tasks are actually performed.
 
 ### 2. Radical Noise Gate & Mechanical Filtering
 The in-repo MCP servers are explicitly responsible for **mechanical pre-filtering and summarization** before returning bytes to the agent loop:
@@ -76,7 +76,7 @@ Because the MCP servers act as facades:
 ## Consequences
 
 ### Positive
-- **Guaranteed Action Token Predictability**: The local 7B/3B LLM only ever targets a stable, minimal set of action tokens that it has been calibrated to generate reliably.
+- **Guaranteed Tool Invocation Reliability**: The local 7B/3B LLM targets an invariant, minimal set of action delimiters and tool signatures that it has been calibrated to generate deterministically.
 - **KV Cache Defense**: Strict mechanical filtering at the MCP layer prevents context bloat from verbose OS commands.
 - **Total Decoupling**: Underlying libraries, compilers, and vector databases can be upgraded or replaced without breaking prompt contracts or agent control flow.
 

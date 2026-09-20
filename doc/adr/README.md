@@ -15,4 +15,4 @@ This directory contains the Architecture Decision Records for the `lokol` projec
 | [ADR-0009](0009-agents-md-contract-ingestion.md) | Ingestion of Repository AGENTS.md in Agentic Coding Mode | Accepted | 2026-09-20 |
 | [ADR-0010](0010-xdg-persistent-memory-storage.md) | Persistent Memory Storage Architecture in XDG State and Data Directories | Accepted | 2026-09-20 |
 | [ADR-0011](0011-local-vector-database-adoption.md) | Local Vector Database Adoption for Memory and Source Code Indexing | Accepted | 2026-09-20 |
-| [ADR-0012](0012-in-repo-mcp-facades.md) | In-Repo MCP Servers as Architectural Facades for Predictable Action Tokens | Accepted | 2026-09-20 |
+| [ADR-0012](0012-in-repo-mcp-facades.md) | In-Repo MCP Servers as Architectural Facades for Deterministic Tool Call Invocations | Accepted | 2026-09-20 |
