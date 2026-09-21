@@ -105,6 +105,8 @@ Public pull requests and issues are disabled to maintain strict security boundar
 
 If you are using lokol, feel free to inspect and fork the code under the terms of the [MIT License](LICENSE).
 
+For development environment setup instructions across macOS, Debian/Ubuntu (APT), and Fedora/RHEL (RPM), see [CONTRIBUTING.md](CONTRIBUTING.md) and [`setup.sh`](setup.sh).
+
 ---
 
 ## License & Acknowledgements
