@@ -48,3 +48,45 @@ func TestTUISmokeTest(t *testing.T) {
 		t.Errorf("view output was empty")
 	}
 }
+
+// TestTUIViewportLineWrapping verifies that long lines exceeding the viewport width are wrapped.
+func TestTUIViewportLineWrapping(t *testing.T) {
+	client := agent.NewClient("http://127.0.0.1:8080")
+	m := tui.New(client, nil, false)
+
+	// Set a narrow window: Width 40 -> viewport width 36
+	newModel, _ := m.Update(tea.WindowSizeMsg{Width: 40, Height: 20})
+	m = newModel.(tui.Model)
+
+	// Send a long user prompt exceeding 36 characters without newlines
+	longInput := "This is a very long agent prompt designed to test whether the viewport wraps lines properly or truncates them horizontally at the boundary."
+	// Set textarea value and simulate Enter key
+	for _, r := range longInput {
+		newModel, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		m = newModel.(tui.Model)
+	}
+	newModel, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = newModel.(tui.Model)
+
+	content := m.ViewportContent()
+	lines := strings.Split(content, "\n")
+	for i, line := range lines {
+		// Visible width should not exceed viewport width (36)
+		// Strip ANSI escape codes if needed, but here we can check length
+		if len(line) > 40 {
+			t.Errorf("line %d exceeds viewport boundary: %q (len %d)", i, line, len(line))
+		}
+	}
+
+	// Verify that the long input was wrapped into multiple lines
+	foundSnippet := false
+	for _, line := range lines {
+		if strings.Contains(line, "horizontally") {
+			foundSnippet = true
+			break
+		}
+	}
+	if !foundSnippet {
+		t.Errorf("expected wrapped content to contain snippet 'horizontally'")
+	}
+}

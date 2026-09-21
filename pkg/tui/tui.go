@@ -18,6 +18,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 type state int
@@ -106,7 +107,7 @@ func New(client *agent.Client, hw *probe.HardwareProfile, yoloMode bool) Model {
 	if yoloMode {
 		initialText += "⚡ [YOLO MODE ENGAGED] Autonomous command execution without confirmation.\n\n"
 	}
-	vp.SetContent(initialText)
+	vp.SetContent(wrapContent(initialText, 76))
 
 	m := Model{
 		client:    client,
@@ -229,6 +230,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.viewport.Width = msg.Width - 4
 		m.viewport.Height = vpHeight
 		m.textarea.SetWidth(msg.Width - 4)
+		m.viewport.SetContent(wrapContent(m.chatLog, m.viewport.Width))
+		m.viewport.GotoBottom()
 
 	case tea.KeyMsg:
 		switch msg.Type {
@@ -313,7 +316,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				displayStr = strings.TrimSpace(displayStr[:idx])
 			}
 			if displayStr != "" {
-				m.viewport.SetContent(m.chatLog + agentStyle.Render("lokol: ") + displayStr)
+				m.viewport.SetContent(wrapContent(m.chatLog+agentStyle.Render("lokol: ")+displayStr, m.viewport.Width))
 			}
 			m.viewport.GotoBottom()
 			return m, waitForToken(m.tokenChan)
@@ -415,9 +418,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
+func wrapContent(content string, width int) string {
+	if width <= 0 {
+		return content
+	}
+	return ansi.Wrap(content, width, "")
+}
+
 func (m *Model) appendLog(text string) {
 	m.chatLog += text
-	m.viewport.SetContent(m.chatLog)
+	w := m.viewport.Width
+	if w <= 0 {
+		w = 76
+	}
+	m.viewport.SetContent(wrapContent(m.chatLog, w))
 	m.viewport.GotoBottom()
 }
 
@@ -476,5 +490,10 @@ func (m Model) View() string {
 		statusLine,
 		m.textarea.View(),
 	)
+}
+
+// ViewportContent returns the raw wrapped text content currently held in the viewport.
+func (m Model) ViewportContent() string {
+	return wrapContent(m.chatLog, m.viewport.Width)
 }
 
