@@ -92,7 +92,7 @@ func TestLocalEngine_Integration(t *testing.T) {
 			}
 		}
 
-		// Must deterministically produce an active action
+		// Must produce an active action
 		act := agent.ParseAction(resp)
 		if act == nil {
 			t.Fatalf("expected active action invocation, got nil action. Response: %s", resp)

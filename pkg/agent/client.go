@@ -80,7 +80,7 @@ func (env HostEnvironment) FormatEnvironmentTag() string {
 	return fmt.Sprintf("<environment>\n<cwd>%s</cwd>\n<os>%s</os>\n<shell>%s</shell>\n</environment>", cwd, osName, shell)
 }
 
-// SystemPromptBase provides lean, deterministic instructions tailored for 7B/3B models.
+// SystemPromptBase provides lean instructions tailored for 7B/3B models.
 // Use BuildSystemPrompt or BuildSystemPromptWithEnv to produce the final prompt with host environment context.
 const SystemPromptBase = `Tool Execution Protocol:
 - Execute actions using the XML action formats below.
@@ -176,11 +176,11 @@ Repository files listed.
 
 // SystemPrompt is the default system prompt for backward compatibility.
 // Prefer BuildSystemPrompt for runtime use.
-const SystemPrompt = "You are lokol, a deterministic, local-first autonomous coding agent.\nSolve coding tasks deterministically by inspecting files, writing code, and testing.\n\n" + SystemPromptBase
+const SystemPrompt = "You are lokol, a local-first autonomous coding agent.\nSolve coding tasks by inspecting files, writing code, and testing.\n\n" + SystemPromptBase
 
 // BuildSystemPromptWithEnv returns the full system prompt with host environment context injected.
 func BuildSystemPromptWithEnv(env HostEnvironment) string {
-	return fmt.Sprintf("You are lokol, a deterministic, local-first autonomous coding agent.\nSolve coding tasks deterministically by inspecting files, writing code, and testing.\n\n%s\n\n%s",
+	return fmt.Sprintf("You are lokol, a local-first autonomous coding agent.\nSolve coding tasks by inspecting files, writing code, and testing.\n\n%s\n\n%s",
 		env.FormatEnvironmentTag(),
 		SystemPromptBase,
 	)
