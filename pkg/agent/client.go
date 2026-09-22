@@ -174,10 +174,6 @@ Assistant: The repository contains main.go.
 Repository files listed.
 </action>`
 
-// SystemPrompt is the default system prompt for backward compatibility.
-// Prefer BuildSystemPrompt for runtime use.
-const SystemPrompt = "You are lokol, a local-first autonomous coding agent.\nSolve coding tasks by inspecting files, writing code, and testing.\n\n" + SystemPromptBase
-
 // BuildSystemPromptWithEnv returns the full system prompt with host environment context injected.
 func BuildSystemPromptWithEnv(env HostEnvironment) string {
 	return fmt.Sprintf("You are lokol, a local-first autonomous coding agent.\nSolve coding tasks by inspecting files, writing code, and testing.\n\n%s\n\n%s",
