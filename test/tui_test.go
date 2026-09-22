@@ -24,7 +24,7 @@ func TestTUISmokeTest(t *testing.T) {
 		VRAMBytes: 12 * 1024 * 1024 * 1024,
 	}
 	client := agent.NewClient("http://127.0.0.1:8080")
-	m := tui.New(client, hw, false)
+	m := tui.New(client, hw, false, "")
 
 	// 1. Simulate Window Resize
 	newModel, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
@@ -52,7 +52,7 @@ func TestTUISmokeTest(t *testing.T) {
 // TestTUIViewportLineWrapping verifies that long lines exceeding the viewport width are wrapped.
 func TestTUIViewportLineWrapping(t *testing.T) {
 	client := agent.NewClient("http://127.0.0.1:8080")
-	m := tui.New(client, nil, false)
+	m := tui.New(client, nil, false, "")
 
 	// Set a narrow window: Width 40 -> viewport width 36
 	newModel, _ := m.Update(tea.WindowSizeMsg{Width: 40, Height: 20})

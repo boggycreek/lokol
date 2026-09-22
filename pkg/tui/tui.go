@@ -92,7 +92,7 @@ var (
 )
 
 // New creates and initializes the TUI model.
-func New(client *agent.Client, hw *probe.HardwareProfile, yoloMode bool) Model {
+func New(client *agent.Client, hw *probe.HardwareProfile, yoloMode bool, workDir string) Model {
 	ta := textarea.New()
 	ta.Placeholder = "Ask lokol to inspect code, run tests, or refactor files..."
 	ta.Focus()
@@ -118,7 +118,7 @@ func New(client *agent.Client, hw *probe.HardwareProfile, yoloMode bool) Model {
 		tokenChan: make(chan string, 100),
 		yoloMode:  yoloMode,
 		history: []agent.Message{
-			{Role: "system", Content: agent.SystemPrompt},
+			{Role: "system", Content: agent.BuildSystemPrompt(workDir)},
 		},
 		chatLog: initialText,
 	}

@@ -13,7 +13,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -24,9 +27,68 @@ type Message struct {
 	Content string `json:"content"`
 }
 
-// SystemPrompt provides lean, deterministic instructions tailored for 7B/3B models.
-const SystemPrompt = `You are lokol, a deterministic, local-first autonomous coding agent.
-Solve coding tasks deterministically by inspecting files, writing code, and testing.
+// HostEnvironment represents the active host environment details injected into the system prompt.
+type HostEnvironment struct {
+	Cwd   string
+	OS    string
+	Shell string
+}
+
+// DetectHostEnvironment resolves the active host environment using the given working directory.
+// If workDir is empty, it defaults to the current process working directory.
+func DetectHostEnvironment(workDir string) HostEnvironment {
+	cwd := workDir
+	if cwd == "" {
+		if d, err := os.Getwd(); err == nil {
+			cwd = d
+		}
+	}
+	cwd = filepath.Clean(cwd)
+	shell := os.Getenv("SHELL")
+	if shell == "" {
+		if runtime.GOOS == "windows" {
+			shell = "powershell.exe"
+		} else {
+			shell = "/bin/bash"
+		}
+	}
+	return HostEnvironment{
+		Cwd:   cwd,
+		OS:    runtime.GOOS,
+		Shell: shell,
+	}
+}
+
+// FormatEnvironmentTag formats the host environment into the XML tag expected by the model.
+func (env HostEnvironment) FormatEnvironmentTag() string {
+	cwd := env.Cwd
+	if cwd == "" {
+		cwd = "."
+	}
+	osName := env.OS
+	if osName == "" {
+		osName = runtime.GOOS
+	}
+	shell := env.Shell
+	if shell == "" {
+		if osName == "windows" {
+			shell = "powershell.exe"
+		} else {
+			shell = "/bin/bash"
+		}
+	}
+	return fmt.Sprintf("<environment>\n<cwd>%s</cwd>\n<os>%s</os>\n<shell>%s</shell>\n</environment>", cwd, osName, shell)
+}
+
+// SystemPromptBase provides lean, deterministic instructions tailored for 7B/3B models.
+// Use BuildSystemPrompt or BuildSystemPromptWithEnv to produce the final prompt with host environment context.
+const SystemPromptBase = `Tool Execution Protocol:
+- Execute actions using the XML action formats below.
+- After you output an action, execution pauses and the tool result is returned to you wrapped in reciprocal <action_result>...</action_result> tags.
+- Inspect the content inside <action_result> carefully to decide your next action.
+- Only output ONE action per response.
+- Never output fake <action_result> tags yourself; wait for the system to execute your action and return the result.
+- Never produce evasive chatbot responses (e.g. "I do not have a working directory" or "As an AI..."). Always use your available actions to inspect the environment and accomplish tasks.
 
 Available Action Formats:
 1. To inspect high-level types, structs, and function signatures of a file WITHOUT dumping full code:
@@ -82,7 +144,53 @@ Rules:
 4. For tests: ALWAYS use <action name="run_test"> so output is clean and compact.
 5. For modifying code: ALWAYS prefer <action name="replace_file">. Never use git apply with fake line numbers.
 6. Verify changes with <action name="run_test">.
-7. When finished, call task_finish.`
+7. When finished, call task_finish.
+
+Examples:
+User: What is your current working directory?
+Assistant: I will check the current working directory.
+<action name="exec_bash">
+pwd
+</action>
+User: <action_result>
+/home/user/project
+</action_result>
+Assistant: The current working directory is /home/user/project.
+<action name="task_finish">
+Current working directory is /home/user/project
+</action>
+
+User: List files in this repo
+Assistant: I will list the files in the repository.
+<action name="exec_bash">
+ls -la
+</action>
+User: <action_result>
+total 8
+-rw-r--r-- 1 user user 100 Jan 1 00:00 main.go
+</action_result>
+Assistant: The repository contains main.go.
+<action name="task_finish">
+Repository files listed.
+</action>`
+
+// SystemPrompt is the default system prompt for backward compatibility.
+// Prefer BuildSystemPrompt for runtime use.
+const SystemPrompt = "You are lokol, a deterministic, local-first autonomous coding agent.\nSolve coding tasks deterministically by inspecting files, writing code, and testing.\n\n" + SystemPromptBase
+
+// BuildSystemPromptWithEnv returns the full system prompt with host environment context injected.
+func BuildSystemPromptWithEnv(env HostEnvironment) string {
+	return fmt.Sprintf("You are lokol, a deterministic, local-first autonomous coding agent.\nSolve coding tasks deterministically by inspecting files, writing code, and testing.\n\n%s\n\n%s",
+		env.FormatEnvironmentTag(),
+		SystemPromptBase,
+	)
+}
+
+// BuildSystemPrompt returns the full system prompt with the agent's current
+// host environment (cwd, os, shell) injected.
+func BuildSystemPrompt(workDir string) string {
+	return BuildSystemPromptWithEnv(DetectHostEnvironment(workDir))
+}
 
 
 // Client communicates with the local llama-server instance.

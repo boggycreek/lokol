@@ -16,13 +16,14 @@ type Runner struct {
 	Client   *Client
 	MaxTurns int
 	YOLO     bool
+	WorkDir  string // Current working directory for system prompt context
 	OnOutput func(role, content string)
 }
 
 // Run executes an autonomous loop on a given user prompt.
 func (r *Runner) Run(ctx context.Context, initialPrompt string) (string, error) {
 	history := []Message{
-		{Role: "system", Content: SystemPrompt},
+		{Role: "system", Content: BuildSystemPrompt(r.WorkDir)},
 		{Role: "user", Content: initialPrompt},
 	}
 
