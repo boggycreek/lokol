@@ -7,10 +7,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/boggycreek/lokol/pkg/agent"
 	"github.com/boggycreek/lokol/pkg/model"
@@ -200,9 +203,15 @@ func runExec(engineURL string, maxTurns int, prompt string) {
 		},
 	}
 
-	ctx := context.Background()
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
 	_, err := runner.Run(ctx, prompt)
 	if err != nil {
+		if errors.Is(ctx.Err(), context.Canceled) {
+			fmt.Println("\n[Execution interrupted by signal. Slot released.]")
+			os.Exit(130)
+		}
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
