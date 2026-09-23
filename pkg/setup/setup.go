@@ -86,8 +86,23 @@ func Run(opts Options) (*Result, error) {
 	if llamaFound {
 		fmt.Printf("  ✓ Found llama binary at: %s\n", llamaPath)
 	} else {
-		fmt.Println("  ✗ llama binary not found in PATH or ~/.local/bin/llama.")
-		res.Issues = append(res.Issues, "llama binary missing (needed for local inference engine)")
+		if opts.InstallLlama {
+			fmt.Println("  Installing llama.cpp & llama-server via install-llama.sh...")
+			if err := runLlamaInstaller(); err != nil {
+				fmt.Printf("  ⚠️  Failed to install llama.cpp: %v\n", err)
+			} else {
+				if newPath, found := findLlamaBinary(); found {
+					res.LlamaInstalled = true
+					res.LlamaPath = newPath
+					fmt.Printf("  ✓ Successfully installed llama binary at: %s\n", newPath)
+				}
+			}
+		}
+		if !res.LlamaInstalled {
+			fmt.Println("  ✗ llama binary not found in PATH or ~/.local/bin/llama.")
+			fmt.Println("    (Run ./install-llama.sh to download or compile llama.cpp)")
+			res.Issues = append(res.Issues, "llama binary missing (needed for local inference engine)")
+		}
 	}
 
 	// 3. Recommended model weight verification
@@ -154,22 +169,54 @@ func Run(opts Options) (*Result, error) {
 	return res, nil
 }
 
-func findLlamaBinary() (string, bool) {
-	// 1. Check PATH
-	if p, err := exec.LookPath("llama"); err == nil {
-		return p, true
+func runLlamaInstaller() error {
+	installerPath := "./install-llama.sh"
+	if !fileExists(installerPath) {
+		if exe, err := os.Executable(); err == nil {
+			cand := filepath.Join(filepath.Dir(exe), "install-llama.sh")
+			if fileExists(cand) {
+				installerPath = cand
+			} else {
+				cand = filepath.Join(filepath.Dir(exe), "..", "install-llama.sh")
+				if fileExists(cand) {
+					installerPath = cand
+				}
+			}
+		}
 	}
+	if !fileExists(installerPath) {
+		return fmt.Errorf("install-llama.sh not found (run ./install-llama.sh manually)")
+	}
+
+	cmd := exec.Command(installerPath, "-y")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+func findLlamaBinary() (string, bool) {
+	// 1. Check PATH (prefer llama-server, then llama)
 	if p, err := exec.LookPath("llama-server"); err == nil {
 		return p, true
 	}
+	if p, err := exec.LookPath("llama"); err == nil {
+		return p, true
+	}
 
-	// 2. Check ~/.local/bin/llama
+	// 2. Check XDG and standard local paths
 	home := os.Getenv("HOME")
+	xdgBin := filepath.Join(home, ".local", "bin")
+	if envBin := os.Getenv("XDG_BIN_HOME"); envBin != "" {
+		xdgBin = envBin
+	}
+
 	candidates := []string{
-		filepath.Join(home, ".local", "bin", "llama"),
-		filepath.Join(home, ".local", "bin", "llama-server"),
-		"/usr/local/bin/llama",
+		filepath.Join(xdgBin, "llama-server"),
+		filepath.Join(xdgBin, "llama"),
+		filepath.Join(home, ".local", "share", "llama.cpp", "llama-server"),
+		filepath.Join(home, ".local", "share", "llama.cpp", "llama-cli"),
 		"/usr/local/bin/llama-server",
+		"/usr/local/bin/llama",
 	}
 
 	for _, cand := range candidates {

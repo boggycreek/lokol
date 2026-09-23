@@ -131,13 +131,44 @@ Options:
   --skip-go                      Skip Go toolchain installation/check
   --skip-beads                   Skip Beads (bd) issue tracking CLI installation
   --skip-cmake                   Skip CMake build tool installation
+  --skip-llama                   Skip llama.cpp / llama-server check or installation
+  --install-llama                Download prebuilt or build llama.cpp and llama-server via install-llama.sh
+  --install-llama-source         Force compiling llama.cpp and llama-server from source
   --dry-run                      Print actions and commands without executing them
   -h, --help                     Display usage help
 ```
 
 ---
 
-## 7. Building & Testing `lokol`
+## 7. Inference Engine Setup (`install-llama.sh`)
+
+`lokol` interfaces directly with a local `llama-server` process. To download prebuilt binaries or compile `llama.cpp` and `llama-server` from source across macOS and Linux, run:
+
+```bash
+# Auto-detect platform, GPU (CUDA, Metal, Vulkan), and download prebuilt binaries
+./install-llama.sh
+
+# Or force compiling from source via CMake
+./install-llama.sh --build-from-source
+
+# Or inspect current engine status and connectivity
+./install-llama.sh --status
+```
+
+Supported options for `install-llama.sh`:
+- `--prebuilt`: Download official prebuilt binaries from GitHub Releases (default)
+- `--build-from-source`: Compile `llama.cpp` and `llama-server` from source via CMake
+- `--backend <auto|cpu|cuda|vulkan|metal>`: Explicit hardware acceleration backend
+- `--use-brew`: Use Homebrew (`brew install llama.cpp`) on macOS
+- `--version <tag>` / `--tag <tag>`: Specify a release tag or build (e.g. `b11126` or `latest`)
+- `--bin-dir <path>`: Target directory for executable symlinks (default: `~/.local/bin`)
+- `--install-dir <path>`: Target directory for library bundle (default: `~/.local/share/llama.cpp`)
+- `--status` / `--check`: Inspect current installation, hardware capabilities, and health
+- `--dry-run`: Preview actions without executing commands
+
+---
+
+## 8. Building & Testing `lokol`
 
 Once dependencies are installed and `~/.local/bin` is in your `PATH`, verify the build:
 

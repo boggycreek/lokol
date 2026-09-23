@@ -44,11 +44,13 @@ Options:
   --bin-dir <path>     Target directory for lokol executable (default: ~/.local/bin)
   --build-from-source  Force local git clone and Go compilation instead of prebuilt binary
   --skip-setup         Skip initial setup probe and dependency bootstrap
+  --install-llama      Install or compile llama.cpp / llama-server using install-llama.sh
   -h, --help           Show this help message
 EOF
 }
 
 SKIP_SETUP=false
+INSTALL_LLAMA=false
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -66,6 +68,10 @@ while [ $# -gt 0 ]; do
       ;;
     --skip-setup)
       SKIP_SETUP=true
+      shift
+      ;;
+    --install-llama)
+      INSTALL_LLAMA=true
       shift
       ;;
     -h|--help)
@@ -239,7 +245,11 @@ done
 if [ "${SKIP_SETUP}" = false ]; then
   echo
   echo "[5/5] Running initial setup and hardware probe..."
-  "${TARGET_BIN_DIR}/lokol" setup || true
+  SETUP_ARGS=()
+  if [ "${INSTALL_LLAMA}" = true ]; then
+    SETUP_ARGS+=("--install-llama")
+  fi
+  "${TARGET_BIN_DIR}/lokol" setup "${SETUP_ARGS[@]}" || true
 fi
 
 echo
