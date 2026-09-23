@@ -64,6 +64,12 @@ make build
 
 # Automatically download recommended model weights if missing
 ./bin/lokol setup --download-model
+
+# Automatically download/build llama.cpp and llama-server if missing
+./bin/lokol setup --install-llama
+
+# Or use the standalone multi-OS installer directly
+./install-llama.sh
 ```
 
 ### Probe Host Hardware

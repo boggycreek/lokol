@@ -34,6 +34,9 @@ RUN_DOCTOR=false
 LIST_GO=false
 SWITCH_GO=""
 REQUESTED_GO_VERSION=""
+INSTALL_LLAMA=false
+INSTALL_LLAMA_SOURCE=false
+SKIP_LLAMA=false
 
 # XDG Base Directory specification paths
 XDG_BIN_HOME="${HOME}/.local/bin"
@@ -69,6 +72,9 @@ Options:
   --skip-go                      Skip Go toolchain installation/check
   --skip-beads                   Skip Beads (bd) CLI installation
   --skip-cmake                   Skip CMake build tool installation
+  --skip-llama                   Skip llama.cpp / llama-server check or installation
+  --install-llama                Download prebuilt or build llama.cpp and llama-server via install-llama.sh
+  --install-llama-source         Force compiling llama.cpp and llama-server from source
   --dry-run                      Print actions without executing commands
   -h, --help                     Show this help message
 EOF
@@ -111,6 +117,19 @@ while [ $# -gt 0 ]; do
       ;;
     --skip-cmake)
       SKIP_CMAKE=true
+      shift
+      ;;
+    --skip-llama)
+      SKIP_LLAMA=true
+      shift
+      ;;
+    --install-llama)
+      INSTALL_LLAMA=true
+      shift
+      ;;
+    --install-llama-source)
+      INSTALL_LLAMA=true
+      INSTALL_LLAMA_SOURCE=true
       shift
       ;;
     --dry-run)
@@ -497,8 +516,9 @@ run_environment_doctor() {
     passes=$((passes + 1))
   else
     echo "  [WARN] llama-server / llama binary not found in PATH or ${XDG_BIN_HOME}"
-    echo "         (Automated build/download is tracked under issue lokol-da4)"
+    echo "         (Install or compile using: ./install-llama.sh)"
     warnings=$((warnings + 1))
+    remediation+=("./install-llama.sh (automatically downloads prebuilt or builds llama.cpp)")
   fi
 
   # Probe local server
@@ -743,10 +763,35 @@ elif [ -x "${XDG_BIN_HOME}/llama-server" ] || [ -x "${XDG_BIN_HOME}/llama" ]; th
   LLAMA_FOUND=true
 fi
 
-if [ "${LLAMA_FOUND}" = false ]; then
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || echo "")"
+LLAMA_INSTALLER="${SCRIPT_DIR}/install-llama.sh"
+if [ ! -f "${LLAMA_INSTALLER}" ]; then
+  LLAMA_INSTALLER="./install-llama.sh"
+fi
+
+if [ "${SKIP_LLAMA}" = true ]; then
+  echo "  Skipping inference engine setup (--skip-llama)."
+elif [ "${INSTALL_LLAMA}" = true ]; then
+  if [ -f "${LLAMA_INSTALLER}" ]; then
+    echo "  Invoking llama.cpp installer (${LLAMA_INSTALLER})..."
+    INSTALL_ARGS=("-y")
+    if [ "${INSTALL_LLAMA_SOURCE}" = true ]; then
+      INSTALL_ARGS+=("--build-from-source")
+    fi
+    if [ "${USE_SUDO}" = false ]; then
+      INSTALL_ARGS+=("--no-sudo")
+    fi
+    if [ "${DRY_RUN}" = true ]; then
+      INSTALL_ARGS+=("--dry-run")
+    fi
+    "${LLAMA_INSTALLER}" "${INSTALL_ARGS[@]}"
+  else
+    echo "  ⚠️  Installer script not found: ${LLAMA_INSTALLER}"
+  fi
+elif [ "${LLAMA_FOUND}" = false ]; then
   echo "  ℹ️  llama-server is not currently detected."
   echo "     lokol connects to a local llama-server instance (default: http://127.0.0.1:8080)."
-  echo "     Tracking issue lokol-da4 manages automated download/build of llama.cpp."
+  echo "     Install or build it automatically using: ./install-llama.sh"
 fi
 
 # 6. Environment and PATH Verification
