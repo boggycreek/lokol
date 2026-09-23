@@ -84,6 +84,26 @@ Rules:
 6. Verify changes with <action name="run_test">.
 7. When finished, call task_finish.`
 
+// BuildSystemPrompt constructs the initial system message enforcing the strict prompt hierarchy:
+// Tier 1: Invariant System Prompt (fixed agent identity, tool schemas, rules)
+// Tier 2: Codebase / Refinery context (project guidelines, AGENTS.md, repo conventions)
+func BuildSystemPrompt(codebaseContext string) string {
+	codebaseContext = strings.TrimSpace(codebaseContext)
+	if codebaseContext == "" {
+		return SystemPrompt
+	}
+	return fmt.Sprintf("%s\n\n<codebase_context>\n%s\n</codebase_context>", SystemPrompt, codebaseContext)
+}
+
+// BuildInitialHistory creates the initial message list strictly following the prompt hierarchy:
+// (1) Invariant System Prompt + (2) Codebase / Refinery context as messages[0]
+// (3) Fluid conversational history initial user turn as messages[1]
+func BuildInitialHistory(codebaseContext, initialPrompt string) []Message {
+	return []Message{
+		{Role: "system", Content: BuildSystemPrompt(codebaseContext)},
+		{Role: "user", Content: initialPrompt},
+	}
+}
 
 // Client communicates with the local llama-server instance.
 type Client struct {
@@ -112,6 +132,7 @@ type StreamChatRequest struct {
 	Temperature float64   `json:"temperature"`
 	MaxTokens   int       `json:"max_tokens,omitempty"`
 	Stop        []string  `json:"stop,omitempty"`
+	CachePrompt bool      `json:"cache_prompt"`
 }
 
 type ChatChunkResponse struct {
@@ -131,12 +152,27 @@ func (c *Client) StreamResponse(ctx context.Context, history []Message, tokenCha
 		Stream:      true,
 		Temperature: 0.1,
 		MaxTokens:   4096,
+		CachePrompt: true,
 	}
 
 	data, err := json.Marshal(reqBody)
 	if err != nil {
 		return "", err
 	}
+
+	doneChan := make(chan struct{})
+	defer close(doneChan)
+
+	// Monitor context cancellation to explicitly abort the active slot in llama-server
+	go func() {
+		select {
+		case <-ctx.Done():
+			abortCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			_ = c.AbortActiveSlots(abortCtx)
+		case <-doneChan:
+		}
+	}()
 
 	req, err := http.NewRequestWithContext(ctx, "POST", c.BaseURL+"/v1/chat/completions", bytes.NewReader(data))
 	if err != nil {
@@ -361,5 +397,83 @@ func (c *Client) GetSlotStatus(ctx context.Context) (*SlotStatus, error) {
 	}
 
 	return status, nil
+}
+
+// SlotInfo captures the high-level slot state from GET /slots.
+type SlotInfo struct {
+	ID            int  `json:"id"`
+	NCtx          int  `json:"n_ctx"`
+	NPromptTokens int  `json:"n_prompt_tokens"`
+	IsProcessing  bool `json:"is_processing"`
+}
+
+// GetSlots queries GET /slots and returns status for all slots on the server.
+func (c *Client) GetSlots(ctx context.Context) ([]SlotInfo, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", c.BaseURL+"/slots", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("slots endpoint returned %d", resp.StatusCode)
+	}
+
+	var rawSlots []SlotInfo
+	if err := json.NewDecoder(resp.Body).Decode(&rawSlots); err != nil {
+		return nil, err
+	}
+	return rawSlots, nil
+}
+
+// AbortSlot sends an action=erase request to the specified slot in llama-server to release it.
+// It also severs idle transport connections to ensure any hung socket read unblocks.
+func (c *Client) AbortSlot(ctx context.Context, slotID int) error {
+	if c.HTTPClient != nil {
+		c.HTTPClient.CloseIdleConnections()
+	}
+
+	url := fmt.Sprintf("%s/slots/%d?action=erase", c.BaseURL, slotID)
+	req, err := http.NewRequestWithContext(ctx, "POST", url, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusNotImplemented {
+		return nil
+	}
+	return fmt.Errorf("abort slot %d returned status %d", slotID, resp.StatusCode)
+}
+
+// AbortActiveSlots discovers all slots via GET /slots and aborts any that are active or processing.
+// If GET /slots returns an error or empty list, it proactively aborts slot 0.
+func (c *Client) AbortActiveSlots(ctx context.Context) error {
+	if c.HTTPClient != nil {
+		c.HTTPClient.CloseIdleConnections()
+	}
+
+	slots, err := c.GetSlots(ctx)
+	if err == nil && len(slots) > 0 {
+		var lastErr error
+		for _, s := range slots {
+			if s.IsProcessing || s.ID == 0 {
+				if err := c.AbortSlot(ctx, s.ID); err != nil {
+					lastErr = err
+				}
+			}
+		}
+		return lastErr
+	}
+	return c.AbortSlot(ctx, 0)
 }
 

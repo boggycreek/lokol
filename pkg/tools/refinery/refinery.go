@@ -299,3 +299,45 @@ func extractTag(xml, tag string) string {
 	}
 	return strings.TrimSpace(xml[s : s+e])
 }
+
+// LoadCodebaseContext discovers repository guidelines and context following ADR 0009:
+// 1. ./AGENTS.md
+// 2. ./CLAUDE.md
+// 3. .github/AGENTS.md
+// The context is formatted inside <project_guidelines> and capped to a safe token budget.
+func LoadCodebaseContext(workspaceDir string) string {
+	if workspaceDir == "" {
+		workspaceDir = "."
+	}
+
+	candidates := []string{
+		filepath.Join(workspaceDir, "AGENTS.md"),
+		filepath.Join(workspaceDir, "CLAUDE.md"),
+		filepath.Join(workspaceDir, ".github", "AGENTS.md"),
+	}
+
+	var foundPath string
+	var content []byte
+	for _, cand := range candidates {
+		data, err := os.ReadFile(cand)
+		if err == nil && len(bytes.TrimSpace(data)) > 0 {
+			foundPath = filepath.Base(cand)
+			content = bytes.TrimSpace(data)
+			break
+		}
+	}
+
+	if len(content) == 0 {
+		return ""
+	}
+
+	// Truncate to safe context budget (e.g. 4000 characters) to avoid blowing KV cache
+	const maxContextChars = 4000
+	text := string(content)
+	if len(text) > maxContextChars {
+		text = text[:maxContextChars] + "\n...[truncated for context hygiene]"
+	}
+
+	return fmt.Sprintf("<project_guidelines source=\"%s\">\n%s\n</project_guidelines>", foundPath, text)
+}
+

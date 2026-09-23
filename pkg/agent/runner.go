@@ -9,22 +9,30 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/boggycreek/lokol/pkg/tools/refinery"
 )
 
 // Runner manages an autonomous execution loop (e.g. for batch execution or self-improvement).
 type Runner struct {
-	Client   *Client
-	MaxTurns int
-	YOLO     bool
-	OnOutput func(role, content string)
+	Client          *Client
+	MaxTurns        int
+	YOLO            bool
+	CodebaseContext string
+	OnOutput        func(role, content string)
 }
 
 // Run executes an autonomous loop on a given user prompt.
 func (r *Runner) Run(ctx context.Context, initialPrompt string) (string, error) {
-	history := []Message{
-		{Role: "system", Content: SystemPrompt},
-		{Role: "user", Content: initialPrompt},
+	if ctx.Err() != nil {
+		return "", ctx.Err()
 	}
+
+	codebaseCtx := r.CodebaseContext
+	if codebaseCtx == "" {
+		codebaseCtx = refinery.LoadCodebaseContext(".")
+	}
+	history := BuildInitialHistory(codebaseCtx, initialPrompt)
 
 	if r.MaxTurns <= 0 {
 		r.MaxTurns = 20
@@ -75,6 +83,9 @@ func (r *Runner) Run(ctx context.Context, initialPrompt string) (string, error) 
 		}
 
 		if err := <-errChan; err != nil {
+			if ctx.Err() != nil {
+				return "", ctx.Err()
+			}
 			return "", fmt.Errorf("error during turn %d: %w", turn+1, err)
 		}
 
