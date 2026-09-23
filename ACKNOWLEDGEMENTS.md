@@ -46,3 +46,36 @@ We express our sincere gratitude to the following projects, models, tools, and p
 ## Legal Notices & Third-Party Licenses
 
 For formal legal copyright notices, exact SPDX license identifiers, and redistributable third-party license texts for all direct and transitive dependencies bundled or distributed with lokol, please consult **[NOTICES.md](file:///home/brian/Workspaces/boggycreek/lokol/NOTICES.md)**.
+
+---
+
+## Software Bill of Materials (SBOM)
+
+In accordance with supply chain security best practices and open-source transparency standards, every release of `lokol` includes an official Software Bill of Materials in SPDX 2.3 JSON format (`lokol-sbom.spdx.json`).
+
+The SBOM catalogs:
+- All direct and transitive Go dependencies compiled into the static binaries.
+- Exact upstream module versions, package URLs (`purl`), and cryptographic hashes.
+- Upstream GitHub Actions and build tooling dependencies used in the CI/CD pipeline.
+
+### Where to Find and Verify the Release SBOM
+
+1. **GitHub Releases**: Download `lokol-sbom.spdx.json` and `lokol-sbom.spdx.json.sha256` alongside binary archives directly from [GitHub Releases](https://github.com/boggycreek/lokol/releases).
+2. **Checksum Verification**:
+   ```bash
+   sha256sum -c lokol-sbom.spdx.json.sha256
+   ```
+3. **Local Inspection**:
+   Inspect the SBOM using `syft`, `spdx-tools`, or standard JSON utilities:
+   ```bash
+   # View formatted summary of packages
+   syft lokol-sbom.spdx.json
+
+   # Or parse package list with jq
+   jq '.packages[] | {name: .name, version: .versionInfo, license: .licenseConcluded}' lokol-sbom.spdx.json
+   ```
+4. **Local Generation**:
+   You can also generate an on-demand SBOM locally from source using:
+   ```bash
+   make sbom
+   ```
