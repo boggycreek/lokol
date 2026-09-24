@@ -64,6 +64,12 @@ make build
 
 # Automatically download recommended model weights if missing
 ./bin/lokol setup --download-model
+
+# Automatically download/build llama.cpp and llama-server if missing
+./bin/lokol setup --install-llama
+
+# Or use the standalone multi-OS installer directly
+./install-llama.sh
 ```
 
 ### Probe Host Hardware
@@ -114,4 +120,5 @@ For development environment setup instructions across macOS, Debian/Ubuntu (APT)
 - **Root License**: This project is licensed under the terms of the [MIT License](LICENSE). Copyright &copy; 2026 Boggy Creek Software LLC.
 - **Acknowledgements**: See [ACKNOWLEDGEMENTS.md](ACKNOWLEDGEMENTS.md) for human-centric recognition and appreciation of our foundational open-source pillars, upstream models, and ecosystem maintainers.
 - **Third-Party Notices**: See [NOTICES.md](NOTICES.md) for full legal notices, copyright statements, and redistributable licenses for third-party dependencies.
+- **Software Bill of Materials (SBOM)**: Every release publishes an official SPDX JSON SBOM (`lokol-sbom.spdx.json`) and SHA256 checksums under [GitHub Releases](https://github.com/boggycreek/lokol/releases). See [ACKNOWLEDGEMENTS.md](ACKNOWLEDGEMENTS.md#software-bill-of-materials-sbom) for verification details.
 

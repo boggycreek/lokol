@@ -34,6 +34,22 @@ probe: build
 clean:
 	rm -rf $(BIN_DIR) dist/
 
+sbom:
+	@mkdir -p dist
+	@if command -v syft >/dev/null 2>&1; then \
+		syft scan dir:. -o spdx-json > dist/lokol-sbom.spdx.json; \
+	elif [ -x /tmp/syft-bin/syft ]; then \
+		/tmp/syft-bin/syft scan dir:. -o spdx-json > dist/lokol-sbom.spdx.json; \
+	elif command -v cyclonedx-gomod >/dev/null 2>&1; then \
+		cyclonedx-gomod app -output dist/lokol-sbom.spdx.json -json; \
+	else \
+		echo "Installing temporary syft binary..."; \
+		curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /tmp/syft-bin v1.19.0; \
+		/tmp/syft-bin/syft scan dir:. -o spdx-json > dist/lokol-sbom.spdx.json; \
+	fi
+	@sha256sum dist/lokol-sbom.spdx.json > dist/lokol-sbom.spdx.json.sha256
+	@echo "Generated dist/lokol-sbom.spdx.json and dist/lokol-sbom.spdx.json.sha256"
+
 run: build
 	./$(BIN_DIR)/$(BINARY_NAME)
 

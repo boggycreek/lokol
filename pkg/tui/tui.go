@@ -7,12 +7,15 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/boggycreek/lokol/pkg/agent"
 	"github.com/boggycreek/lokol/pkg/probe"
+	"github.com/boggycreek/lokol/pkg/tools/refinery"
 	"github.com/boggycreek/lokol/pkg/version"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -41,21 +44,22 @@ type slotTickMsg *agent.SlotStatus
 // so strings.Builder must NOT be embedded directly as a value field.
 // We use simple string variables for immutable, safe value copying.
 type Model struct {
-	client      *agent.Client
-	hardware    *probe.HardwareProfile
-	state       state
-	viewport    viewport.Model
-	textarea    textarea.Model
-	history     []agent.Message
-	chatLog     string
-	pendingAct  *agent.Action
-	currentResp string
-	tokenChan   chan string
-	yoloMode    bool
-	width       int
-	height      int
-	slotStatus  *agent.SlotStatus
-	err         error
+	client       *agent.Client
+	hardware     *probe.HardwareProfile
+	state        state
+	viewport     viewport.Model
+	textarea     textarea.Model
+	history      []agent.Message
+	chatLog      string
+	pendingAct   *agent.Action
+	currentResp  string
+	tokenChan    chan string
+	streamCancel context.CancelFunc
+	yoloMode     bool
+	width        int
+	height       int
+	slotStatus   *agent.SlotStatus
+	err          error
 }
 
 
@@ -92,7 +96,7 @@ var (
 )
 
 // New creates and initializes the TUI model.
-func New(client *agent.Client, hw *probe.HardwareProfile, yoloMode bool, workDir string) Model {
+func New(client *agent.Client, hw *probe.HardwareProfile, yoloMode bool, workDirOpt ...string) Model {
 	ta := textarea.New()
 	ta.Placeholder = "Ask lokol to inspect code, run tests, or refactor files..."
 	ta.Focus()
@@ -109,6 +113,20 @@ func New(client *agent.Client, hw *probe.HardwareProfile, yoloMode bool, workDir
 	}
 	vp.SetContent(wrapContent(initialText, 76))
 
+	workDir := ""
+	if len(workDirOpt) > 0 {
+		workDir = workDirOpt[0]
+	}
+	if workDir == "" {
+		workDir, _ = os.Getwd()
+	}
+	if workDir == "" {
+		workDir = "."
+	}
+
+	codebaseCtx := refinery.LoadCodebaseContext(workDir)
+	systemContent := agent.BuildSystemPrompt(workDir, codebaseCtx)
+
 	m := Model{
 		client:    client,
 		hardware:  hw,
@@ -118,7 +136,7 @@ func New(client *agent.Client, hw *probe.HardwareProfile, yoloMode bool, workDir
 		tokenChan: make(chan string, 100),
 		yoloMode:  yoloMode,
 		history: []agent.Message{
-			{Role: "system", Content: agent.BuildSystemPrompt(workDir)},
+			{Role: "system", Content: systemContent},
 		},
 		chatLog: initialText,
 	}
@@ -154,9 +172,9 @@ func waitForToken(tokenChan chan string) tea.Cmd {
 	}
 }
 
-func startStream(client *agent.Client, history []agent.Message, tokenChan chan string) tea.Cmd {
+func startStream(ctx context.Context, client *agent.Client, history []agent.Message, tokenChan chan string) tea.Cmd {
 	return func() tea.Msg {
-		fullContent, err := client.StreamResponse(context.Background(), history, tokenChan)
+		fullContent, err := client.StreamResponse(ctx, history, tokenChan)
 		close(tokenChan)
 		if err != nil {
 			return errMsg(err)
@@ -235,8 +253,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyMsg:
 		switch msg.Type {
-		case tea.KeyCtrlC, tea.KeyEsc:
+		case tea.KeyCtrlC:
+			if m.state == stateStreaming {
+				if m.streamCancel != nil {
+					m.streamCancel()
+					m.streamCancel = nil
+				}
+				m.state = stateIdle
+				m.appendLog("\n[Stream cancelled by user (Ctrl+C). Slot released.]\n")
+				return m, nil
+			}
+			abortCtx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+			_ = m.client.AbortActiveSlots(abortCtx)
+			cancel()
 			return m, tea.Quit
+		case tea.KeyEsc:
+			if m.state == stateStreaming {
+				if m.streamCancel != nil {
+					m.streamCancel()
+					m.streamCancel = nil
+				}
+				m.state = stateIdle
+				m.appendLog("\n[Stream aborted (Esc). Slot released.]\n")
+				return m, nil
+			}
+			return m, nil
 		case tea.KeyCtrlY:
 			m.yoloMode = !m.yoloMode
 			if m.yoloMode {
@@ -271,8 +312,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.currentResp = ""
 				m.tokenChan = make(chan string, 100)
 
+				streamCtx, cancel := context.WithCancel(context.Background())
+				m.streamCancel = cancel
+
 				return m, tea.Batch(
-					startStream(m.client, m.history, m.tokenChan),
+					startStream(streamCtx, m.client, m.history, m.tokenChan),
 					waitForToken(m.tokenChan),
 				)
 			}
@@ -323,6 +367,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case streamDoneMsg:
+		m.streamCancel = nil
 		if m.state == stateStreaming {
 			response := m.currentResp
 			m.history = append(m.history, agent.Message{Role: "assistant", Content: response})
@@ -395,15 +440,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.state = stateStreaming
 		m.currentResp = ""
 		m.tokenChan = make(chan string, 100)
+
+		streamCtx, cancel := context.WithCancel(context.Background())
+		m.streamCancel = cancel
+
 		return m, tea.Batch(
-			startStream(m.client, m.history, m.tokenChan),
+			startStream(streamCtx, m.client, m.history, m.tokenChan),
 			waitForToken(m.tokenChan),
 		)
 
 	case errMsg:
 		m.err = msg
 		m.state = stateIdle
-		m.appendLog(fmt.Sprintf("[Error: %v]\n", msg))
+		m.streamCancel = nil
+		if !errors.Is(msg, context.Canceled) && !strings.Contains(msg.Error(), "context canceled") {
+			m.appendLog(fmt.Sprintf("[Error: %v]\n", msg))
+		}
 	}
 
 	if m.state == stateIdle {

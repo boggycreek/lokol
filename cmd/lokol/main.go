@@ -7,10 +7,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/boggycreek/lokol/pkg/agent"
 	"github.com/boggycreek/lokol/pkg/model"
@@ -47,6 +50,7 @@ func main() {
 
 	setupCmd := flag.NewFlagSet("setup", flag.ExitOnError)
 	setupDownload := setupCmd.Bool("download-model", false, "Automatically download recommended GGUF weights if missing")
+	setupInstallLlama := setupCmd.Bool("install-llama", false, "Automatically download or compile llama.cpp and llama-server if missing")
 	setupSimVRAM := setupCmd.Float64("simulate-vram-gib", 0, "Simulate a specific VRAM amount in GiB")
 
 	updateCmd := flag.NewFlagSet("update", flag.ExitOnError)
@@ -72,7 +76,7 @@ func main() {
 			switch flag.Arg(0) {
 			case "setup":
 				_ = setupCmd.Parse(flag.Args()[1:])
-				runSetup(*setupDownload, *setupSimVRAM)
+				runSetup(*setupDownload, *setupSimVRAM, *setupInstallLlama)
 				return
 			case "probe":
 				_ = probeCmd.Parse(flag.Args()[1:])
@@ -107,7 +111,7 @@ func main() {
 	switch os.Args[1] {
 	case "setup":
 		_ = setupCmd.Parse(os.Args[2:])
-		runSetup(*setupDownload, *setupSimVRAM)
+		runSetup(*setupDownload, *setupSimVRAM, *setupInstallLlama)
 	case "probe":
 		_ = probeCmd.Parse(os.Args[2:])
 		runProbe(*simVRAM)
@@ -137,14 +141,14 @@ func printUsage() {
 	fmt.Println("lokol - Local-first autonomous AI agent for consumer GPUs")
 	fmt.Println()
 	fmt.Println("Usage:")
-	fmt.Println("  lokol setup  [--download-model]       Bootstrap environment, probe hardware & check dependencies")
-	fmt.Println("  lokol probe  [--simulate-vram-gib=X]  Probe host capabilities and compute optimal model tier")
-	fmt.Println("  lokol chat   [--engine=...] [--yolo]  Start interactive Bubble Tea TUI agent session")
-	fmt.Println("  lokol exec   [--engine=...] <prompt>  Run autonomous agent in headless mode")
-	fmt.Println("  lokol update [--pre] [--version=vX]   Update to latest release from GitHub (or specific version)")
-	fmt.Println("  lokol update --list                   List all published releases available on GitHub")
-	fmt.Println("  lokol [-p | --prompt] \"<prompt>\"     Run agent in headless mode directly")
-	fmt.Println("  lokol version                        Display version")
+	fmt.Println("  lokol setup  [--download-model] [--install-llama] Bootstrap environment, probe hardware & check dependencies")
+	fmt.Println("  lokol probe  [--simulate-vram-gib=X]              Probe host capabilities and compute optimal model tier")
+	fmt.Println("  lokol chat   [--engine=...] [--yolo]              Start interactive Bubble Tea TUI agent session")
+	fmt.Println("  lokol exec   [--engine=...] <prompt>              Run autonomous agent in headless mode")
+	fmt.Println("  lokol update [--pre] [--version=vX]               Update to latest release from GitHub (or specific version)")
+	fmt.Println("  lokol update --list                               List all published releases available on GitHub")
+	fmt.Println("  lokol [-p | --prompt] \"<prompt>\"                 Run agent in headless mode directly")
+	fmt.Println("  lokol version                                    Display version")
 }
 
 func runUpdate(allowPre bool, targetVersion string, listOnly bool) {
@@ -159,10 +163,11 @@ func runUpdate(allowPre bool, targetVersion string, listOnly bool) {
 	}
 }
 
-func runSetup(downloadModel bool, simVRAM float64) {
+func runSetup(downloadModel bool, simVRAM float64, installLlama bool) {
 	_, err := setup.Run(setup.Options{
 		DownloadModel: downloadModel,
 		SimulateVRAM:  simVRAM,
+		InstallLlama:  installLlama,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Setup error: %v\n", err)
@@ -200,9 +205,15 @@ func runExec(engineURL string, maxTurns int, prompt string) {
 		},
 	}
 
-	ctx := context.Background()
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
 	_, err := runner.Run(ctx, prompt)
 	if err != nil {
+		if errors.Is(ctx.Err(), context.Canceled) {
+			fmt.Println("\n[Execution interrupted by signal. Slot released.]")
+			os.Exit(130)
+		}
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}

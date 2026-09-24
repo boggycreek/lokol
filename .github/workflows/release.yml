@@ -15,6 +15,7 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
   test:
@@ -35,6 +36,14 @@ jobs:
 
       - name: Verify build
         run: go build -o bin/lokol ./cmd/lokol
+
+      - name: Verify SBOM generation
+        uses: anchore/sbom-action@v0
+        with:
+          path: ./
+          format: spdx-json
+          output-file: lokol-sbom.spdx.json
+          upload-artifact: false
 
   release:
     name: Build & Publish Static Binaries
@@ -112,12 +121,23 @@ jobs:
         with:
           path: artifacts
 
+      - name: Generate SBOM (SPDX JSON)
+        uses: anchore/sbom-action@v0
+        with:
+          path: ./
+          format: spdx-json
+          output-file: lokol-sbom.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+
       - name: Flatten release assets
         run: |
           mkdir -p release-assets
-          find artifacts/ -type f -name "*.tar.gz*" -exec cp {} release-assets/ \;
+          find artifacts/ -type f -name "*.tar.gz*" -exec cp -f {} release-assets/ \;
+          cp -f lokol-sbom.spdx.json release-assets/
           cd release-assets
-          sha256sum *.tar.gz > checksums.txt
+          sha256sum *.tar.gz lokol-sbom.spdx.json > checksums.txt
+          sha256sum lokol-sbom.spdx.json > lokol-sbom.spdx.json.sha256
           ls -la
 
       - name: Create GitHub Release

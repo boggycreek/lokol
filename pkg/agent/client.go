@@ -174,6 +174,10 @@ Assistant: The repository contains main.go.
 Repository files listed.
 </action>`
 
+// SystemPrompt is the base invariant system prompt (identity, rules, and tool execution protocol).
+// For host-environment grounding and codebase context, prefer BuildSystemPrompt or BuildSystemPromptWithEnv.
+const SystemPrompt = "You are lokol, a local-first autonomous coding agent.\nSolve coding tasks by inspecting files, writing code, and testing.\n\n" + SystemPromptBase
+
 // BuildSystemPromptWithEnv returns the full system prompt with host environment context injected.
 func BuildSystemPromptWithEnv(env HostEnvironment) string {
 	return fmt.Sprintf("You are lokol, a local-first autonomous coding agent.\nSolve coding tasks by inspecting files, writing code, and testing.\n\n%s\n\n%s",
@@ -182,12 +186,58 @@ func BuildSystemPromptWithEnv(env HostEnvironment) string {
 	)
 }
 
-// BuildSystemPrompt returns the full system prompt with the agent's current
-// host environment (cwd, os, shell) injected.
-func BuildSystemPrompt(workDir string) string {
-	return BuildSystemPromptWithEnv(DetectHostEnvironment(workDir))
+// BuildSystemPrompt constructs the system prompt enforcing the strict prompt hierarchy:
+// Tier 1: Invariant System Prompt with host environment grounding (or base invariant if workDir is empty)
+// Tier 2: Codebase / Refinery context (project guidelines, AGENTS.md, repo conventions)
+//
+// Arguments:
+//   - BuildSystemPrompt() -> returns base SystemPrompt
+//   - BuildSystemPrompt("") -> returns base SystemPrompt
+//   - BuildSystemPrompt(codebaseContext) -> returns Tier 1 SystemPrompt + Tier 2 codebaseContext (when input is guidelines/XML)
+//   - BuildSystemPrompt(workDir) -> returns Tier 1 SystemPrompt grounded with workDir host environment
+//   - BuildSystemPrompt(workDir, codebaseContext) -> returns Tier 1 SystemPrompt grounded with workDir + Tier 2 codebaseContext
+func BuildSystemPrompt(args ...string) string {
+	if len(args) == 0 {
+		return SystemPrompt
+	}
+
+	if len(args) == 1 {
+		input := args[0]
+		if input == "" {
+			return SystemPrompt
+		}
+		// If input is codebase guidelines / XML context (e.g. contains newlines or XML tags)
+		if strings.Contains(input, "<project_guidelines") || strings.Contains(input, "<codebase_context>") || strings.Contains(input, "\n") {
+			input = strings.TrimSpace(input)
+			return fmt.Sprintf("%s\n\n<codebase_context>\n%s\n</codebase_context>", SystemPrompt, input)
+		}
+		// Otherwise, input is treated as a working directory
+		return BuildSystemPromptWithEnv(DetectHostEnvironment(input))
+	}
+
+	// Two or more arguments: args[0] = workDir, args[1] = codebaseContext
+	workDir := args[0]
+	codebaseContext := strings.TrimSpace(args[1])
+
+	base := SystemPrompt
+	if workDir != "" {
+		base = BuildSystemPromptWithEnv(DetectHostEnvironment(workDir))
+	}
+	if codebaseContext == "" {
+		return base
+	}
+	return fmt.Sprintf("%s\n\n<codebase_context>\n%s\n</codebase_context>", base, codebaseContext)
 }
 
+// BuildInitialHistory creates the initial message list strictly following the prompt hierarchy:
+// (1) Invariant System Prompt + (2) Codebase / Refinery context as messages[0]
+// (3) Fluid conversational history initial user turn as messages[1]
+func BuildInitialHistory(codebaseContext, initialPrompt string) []Message {
+	return []Message{
+		{Role: "system", Content: BuildSystemPrompt(codebaseContext)},
+		{Role: "user", Content: initialPrompt},
+	}
+}
 
 // Client communicates with the local llama-server instance.
 type Client struct {
@@ -216,6 +266,7 @@ type StreamChatRequest struct {
 	Temperature float64   `json:"temperature"`
 	MaxTokens   int       `json:"max_tokens,omitempty"`
 	Stop        []string  `json:"stop,omitempty"`
+	CachePrompt bool      `json:"cache_prompt"`
 }
 
 type ChatChunkResponse struct {
@@ -235,12 +286,27 @@ func (c *Client) StreamResponse(ctx context.Context, history []Message, tokenCha
 		Stream:      true,
 		Temperature: 0.1,
 		MaxTokens:   4096,
+		CachePrompt: true,
 	}
 
 	data, err := json.Marshal(reqBody)
 	if err != nil {
 		return "", err
 	}
+
+	doneChan := make(chan struct{})
+	defer close(doneChan)
+
+	// Monitor context cancellation to explicitly abort the active slot in llama-server
+	go func() {
+		select {
+		case <-ctx.Done():
+			abortCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			_ = c.AbortActiveSlots(abortCtx)
+		case <-doneChan:
+		}
+	}()
 
 	req, err := http.NewRequestWithContext(ctx, "POST", c.BaseURL+"/v1/chat/completions", bytes.NewReader(data))
 	if err != nil {
@@ -465,5 +531,83 @@ func (c *Client) GetSlotStatus(ctx context.Context) (*SlotStatus, error) {
 	}
 
 	return status, nil
+}
+
+// SlotInfo captures the high-level slot state from GET /slots.
+type SlotInfo struct {
+	ID            int  `json:"id"`
+	NCtx          int  `json:"n_ctx"`
+	NPromptTokens int  `json:"n_prompt_tokens"`
+	IsProcessing  bool `json:"is_processing"`
+}
+
+// GetSlots queries GET /slots and returns status for all slots on the server.
+func (c *Client) GetSlots(ctx context.Context) ([]SlotInfo, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", c.BaseURL+"/slots", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("slots endpoint returned %d", resp.StatusCode)
+	}
+
+	var rawSlots []SlotInfo
+	if err := json.NewDecoder(resp.Body).Decode(&rawSlots); err != nil {
+		return nil, err
+	}
+	return rawSlots, nil
+}
+
+// AbortSlot sends an action=erase request to the specified slot in llama-server to release it.
+// It also severs idle transport connections to ensure any hung socket read unblocks.
+func (c *Client) AbortSlot(ctx context.Context, slotID int) error {
+	if c.HTTPClient != nil {
+		c.HTTPClient.CloseIdleConnections()
+	}
+
+	url := fmt.Sprintf("%s/slots/%d?action=erase", c.BaseURL, slotID)
+	req, err := http.NewRequestWithContext(ctx, "POST", url, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusNotImplemented {
+		return nil
+	}
+	return fmt.Errorf("abort slot %d returned status %d", slotID, resp.StatusCode)
+}
+
+// AbortActiveSlots discovers all slots via GET /slots and aborts any that are active or processing.
+// If GET /slots returns an error or empty list, it proactively aborts slot 0.
+func (c *Client) AbortActiveSlots(ctx context.Context) error {
+	if c.HTTPClient != nil {
+		c.HTTPClient.CloseIdleConnections()
+	}
+
+	slots, err := c.GetSlots(ctx)
+	if err == nil && len(slots) > 0 {
+		var lastErr error
+		for _, s := range slots {
+			if s.IsProcessing || s.ID == 0 {
+				if err := c.AbortSlot(ctx, s.ID); err != nil {
+					lastErr = err
+				}
+			}
+		}
+		return lastErr
+	}
+	return c.AbortSlot(ctx, 0)
 }
 

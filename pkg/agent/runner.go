@@ -9,21 +9,37 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/boggycreek/lokol/pkg/tools/refinery"
 )
 
 // Runner manages an autonomous execution loop (e.g. for batch execution or self-improvement).
 type Runner struct {
-	Client   *Client
-	MaxTurns int
-	YOLO     bool
-	WorkDir  string // Current working directory for system prompt context
-	OnOutput func(role, content string)
+	Client          *Client
+	MaxTurns        int
+	YOLO            bool
+	WorkDir         string // Current working directory for host environment and prompt context
+	CodebaseContext string // Optional pre-loaded codebase context
+	OnOutput        func(role, content string)
 }
 
 // Run executes an autonomous loop on a given user prompt.
 func (r *Runner) Run(ctx context.Context, initialPrompt string) (string, error) {
+	if ctx.Err() != nil {
+		return "", ctx.Err()
+	}
+
+	workDir := r.WorkDir
+	if workDir == "" {
+		workDir = "."
+	}
+
+	codebaseCtx := r.CodebaseContext
+	if codebaseCtx == "" {
+		codebaseCtx = refinery.LoadCodebaseContext(workDir)
+	}
 	history := []Message{
-		{Role: "system", Content: BuildSystemPrompt(r.WorkDir)},
+		{Role: "system", Content: BuildSystemPrompt(workDir, codebaseCtx)},
 		{Role: "user", Content: initialPrompt},
 	}
 
@@ -76,6 +92,9 @@ func (r *Runner) Run(ctx context.Context, initialPrompt string) (string, error) 
 		}
 
 		if err := <-errChan; err != nil {
+			if ctx.Err() != nil {
+				return "", ctx.Err()
+			}
 			return "", fmt.Errorf("error during turn %d: %w", turn+1, err)
 		}
 
