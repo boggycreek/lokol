@@ -176,11 +176,13 @@ func runSetup(downloadModel bool, simVRAM float64, installLlama bool) {
 }
 
 func runExec(engineURL string, maxTurns int, prompt string) {
+	workDir, _ := os.Getwd()
 	client := agent.NewClient(engineURL)
 	runner := &agent.Runner{
 		Client:   client,
 		MaxTurns: maxTurns,
 		YOLO:     true,
+		WorkDir:  workDir,
 		OnOutput: func(role, content string) {
 			switch role {
 			case "token":
@@ -223,8 +225,9 @@ func runChat(engineURL string, yolo bool) {
 		fmt.Fprintf(os.Stderr, "Warning: probe error: %v\n", err)
 	}
 
+	workDir, _ := os.Getwd()
 	client := agent.NewClient(engineURL)
-	m := tui.New(client, hw, yolo)
+	m := tui.New(client, hw, yolo, workDir)
 
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {

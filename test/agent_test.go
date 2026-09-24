@@ -142,3 +142,62 @@ func TestGetSlotStatus(t *testing.T) {
 	}
 }
 
+func TestBuildSystemPrompt(t *testing.T) {
+	t.Run("with working directory", func(t *testing.T) {
+		prompt := agent.BuildSystemPrompt("/home/user/project")
+		if !strings.Contains(prompt, "<cwd>/home/user/project</cwd>") {
+			t.Errorf("expected prompt to contain <cwd>/home/user/project</cwd>, got:\n%s", prompt[:300])
+		}
+		if !strings.Contains(prompt, "<environment>") || !strings.Contains(prompt, "</environment>") {
+			t.Error("expected prompt to contain <environment> tag")
+		}
+		if !strings.Contains(prompt, "You are lokol") {
+			t.Error("expected prompt to contain identity header")
+		}
+	})
+
+	t.Run("environment protocol and action_result documentation", func(t *testing.T) {
+		prompt := agent.BuildSystemPrompt("/tmp")
+		if !strings.Contains(prompt, "<action_result>") || !strings.Contains(prompt, "</action_result>") {
+			t.Error("expected prompt to document reciprocal <action_result> tags")
+		}
+		if !strings.Contains(prompt, "Tool Execution Protocol:") {
+			t.Error("expected prompt to document Tool Execution Protocol")
+		}
+	})
+
+	t.Run("few-shot demonstrations included", func(t *testing.T) {
+		prompt := agent.BuildSystemPrompt("/tmp")
+		if !strings.Contains(prompt, "What is your current working directory?") {
+			t.Error("expected prompt to contain cwd few-shot question")
+		}
+		if !strings.Contains(prompt, "<action name=\"exec_bash\">") {
+			t.Error("expected prompt to demonstrate action invocation in examples")
+		}
+		if !strings.Contains(prompt, "<action name=\"task_finish\">") {
+			t.Error("expected prompt to demonstrate task_finish in examples")
+		}
+	})
+
+	t.Run("custom HostEnvironment", func(t *testing.T) {
+		env := agent.HostEnvironment{
+			Cwd:   "/workspace/repo",
+			OS:    "linux",
+			Shell: "/bin/bash",
+		}
+		prompt := agent.BuildSystemPromptWithEnv(env)
+		expectedTag := "<environment>\n<cwd>/workspace/repo</cwd>\n<os>linux</os>\n<shell>/bin/bash</shell>\n</environment>"
+		if !strings.Contains(prompt, expectedTag) {
+			t.Errorf("expected prompt to contain formatted environment tag:\n%s\ngot:\n%s", expectedTag, prompt[:300])
+		}
+	})
+
+	t.Run("path is cleaned", func(t *testing.T) {
+		prompt := agent.BuildSystemPrompt("/home/user/./project/../project/")
+		if !strings.Contains(prompt, "<cwd>/home/user/project</cwd>") {
+			t.Errorf("expected cleaned path, got:\n%s", prompt[:300])
+		}
+	})
+}
+
+

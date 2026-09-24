@@ -18,7 +18,8 @@ type Runner struct {
 	Client          *Client
 	MaxTurns        int
 	YOLO            bool
-	CodebaseContext string
+	WorkDir         string // Current working directory for host environment and prompt context
+	CodebaseContext string // Optional pre-loaded codebase context
 	OnOutput        func(role, content string)
 }
 
@@ -28,11 +29,19 @@ func (r *Runner) Run(ctx context.Context, initialPrompt string) (string, error) 
 		return "", ctx.Err()
 	}
 
+	workDir := r.WorkDir
+	if workDir == "" {
+		workDir = "."
+	}
+
 	codebaseCtx := r.CodebaseContext
 	if codebaseCtx == "" {
-		codebaseCtx = refinery.LoadCodebaseContext(".")
+		codebaseCtx = refinery.LoadCodebaseContext(workDir)
 	}
-	history := BuildInitialHistory(codebaseCtx, initialPrompt)
+	history := []Message{
+		{Role: "system", Content: BuildSystemPrompt(workDir, codebaseCtx)},
+		{Role: "user", Content: initialPrompt},
+	}
 
 	if r.MaxTurns <= 0 {
 		r.MaxTurns = 20

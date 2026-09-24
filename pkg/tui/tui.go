@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -95,7 +96,7 @@ var (
 )
 
 // New creates and initializes the TUI model.
-func New(client *agent.Client, hw *probe.HardwareProfile, yoloMode bool) Model {
+func New(client *agent.Client, hw *probe.HardwareProfile, yoloMode bool, workDirOpt ...string) Model {
 	ta := textarea.New()
 	ta.Placeholder = "Ask lokol to inspect code, run tests, or refactor files..."
 	ta.Focus()
@@ -112,8 +113,19 @@ func New(client *agent.Client, hw *probe.HardwareProfile, yoloMode bool) Model {
 	}
 	vp.SetContent(wrapContent(initialText, 76))
 
-	codebaseCtx := refinery.LoadCodebaseContext(".")
-	systemContent := agent.BuildSystemPrompt(codebaseCtx)
+	workDir := ""
+	if len(workDirOpt) > 0 {
+		workDir = workDirOpt[0]
+	}
+	if workDir == "" {
+		workDir, _ = os.Getwd()
+	}
+	if workDir == "" {
+		workDir = "."
+	}
+
+	codebaseCtx := refinery.LoadCodebaseContext(workDir)
+	systemContent := agent.BuildSystemPrompt(workDir, codebaseCtx)
 
 	m := Model{
 		client:    client,
