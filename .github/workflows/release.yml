@@ -35,7 +35,9 @@ jobs:
         run: go test -v -race ./test/...
 
       - name: Verify build
-        run: go build -o bin/lokol ./cmd/lokol
+        run: |
+          go build -o bin/lokol ./cmd/lokol
+          go build -o bin/lokol-mcp ./cmd/lokol-mcp
 
       - name: Verify SBOM generation
         uses: anchore/sbom-action@v0
