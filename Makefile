@@ -24,6 +24,7 @@ all: test build
 build:
 	@mkdir -p $(BIN_DIR)
 	CGO_ENABLED=0 go build $(LDFLAGS) -o $(BIN_DIR)/$(BINARY_NAME) ./cmd/lokol
+	CGO_ENABLED=0 go build $(LDFLAGS) -o $(BIN_DIR)/lokol-mcp ./cmd/lokol-mcp
 
 test:
 	go test -v ./test/...

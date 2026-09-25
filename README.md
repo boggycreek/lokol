@@ -13,12 +13,14 @@
 lokol/
 ├── bin/                    # Compiled lokol binaries
 ├── cmd/
-│   └── lokol/              # CLI entrypoint (setup, probe, chat, exec, version)
+│   ├── lokol/              # CLI entrypoint (setup, probe, chat, exec, version)
+│   └── lokol-mcp/          # Standalone MCP context refinery server (stdio JSON-RPC)
 ├── doc/
 │   └── adr/                # Architecture Decision Records (ADR-0001 – ADR-0012)
 ├── pages/                  # GitHub Pages landing site
 ├── pkg/
 │   ├── agent/              # Deterministic agent loop, SSE streaming & action parser
+│   ├── mcp/                # Pure-Go MCP JSON-RPC stdio protocol server
 │   ├── model/              # Hardware sizing & VRAM-tier model selection matrix
 │   ├── probe/              # Pure Go hardware & GPU capability prober
 │   ├── setup/              # Environment auditing, dependency bootstrap & weight verifier
@@ -85,6 +87,23 @@ make build
 ```bash
 ./bin/lokol -p "Run the tests and inspect the repository"
 ```
+
+### In-Repo MCP Context Refinery (`lokol-mcp`)
+`lokol-mcp` is a standalone Model Context Protocol (MCP) server that exposes mechanical noise filtering over standard JSON-RPC stdio (per [ADR-0012](doc/adr/0012-in-repo-mcp-facades.md)):
+
+```bash
+# Run standalone MCP server
+./bin/lokol-mcp
+
+# Print version
+./bin/lokol-mcp --version
+```
+
+**Exposed MCP Tools**:
+- `read_outline`: Extracts high-level symbol declarations (types, interfaces, functions) without dumping inner function bodies.
+- `read_window`: Bounded line reading (up to 120 lines) to defend the KV cache.
+- `test_verifier` / `run_test`: Runs test suites while stripping verbose passing outputs and stack traces down to clean, actionable failure assertions.
+
 
 ### Self-Update & Release Management
 ```bash
