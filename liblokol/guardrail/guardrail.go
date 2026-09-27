@@ -98,7 +98,15 @@ func (g *Guardrail) CheckPermission(ctx context.Context, action ActionCandidate)
 	// 3. Tier 2: Non-Autoregressive Semantic Evaluation (if configured)
 	if g.SemanticEvaluator != nil {
 		semResult, err := g.SemanticEvaluator.Evaluate(ctx, action, workDir)
-		if err == nil && semResult.Status != StatusAllowed {
+		if err != nil {
+			return PermissionResult{
+				Status:    StatusWarning,
+				Reason:    fmt.Sprintf("Semantic guardrail evaluator unavailable: %v", err),
+				RiskLevel: RiskLevelMedium,
+				Target:    action.Path,
+			}
+		}
+		if semResult.Status != StatusAllowed {
 			return semResult
 		}
 	}

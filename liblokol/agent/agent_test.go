@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -111,7 +112,7 @@ func TestExecuteReplaceFile(t *testing.T) {
 
 	// Test CRLF normalization and exact match
 	payload := fmt.Sprintf("<path>%s</path>\n<target>Foo bar baz</target>\n<replacement>Quik replaced this</replacement>", filePath)
-	out, err := agent.ExecuteReplaceFile(context.Background(), payload)
+	out, err := agent.ExecuteReplaceFile(context.Background(), payload, tmpDir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -131,7 +132,7 @@ func TestExecuteReplaceFile(t *testing.T) {
 	// Test whitespace-trimmed fallback matching
 	targetWithPadding := "\n\nQuik replaced this\n\n"
 	payloadFallback := fmt.Sprintf("<path>%s</path>\n<target>%s</target>\n<replacement>Fallback matched</replacement>", filePath, targetWithPadding)
-	out2, err := agent.ExecuteReplaceFile(context.Background(), payloadFallback)
+	out2, err := agent.ExecuteReplaceFile(context.Background(), payloadFallback, tmpDir)
 	if err != nil {
 		t.Fatalf("fallback replacement failed: %v", err)
 	}
@@ -145,7 +146,7 @@ func TestExecuteWriteFile(t *testing.T) {
 	filePath := tmpDir + "/nested/subdir/hello.go"
 	payload := fmt.Sprintf("<path>%s</path>\n<content>package main\n\nfunc main() {}\n</content>", filePath)
 
-	out, err := agent.ExecuteWriteFile(context.Background(), payload)
+	out, err := agent.ExecuteWriteFile(context.Background(), payload, tmpDir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -250,6 +251,118 @@ func TestExecuteGetEnvironment(t *testing.T) {
 	}
 	if !strings.Contains(out, "\"working_directory\"") || !strings.Contains(out, "\"os\"") {
 		t.Errorf("expected get_environment JSON keys, got: %s", out)
+	}
+}
+
+func TestDispatchAction_DefenseInDepthBoundaryEnforcement(t *testing.T) {
+	workDir := t.TempDir()
+	outsideDir := t.TempDir()
+	outsideFile := filepath.Join(outsideDir, "outside_target.txt")
+	ctx := context.Background()
+
+	// 1. write_file to absolute path outside workDir
+	actWriteAbs := &agent.Action{
+		Name:    "write_file",
+		Command: fmt.Sprintf("<path>%s</path><content>pwned</content>", outsideFile),
+	}
+	_, err := agent.DispatchAction(ctx, actWriteAbs, workDir)
+	if err == nil {
+		t.Fatalf("expected DispatchAction write_file outside workDir to fail, got nil")
+	}
+	if _, err := os.Stat(outsideFile); !os.IsNotExist(err) {
+		t.Fatalf("file %s was written despite boundary violation", outsideFile)
+	}
+
+	// 2. write_file with directory traversal (../../)
+	traversalTarget := filepath.Join(workDir, "..", "..", "traversal_pwn.txt")
+	actWriteRel := &agent.Action{
+		Name:    "write_file",
+		Command: "<path>../../traversal_pwn.txt</path><content>pwned</content>",
+	}
+	_, err = agent.DispatchAction(ctx, actWriteRel, workDir)
+	if err == nil {
+		t.Fatalf("expected DispatchAction relative traversal to fail, got nil")
+	}
+	if _, err := os.Stat(traversalTarget); !os.IsNotExist(err) {
+		t.Fatalf("file %s was written despite boundary violation", traversalTarget)
+	}
+
+	// 3. replace_file outside workDir
+	targetForReplace := filepath.Join(outsideDir, "existing.txt")
+	if err := os.WriteFile(targetForReplace, []byte("original text"), 0644); err != nil {
+		t.Fatalf("setup failed: %v", err)
+	}
+	actReplace := &agent.Action{
+		Name:    "replace_file",
+		Command: fmt.Sprintf("<path>%s</path><target>original</target><replacement>hacked</replacement>", targetForReplace),
+	}
+	_, err = agent.DispatchAction(ctx, actReplace, workDir)
+	if err == nil {
+		t.Fatalf("expected DispatchAction replace_file outside workDir to fail, got nil")
+	}
+
+	// 4. read_outline outside workDir
+	actOutline := &agent.Action{
+		Name:    "read_outline",
+		Command: fmt.Sprintf("<path>%s</path>", targetForReplace),
+	}
+	_, err = agent.DispatchAction(ctx, actOutline, workDir)
+	if err == nil {
+		t.Fatalf("expected DispatchAction read_outline outside workDir to fail, got nil")
+	}
+
+	// 5. read_window outside workDir
+	actWindow := &agent.Action{
+		Name:    "read_window",
+		Command: fmt.Sprintf("<path>%s</path><start_line>1</start_line><end_line>5</end_line>", targetForReplace),
+	}
+	_, err = agent.DispatchAction(ctx, actWindow, workDir)
+	if err == nil {
+		t.Fatalf("expected DispatchAction read_window outside workDir to fail, got nil")
+	}
+
+	// 6. Direct ExecuteWriteFile call without runner
+	_, err = agent.ExecuteWriteFile(ctx, fmt.Sprintf("<path>%s</path><content>direct_pwn</content>", outsideFile), workDir)
+	if err == nil {
+		t.Fatalf("expected direct ExecuteWriteFile to fail boundary check, got nil")
+	}
+
+	// 7. Direct ExecuteReplaceFile call without runner
+	_, err = agent.ExecuteReplaceFile(ctx, fmt.Sprintf("<path>%s</path><target>original</target><replacement>direct</replacement>", targetForReplace), workDir)
+	if err == nil {
+		t.Fatalf("expected direct ExecuteReplaceFile to fail boundary check, got nil")
+	}
+}
+
+func TestTools_TOCTOUSymlinkMitigation(t *testing.T) {
+	workDir := t.TempDir()
+	outsideDir := t.TempDir()
+	outsideSecret := filepath.Join(outsideDir, "secret.txt")
+	if err := os.WriteFile(outsideSecret, []byte("super_secret_token"), 0644); err != nil {
+		t.Fatalf("setup failed: %v", err)
+	}
+
+	// Create a symlink inside workDir pointing to outsideSecret
+	symlinkPath := filepath.Join(workDir, "sneaky_symlink.txt")
+	if err := os.Symlink(outsideSecret, symlinkPath); err != nil {
+		t.Fatalf("failed to create symlink: %v", err)
+	}
+
+	ctx := context.Background()
+
+	// Attempt write_file through the symlink
+	_, err := agent.ExecuteWriteFile(ctx, fmt.Sprintf("<path>%s</path><content>overwrite_secret</content>", symlinkPath), workDir)
+	if err == nil {
+		t.Fatalf("expected ExecuteWriteFile to fail when writing through symlink pointing outside workDir")
+	}
+
+	// Confirm outside secret was NOT overwritten
+	content, err := os.ReadFile(outsideSecret)
+	if err != nil {
+		t.Fatalf("read failed: %v", err)
+	}
+	if string(content) != "super_secret_token" {
+		t.Fatalf("secret was overwritten despite symlink protection: %s", string(content))
 	}
 }
 

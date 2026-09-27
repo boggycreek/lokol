@@ -252,3 +252,27 @@ func TestGuardrail_ObfuscatedShellAttacks(t *testing.T) {
 	}
 }
 
+type erroringEvaluator struct{}
+
+func (e *erroringEvaluator) Evaluate(ctx context.Context, action guardrail.ActionCandidate, workDir string) (guardrail.PermissionResult, error) {
+	return guardrail.PermissionResult{}, os.ErrNotExist
+}
+
+func TestGuardrail_SemanticEvaluatorErrorFailsSafely(t *testing.T) {
+	workDir := t.TempDir()
+	g := guardrail.New(workDir)
+	g.SemanticEvaluator = &erroringEvaluator{}
+
+	res := g.CheckPermission(context.Background(), guardrail.ActionCandidate{
+		Name:    "exec_bash",
+		Command: "echo 'hello'",
+	})
+
+	if res.Status != guardrail.StatusWarning {
+		t.Fatalf("expected StatusWarning when evaluator errors, got: %s (reason: %s)", res.Status, res.Reason)
+	}
+	if !strings.Contains(res.Reason, "Semantic guardrail evaluator unavailable") {
+		t.Errorf("expected reason to mention evaluator unavailable, got: %s", res.Reason)
+	}
+}
+
