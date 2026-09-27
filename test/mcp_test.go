@@ -232,6 +232,7 @@ func NewUser(id int, name string) *User {
 		`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"test_verifier","arguments":{"command":"echo 'PASS: tests ok'"}}}`,
 		`{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"run_test","arguments":{"command":"echo 'FAIL: test assertion'; exit 1"}}}`,
 		fmt.Sprintf(`{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"get_environment","arguments":{"path":%q}}}`, tmpDir),
+		fmt.Sprintf(`{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"find_files","arguments":{"path":%q,"pattern":"*.go"}}}`, tmpDir),
 	}
 
 	inputData := strings.Join(requests, "\n") + "\n"
@@ -250,8 +251,8 @@ func NewUser(id int, name string) *User {
 	}
 
 	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
-	if len(lines) != 7 { // 8 requests minus 1 notification = 7 responses
-		t.Fatalf("expected 7 response lines, got %d:\n%s", len(lines), stdout.String())
+	if len(lines) != 8 { // 9 requests minus 1 notification = 8 responses
+		t.Fatalf("expected 8 response lines, got %d:\n%s", len(lines), stdout.String())
 	}
 
 	// Verify initialize response
@@ -285,7 +286,7 @@ func NewUser(id int, name string) *User {
 	for _, t := range listResp.Result.Tools {
 		toolNames[t.Name] = true
 	}
-	for _, expected := range []string{"read_outline", "read_window", "test_verifier", "run_test", "get_environment"} {
+	for _, expected := range []string{"read_outline", "read_window", "test_verifier", "run_test", "get_environment", "find_files"} {
 		if !toolNames[expected] {
 			t.Errorf("expected tool %q in tools/list, got: %+v", expected, toolNames)
 		}
@@ -358,6 +359,21 @@ func NewUser(id int, name string) *User {
 	envText := envResp.Result.Content[0].Text
 	if !strings.Contains(envText, "working_directory") || !strings.Contains(envText, tmpDir) {
 		t.Errorf("expected get_environment output to contain working_directory %q, got: %s", tmpDir, envText)
+	}
+
+	// Verify find_files result
+	var findFilesResp struct {
+		Result mcp.ToolCallResult `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(lines[7]), &findFilesResp); err != nil {
+		t.Fatalf("failed to parse find_files resp: %v", err)
+	}
+	if findFilesResp.Result.IsError || len(findFilesResp.Result.Content) == 0 {
+		t.Fatalf("expected successful find_files result, got: %+v", findFilesResp.Result)
+	}
+	findFilesText := findFilesResp.Result.Content[0].Text
+	if !strings.Contains(findFilesText, "sample.go") {
+		t.Errorf("expected find_files output to contain 'sample.go', got: %s", findFilesText)
 	}
 }
 

@@ -107,7 +107,20 @@ func TestDispatchAction_Execution(t *testing.T) {
 		t.Fatalf("file content not replaced: %s", string(data))
 	}
 
-	// 4. task_finish via DispatchAction
+	// 4. find_files via DispatchAction
+	findAct := &Action{
+		Name:    "find_files",
+		Command: "<pattern>*.txt</pattern>",
+	}
+	out, err = DispatchAction(ctx, findAct, tmpDir)
+	if err != nil {
+		t.Fatalf("find_files failed: %v", err)
+	}
+	if !strings.Contains(out, "hello.txt") {
+		t.Errorf("expected hello.txt in find_files output, got: %s", out)
+	}
+
+	// 5. task_finish via DispatchAction
 	finishAct := &Action{
 		Name:    "task_finish",
 		Command: "Work complete.",
@@ -120,7 +133,7 @@ func TestDispatchAction_Execution(t *testing.T) {
 		t.Errorf("expected 'Work complete.', got: %s", out)
 	}
 
-	// 5. Unknown action
+	// 6. Unknown action
 	unknownAct := &Action{
 		Name:    "invalid_tool",
 		Command: "do something",
@@ -130,7 +143,7 @@ func TestDispatchAction_Execution(t *testing.T) {
 		t.Fatalf("expected unknown action error, got: %v", err)
 	}
 
-	// 6. Nil action
+	// 7. Nil action
 	_, err = DispatchAction(ctx, nil, tmpDir)
 	if err == nil || !strings.Contains(err.Error(), "action is nil") {
 		t.Fatalf("expected action is nil error, got: %v", err)
@@ -198,6 +211,14 @@ func TestAction_PresentationHelpers(t *testing.T) {
 			},
 			wantTarget:  "environment",
 			wantVerbose: "⚡ Inspecting Environment",
+		},
+		{
+			act: &Action{
+				Name:    "find_files",
+				Command: "<pattern>*.go</pattern>",
+			},
+			wantTarget:  "*.go",
+			wantVerbose: "⚡ Finding Files: *.go",
 		},
 		{
 			act: &Action{

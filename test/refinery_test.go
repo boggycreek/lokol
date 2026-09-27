@@ -153,3 +153,152 @@ func TestGetEnvironment(t *testing.T) {
 		}
 	}
 }
+
+func TestFindFiles(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create test file hierarchy
+	// tmpDir/
+	//   main.go
+	//   calc.go
+	//   calc_test.go
+	//   README.md
+	//   pkg/
+	//     helper.go
+	//     helper_test.go
+	//   .gitignore
+	//   ignored_file.log
+	//   ignored_dir/
+	//     secret.txt
+	//   .git/
+	//     config
+	//   node_modules/
+	//     package.json
+	files := map[string]string{
+		"main.go":                  "package main",
+		"calc.go":                  "package main",
+		"calc_test.go":             "package main",
+		"README.md":                "# Test Repo",
+		"pkg/helper.go":            "package pkg",
+		"pkg/helper_test.go":       "package pkg",
+		"ignored_file.log":         "log data",
+		"ignored_dir/secret.txt":   "secret",
+		".git/config":              "[core]",
+		"node_modules/pkg.json":    "{}",
+		".gitignore":               "*.log\nignored_dir/\n",
+	}
+
+	for relPath, content := range files {
+		fullPath := filepath.Join(tmpDir, relPath)
+		_ = os.MkdirAll(filepath.Dir(fullPath), 0755)
+		if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
+			t.Fatalf("failed to write %s: %v", relPath, err)
+		}
+	}
+
+	t.Run("Glob matching *.go", func(t *testing.T) {
+		out, err := refinery.FindFiles("*.go", tmpDir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !strings.Contains(out, "main.go") || !strings.Contains(out, "calc.go") || !strings.Contains(out, "pkg/helper.go") {
+			t.Errorf("expected all Go files in output, got:\n%s", out)
+		}
+		if strings.Contains(out, "README.md") {
+			t.Errorf("README.md should not match *.go: %s", out)
+		}
+		if !strings.Contains(out, "(5 files)") {
+			t.Errorf("expected count (5 files), got: %s", out)
+		}
+	})
+
+	t.Run("Substring matching without wildcards", func(t *testing.T) {
+		out, err := refinery.FindFiles("helper", tmpDir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !strings.Contains(out, "pkg/helper.go") || !strings.Contains(out, "pkg/helper_test.go") {
+			t.Errorf("expected helper files, got:\n%s", out)
+		}
+		if strings.Contains(out, "main.go") {
+			t.Errorf("main.go should not match 'helper': %s", out)
+		}
+	})
+
+	t.Run("Excludes default noisy directories (.git, node_modules)", func(t *testing.T) {
+		out, err := refinery.FindFiles("*", tmpDir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if strings.Contains(out, ".git/") || strings.Contains(out, "node_modules") {
+			t.Errorf("expected .git/ and node_modules to be excluded, got:\n%s", out)
+		}
+	})
+
+	t.Run("Respects .gitignore rules", func(t *testing.T) {
+		out, err := refinery.FindFiles("*", tmpDir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if strings.Contains(out, "ignored_file.log") {
+			t.Errorf("expected *.log to be ignored by .gitignore, got:\n%s", out)
+		}
+		if strings.Contains(out, "ignored_dir") || strings.Contains(out, "secret.txt") {
+			t.Errorf("expected ignored_dir/ to be ignored by .gitignore, got:\n%s", out)
+		}
+	})
+
+	t.Run("Truncation and match bounding", func(t *testing.T) {
+		out, err := refinery.FindFiles("*.go", tmpDir, 3)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		lines := strings.Split(strings.TrimSpace(out), "\n")
+		// 3 file lines + empty line + 1 summary line = 5 lines
+		if !strings.Contains(out, "[Showing 3 of 5 matches. Refine pattern to narrow search.]") {
+			t.Errorf("expected truncation note, got:\n%s", out)
+		}
+		matchedFiles := 0
+		for _, l := range lines {
+			if strings.HasSuffix(l, ".go") {
+				matchedFiles++
+			}
+		}
+		if matchedFiles != 3 {
+			t.Errorf("expected exactly 3 returned files, got %d", matchedFiles)
+		}
+	})
+
+	t.Run("Zero matches", func(t *testing.T) {
+		out, err := refinery.FindFiles("*.rs", tmpDir)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !strings.Contains(out, "No files matching") {
+			t.Errorf("expected 'No files matching', got: %s", out)
+		}
+	})
+}
+
+func TestParseFindFilesPayload(t *testing.T) {
+	// 1. Structured XML tags
+	xml := "<pattern>*.go</pattern>\n<path>src</path>\n<max_results>25</max_results>"
+	in, err := refinery.ParseFindFilesPayload(xml)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if in.Pattern != "*.go" || in.Path != "src" || in.MaxResults != 25 {
+		t.Errorf("unexpected parsed input: %+v", in)
+	}
+
+	// 2. Plain text fallback
+	plain := "pkg/*.go"
+	inPlain, err := refinery.ParseFindFilesPayload(plain)
+	if err != nil {
+		t.Fatalf("unexpected error on plain: %v", err)
+	}
+	if inPlain.Pattern != "pkg/*.go" || inPlain.MaxResults != 50 {
+		t.Errorf("unexpected parsed plain input: %+v", inPlain)
+	}
+}
+

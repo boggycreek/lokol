@@ -253,6 +253,23 @@ func ExecuteGetEnvironment(ctx context.Context, payload string, workDir ...strin
 	return envInfo.FormatJSON()
 }
 
+// ExecuteFindFiles discovers files matching pattern within workDir, respecting .gitignore.
+func ExecuteFindFiles(ctx context.Context, payload string, workDir ...string) (string, error) {
+	wd := ""
+	if len(workDir) > 0 && workDir[0] != "" {
+		wd = workDir[0]
+	}
+	input, err := refinery.ParseFindFilesPayload(payload)
+	if err != nil {
+		return "", err
+	}
+	targetDir := wd
+	if input.Path != "" {
+		targetDir = resolvePath(input.Path, wd)
+	}
+	return refinery.FindFiles(input.Pattern, targetDir, input.MaxResults)
+}
+
 // DispatchAction executes an action against the host system or tool suite.
 // It serves as the single source of truth for tool invocation across headless,
 // TUI, and any future presentation layers.
@@ -276,6 +293,8 @@ func DispatchAction(ctx context.Context, act *Action, workDir string) (string, e
 		return ExecuteRunTest(ctx, act.Command, workDir)
 	case "get_environment":
 		return ExecuteGetEnvironment(ctx, act.Command, workDir)
+	case "find_files":
+		return ExecuteFindFiles(ctx, act.Command, workDir)
 	case "task_finish":
 		return act.Command, nil
 	default:
@@ -309,6 +328,11 @@ func (a *Action) TargetSummary() string {
 		return strings.TrimSpace(a.Command)
 	case "get_environment":
 		return "environment"
+	case "find_files":
+		if input, _ := refinery.ParseFindFilesPayload(a.Command); input != nil && input.Pattern != "" {
+			return input.Pattern
+		}
+		return strings.TrimSpace(a.Command)
 	case "task_finish":
 		return strings.TrimSpace(a.Command)
 	default:
@@ -336,10 +360,13 @@ func (a *Action) VerboseDescription() string {
 		return fmt.Sprintf("⚡ Verifying Tests: %s", a.TargetSummary())
 	case "get_environment":
 		return "⚡ Inspecting Environment"
+	case "find_files":
+		return fmt.Sprintf("⚡ Finding Files: %s", a.TargetSummary())
 	case "task_finish":
 		return fmt.Sprintf("⚡ Finishing Task: %s", a.TargetSummary())
 	default:
 		return fmt.Sprintf("⚡ Executing %s: %s", a.Name, a.TargetSummary())
 	}
 }
+
 
