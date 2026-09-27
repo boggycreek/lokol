@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/boggycreek/lokol/liblokol/agent"
+	"github.com/boggycreek/lokol/liblokol/guardrail"
 	"github.com/boggycreek/lokol/liblokol/probe"
 	"github.com/boggycreek/lokol/liblokol/version"
 	"github.com/charmbracelet/bubbles/textarea"
@@ -458,7 +459,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.appendLog(agentStyle.Render("lokol: ") + act.CleanThought + "\n")
 				}
 
-				if m.yoloMode {
+				guard := guardrail.New(".")
+				perm := guard.CheckPermission(context.Background(), guardrail.ActionCandidate{
+					Name:    act.Name,
+					Command: act.Command,
+					Path:    act.TargetSummary(),
+				})
+
+				if perm.Status != guardrail.StatusAllowed && m.yoloMode {
+					// Disengage automatic execution in YOLO mode when a security boundary is tripped
+					m.appendLog(fmt.Sprintf("⚠️  [GUARDRAIL INTERCEPT] Autonomous execution paused: %s\n", perm.Reason))
+				} else if m.yoloMode {
 					// YOLO Mode: execute immediately without waiting for user approval
 					m.state = StateExecutingAction
 					if m.verbose {
@@ -468,9 +479,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 
 				m.state = StateWaitingActionApproval
+				warningBadge := ""
+				if perm.Status != guardrail.StatusAllowed {
+					warningBadge = fmt.Sprintf("⚠️  SECURITY WARNING: %s\n\n", perm.Reason)
+				}
 				box := actionBoxStyle.Render(fmt.Sprintf(
-					"PROPOSED ACTION: %s\nPayload:\n%s\n\nPress [Enter] or [Y] to approve, [N] to reject | [Ctrl+Y] Auto-approve all",
-					act.Name, act.Command,
+					"%sPROPOSED ACTION: %s\nPayload:\n%s\n\nPress [Enter] or [Y] to approve, [N] to reject | [Ctrl+Y] Auto-approve all",
+					warningBadge, act.Name, act.Command,
 				))
 				m.appendLog("\n" + box + "\n")
 			} else if act != nil && act.Name == "task_finish" {

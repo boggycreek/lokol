@@ -453,4 +453,62 @@ func TestTUI_Presentation_ModeSwitching(t *testing.T) {
 	}
 }
 
+func TestTUI_Presentation_GuardrailSecurityWarning(t *testing.T) {
+	mock := NewMockSession()
+	m := tui.NewWithSession(mock, nil, false) // Safe mode
+
+	// Start stream to enter StateStreaming
+	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("edit system file")})
+	m = newM.(tui.Model)
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = newM.(tui.Model)
+
+	// Propose out-of-bounds action
+	oobActionTurn := "Writing outside.\n<action name=\"write_file\">\n<path>/etc/passwd</path>\n<content>root:x:0:0::/root:/bin/bash</content>\n</action>"
+	newM, _ = m.Update(tui.StreamDoneMsg(oobActionTurn))
+	m = newM.(tui.Model)
+
+	if m.State() != tui.StateWaitingActionApproval {
+		t.Fatalf("expected StateWaitingActionApproval, got %v", m.State())
+	}
+
+	content := m.ViewportContent()
+	if !strings.Contains(content, "SECURITY WARNING") {
+		t.Fatalf("expected SECURITY WARNING in viewport, got: %s", content)
+	}
+	if !strings.Contains(content, "Filesystem boundary violation") {
+		t.Fatalf("expected boundary violation explanation in viewport, got: %s", content)
+	}
+}
+
+func TestTUI_Presentation_GuardrailYOLOIntercept(t *testing.T) {
+	mock := NewMockSession()
+	m := tui.NewWithSession(mock, nil, true) // YOLO mode engaged
+
+	// Start stream
+	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("format drive")})
+	m = newM.(tui.Model)
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = newM.(tui.Model)
+
+	// Propose destructive action in YOLO mode
+	dangerousTurn := "Formatting drive.\n<action name=\"exec_bash\">\nrm -rf /\n</action>"
+	newM, _ = m.Update(tui.StreamDoneMsg(dangerousTurn))
+	m = newM.(tui.Model)
+
+	// Must NOT execute automatically; must pause and solicit approval
+	if m.State() != tui.StateWaitingActionApproval {
+		t.Fatalf("expected YOLO mode to pause and enter StateWaitingActionApproval on dangerous command, got %v", m.State())
+	}
+
+	content := m.ViewportContent()
+	if !strings.Contains(content, "GUARDRAIL INTERCEPT") {
+		t.Fatalf("expected GUARDRAIL INTERCEPT in viewport log, got: %s", content)
+	}
+	if !strings.Contains(content, "SECURITY WARNING") {
+		t.Fatalf("expected SECURITY WARNING in viewport approval box, got: %s", content)
+	}
+}
+
+
 
