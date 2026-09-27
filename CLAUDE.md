@@ -73,6 +73,9 @@ go test -v ./test -run TestEvalSuite_LiveEngine
 # Run loop circuit breaker and repetition intervention tests
 go test -v ./test -run TestRunner_LoopCircuitBreaker
 
+# Run sandboxed Podman container evaluation (scoped project evaluation)
+go test -v ./test -run TestPodmanSandbox_ProjectEvaluation
+
 # Check Laya semantic evaluator health
 uv run --python .venv tools/laya/judge.py --health
 ```
@@ -81,22 +84,27 @@ uv run --python .venv tools/laya/judge.py --health
 
 - **Core Agent Loop (`pkg/agent/`)**:
   - `client.go`: Connects to `llama-server`, parses `<action name="...">` delimiters, injects `<environment>` grounding.
-  - `runner.go`: Multi-turn orchestrator, turn bounds, oscillation detection, and loop intervention nudges.
-  - `tools.go`: File and shell tool execution (`write_file`, `replace_file`, `exec_bash`, etc.) with strict `WorkDir` isolation.
+  - `runner.go`: Multi-turn orchestrator, turn bounds, oscillation detection, loop intervention nudges, and internalized inferences.
+  - `tools.go`: File and shell tool execution (`write_file`, `replace_file`, `exec_bash`, etc.) with strict `WorkDir` isolation and git/beads ceiling barriers.
 - **Context Refinery & Facades (`pkg/tools/refinery/`)**:
   - Mechanical filtering: AST outlines (`read_outline`), bounded windows <= 100 lines (`read_window`), and 1-line failure assertions (`run_test`).
 - **Evaluation Harness & Laya Decision Model (`test/eval_test.go`, `tools/laya/`)**:
   - 10-tier progressive benchmark evaluating tool use, error recovery, git workflows, and multi-turn refactoring.
   - `tools/laya/judge.py` + `test/laya_judge_test.go`: Non-autoregressive decision model (`convaiinnovations/laya`) scoring semantic correctness in ~33ms.
   - Output reports stored in gitignored `data/eval_results.json`.
+- **Containerized Sandbox Testing (`test/podman_sandbox_test.go`, [ADR-0016](doc/adr/0016-containerized-test-sandboxing-via-podman.md))**:
+  - Ephemeral rootless Podman container sandboxing for evaluating agent autonomy on scoped test projects.
+  - Total host isolation: `BEADS_DIR=/workspace/.beads` and `GIT_CEILING_DIRECTORIES` ensure zero pollution of host Dolt databases or git refs.
+  - Binaries compiled strictly into `t.TempDir()` and mounted read-only, preventing rogue binaries in repository root.
 
 ## Conventions & Patterns
 
 1. **Tool Invocation Protocol**: Actions use XML tags: `<action name="tool_name">...</action>`. Exactly one action per model turn.
-2. **Deterministic Workspace Isolation**: All tests and tool executions operate within isolated temporary directories (`t.TempDir()`).
-3. **Python Developer Tooling**:
+2. **Deterministic Workspace Isolation & Container Sandboxing**: All tests operate within isolated temporary directories (`t.TempDir()`). Autonomous agent evaluations on scoped projects must execute in Podman container sandboxes ([ADR-0016](doc/adr/0016-containerized-test-sandboxing-via-podman.md)). Never build binaries into the repository root.
+3. **Internalized Inferences**: The agent internalizes intermediate reasoning and tool progress. Standard output is reserved for clean completions, while intermediate tool steps route to stderr or transient TUI status.
+4. **Python Developer Tooling**:
    - Must live in dedicated subdirectories under `./tools/*` (e.g. `./tools/laya/`).
    - Managed strictly via `uv` with PEP 723 inline script metadata. Never install to global Python.
-4. **Transient Data & Artifacts**:
+5. **Transient Data & Artifacts**:
    - Store local developer test dumps, benchmark history, and scratch logs in `./data/` (gitignored).
-5. **Non-Interactive Commands**: Always use non-interactive flags (`cp -f`, `rm -rf`, `apt-get -y`, `HOMEBREW_NO_AUTO_UPDATE=1`) to prevent hangs.
+6. **Non-Interactive Commands**: Always use non-interactive flags (`cp -f`, `rm -rf`, `apt-get -y`, `HOMEBREW_NO_AUTO_UPDATE=1`) to prevent hangs.

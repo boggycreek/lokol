@@ -20,6 +20,7 @@ This document tracks target machine specifications, operational environments, an
   - Raw Generation Throughput: ~66 tokens/second
 - **Real-World Agent Loop Benchmarks**:
   - **10-Tier Integration Evaluation Suite**: ~81.5 seconds total runtime across all 10 tiers (~8.1s per multi-turn coding tier).
+  - **Podman Container Sandbox Evaluation**: ~7.5s total runtime for end-to-end scoped project evaluation with internalized inferences, host isolation, and zero memory pollution ([ADR-0016](doc/adr/0016-containerized-test-sandboxing-via-podman.md)).
   - **Laya Semantic Decision Scoring**: ~33ms per forward pass (evaluating documentation correctness without chat LLMs).
   - **Loop Circuit Breaker**: Aborts runaway loops by Turn 4 in ~12ms.
 

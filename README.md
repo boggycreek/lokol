@@ -17,7 +17,7 @@ lokol/
 │   └── lokol-mcp/          # Standalone MCP context refinery server (stdio JSON-RPC)
 ├── data/                   # Local developer test reports & run persistence (gitignored)
 ├── doc/
-│   └── adr/                # Architecture Decision Records (ADR-0001 – ADR-0015)
+│   └── adr/                # Architecture Decision Records (ADR-0001 – ADR-0016)
 ├── pages/                  # GitHub Pages landing site
 ├── pkg/
 │   ├── agent/              # Deterministic agent loop, SSE streaming & action parser
@@ -30,7 +30,7 @@ lokol/
 │   ├── tui/                # Interactive Bubble Tea terminal UI with live context HUD
 │   ├── update/             # Release updater: GitHub release fetching, semver targets, asset extraction
 │   └── version/            # Build-time version metadata (injected via ldflags)
-├── test/                   # 10-tier integration evaluation suite & Laya decision bridge
+├── test/                   # 10-tier evaluation benchmark, Podman sandbox & Laya bridge
 ├── tools/
 │   └── laya/               # Standalone Laya semantic evaluator script (managed via uv)
 ├── go.mod

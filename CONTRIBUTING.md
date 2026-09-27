@@ -202,7 +202,17 @@ go test -v ./test -run TestRunner_LoopCircuitBreaker
 ```
 Verifies that the runner detects consecutive edit failures or command repetitions, injects corrective system intervention nudges, and aborts runaway loops.
 
-### 4. Laya Semantic Decision Model Setup (`tools/laya/`)
+### 4. Sandboxed Podman Container Evaluation (`test/podman_sandbox_test.go`)
+To evaluate autonomous agent capabilities on scoped projects without risking host memory pollution:
+```bash
+go test -v ./test -run TestPodmanSandbox_ProjectEvaluation
+```
+Spawns an ephemeral rootless Podman container (`docker.io/library/golang:1.25-bookworm`), mounts an isolated scoped test project into `/workspace:rw,Z`, binds network to the local `llama-server` engine, and asserts that:
+- Host `.beads/` and memories are completely unpolluted (`BEADS_DIR=/workspace/.beads`, `GIT_CEILING_DIRECTORIES`).
+- Test binaries are compiled strictly into temporary directories (`t.TempDir()`), preventing rogue binaries in the repository root.
+- The agent internalizes intermediate inferences, delivering clean summaries to stdout and progress to stderr ([ADR-0016](doc/adr/0016-containerized-test-sandboxing-via-podman.md)).
+
+### 5. Laya Semantic Decision Model Setup (`tools/laya/`)
 Semantic evaluation in Tier 10 uses Convai's **Laya** decision model (`convaiinnovations/laya`), executed via `uv`:
 ```bash
 # Verify Laya health and cached model weights
@@ -210,19 +220,19 @@ uv run --python .venv tools/laya/judge.py --health
 ```
 See [ADR-0014](doc/adr/0014-non-autoregressive-decision-model-judging.md) for details on non-autoregressive decision model scoring.
 
-### 5. Build the lokol Binary
+### 6. Build the lokol Binary
 ```bash
 make build
 ```
 Compiles a static binary into `bin/lokol` with build date and Git commit metadata injected via `ldflags`.
 
-### 6. Run Hardware Probe
+### 7. Run Hardware Probe
 ```bash
 make probe
 ```
 Executes hardware detection to verify CPU vector extensions and GPU VRAM tiers.
 
-### 7. Clean Build Artifacts
+### 8. Clean Build Artifacts
 ```bash
 make clean
 ```

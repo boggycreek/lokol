@@ -19,3 +19,5 @@ This directory contains the Architecture Decision Records for the `lokol` projec
 | [ADR-0013](0013-graded-multi-tier-agent-evaluations.md) | Graded Multi-Tier Integration Benchmark Suite | Accepted | 2026-09-27 |
 | [ADR-0014](0014-non-autoregressive-decision-model-judging.md) | Non-Autoregressive Decision Models (Laya) for Semantic Evaluation | Accepted | 2026-09-27 |
 | [ADR-0015](0015-auxiliary-tooling-isolation-via-uv.md) | Auxiliary Developer Tooling Isolation via uv and Segregated Subdirectories | Accepted | 2026-09-27 |
+| [ADR-0016](0016-containerized-test-sandboxing-via-podman.md) | Containerized Test Sandboxing via Podman for Host Memory and State Isolation | Accepted | 2026-09-27 |
+

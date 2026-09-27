@@ -6,31 +6,32 @@ This file contains legal notices, copyright statements, and license texts for th
 
 ## Table of Third-Party Components
 
-| Component | Upstream Project / Author | License (SPDX) | Usage Context |
-| :--- | :--- | :--- | :--- |
-| **Go Standard Library & Runtime** | The Go Authors | [BSD-3-Clause](https://spdx.org/licenses/BSD-3-Clause.html) | Host CLI & Core Runtime |
-| **bubbletea** | Charmbracelet, Inc. | [MIT](https://spdx.org/licenses/MIT.html) | Terminal Application Framework |
-| **lipgloss** | Charmbracelet, Inc. | [MIT](https://spdx.org/licenses/MIT.html) | Terminal Styling & Layout Engine |
-| **bubbles** | Charmbracelet, Inc. | [MIT](https://spdx.org/licenses/MIT.html) | TUI Component Library (Viewport, TextArea) |
-| **colorprofile** | Charmbracelet, Inc. | [MIT](https://spdx.org/licenses/MIT.html) | ANSI Color Profile Detection |
-| **x/ansi, x/cellbuf, x/term** | Charmbracelet, Inc. | [MIT](https://spdx.org/licenses/MIT.html) | Low-level Terminal & ANSI Primitives |
-| **termenv** | Christian Muehlhaeuser (muesli) | [MIT](https://spdx.org/licenses/MIT.html) | Terminal Feature & Color Detection |
-| **cancelreader** | Christian Muehlhaeuser (muesli) | [MIT](https://spdx.org/licenses/MIT.html) | Cancellable Terminal Input Reader |
-| **ansi** | Christian Muehlhaeuser (muesli) | [MIT](https://spdx.org/licenses/MIT.html) | ANSI Sequence Parsing |
-| **clipboard** | atotto | [BSD-3-Clause](https://spdx.org/licenses/BSD-3-Clause.html) | Clipboard Access |
-| **go-osc52** | Ayman Bagabas | [MIT](https://spdx.org/licenses/MIT.html) | OSC 52 Terminal Clipboard Sequences |
-| **coninput** | Erik Geiser | [MIT](https://spdx.org/licenses/MIT.html) | Windows Console Input Handling |
-| **go-colorful** | Lucas Beyer | [MIT](https://spdx.org/licenses/MIT.html) | Color Space Conversion & Manipulation |
-| **go-isatty** | Yasuhiro Matsumoto (mattn) | [MIT](https://spdx.org/licenses/MIT.html) | TTY Stream Detection |
-| **go-localereader** | Yasuhiro Matsumoto (mattn) | [MIT](https://spdx.org/licenses/MIT.html) | Locale-Aware Character Stream Reader |
-| **go-runewidth** | Yasuhiro Matsumoto (mattn) | [MIT](https://spdx.org/licenses/MIT.html) | Unicode Character Cell Width Calculation |
-| **uniseg** | Rivet Health (rivo) | [MIT](https://spdx.org/licenses/MIT.html) | Unicode Text Segmentation (UAX #29) |
-| **displaywidth, uax29, stringish** | Clipperhouse | [MIT / BSD-3-Clause](https://spdx.org/licenses/MIT.html) | Unicode Text Layout Primitives |
-| **terminfo** | xo | [MIT](https://spdx.org/licenses/MIT.html) | Terminal Capability Database |
-| **golang.org/x/sys** | The Go Authors | [BSD-3-Clause](https://spdx.org/licenses/BSD-3-Clause.html) | Low-Level Operating System Calls |
-| **golang.org/x/text** | The Go Authors | [BSD-3-Clause](https://spdx.org/licenses/BSD-3-Clause.html) | Unicode & Text Processing Libraries |
-| **laya** | Convai Innovations | [Apache-2.0](https://spdx.org/licenses/Apache-2.0.html) | Semantic Evaluation Decision Model (`tools/laya`) |
-| **ModernBERT** | Answer.AI & LightOn | [Apache-2.0](https://spdx.org/licenses/Apache-2.0.html) | Decision Model Encoder Backbone |
+| Component | Upstream Project / Author | License (SPDX) |
+| :--- | :--- | :--- |
+| **Go Standard Library & Runtime** | The Go Authors | [BSD-3-Clause](https://spdx.org/licenses/BSD-3-Clause.html) |
+| **bubbletea** | Charmbracelet, Inc. | [MIT](https://spdx.org/licenses/MIT.html) |
+| **lipgloss** | Charmbracelet, Inc. | [MIT](https://spdx.org/licenses/MIT.html) |
+| **bubbles** | Charmbracelet, Inc. | [MIT](https://spdx.org/licenses/MIT.html) |
+| **colorprofile** | Charmbracelet, Inc. | [MIT](https://spdx.org/licenses/MIT.html) |
+| **x/ansi, x/cellbuf, x/term** | Charmbracelet, Inc. | [MIT](https://spdx.org/licenses/MIT.html) |
+| **termenv** | Christian Muehlhaeuser (muesli) | [MIT](https://spdx.org/licenses/MIT.html) |
+| **cancelreader** | Christian Muehlhaeuser (muesli) | [MIT](https://spdx.org/licenses/MIT.html) |
+| **ansi** | Christian Muehlhaeuser (muesli) | [MIT](https://spdx.org/licenses/MIT.html) |
+| **clipboard** | atotto | [BSD-3-Clause](https://spdx.org/licenses/BSD-3-Clause.html) |
+| **go-osc52** | Ayman Bagabas | [MIT](https://spdx.org/licenses/MIT.html) |
+| **coninput** | Erik Geiser | [MIT](https://spdx.org/licenses/MIT.html) |
+| **go-colorful** | Lucas Beyer | [MIT](https://spdx.org/licenses/MIT.html) |
+| **go-isatty** | Yasuhiro Matsumoto (mattn) | [MIT](https://spdx.org/licenses/MIT.html) |
+| **go-localereader** | Yasuhiro Matsumoto (mattn) | [MIT](https://spdx.org/licenses/MIT.html) |
+| **go-runewidth** | Yasuhiro Matsumoto (mattn) | [MIT](https://spdx.org/licenses/MIT.html) |
+| **uniseg** | Rivet Health (rivo) | [MIT](https://spdx.org/licenses/MIT.html) |
+| **displaywidth, uax29, stringish** | Clipperhouse | [MIT / BSD-3-Clause](https://spdx.org/licenses/MIT.html) |
+| **terminfo** | xo | [MIT](https://spdx.org/licenses/MIT.html) |
+| **golang.org/x/sys** | The Go Authors | [BSD-3-Clause](https://spdx.org/licenses/BSD-3-Clause.html) |
+| **golang.org/x/text** | The Go Authors | [BSD-3-Clause](https://spdx.org/licenses/BSD-3-Clause.html) |
+| **laya** | Convai Innovations | [Apache-2.0](https://spdx.org/licenses/Apache-2.0.html) |
+| **ModernBERT** | Answer.AI & LightOn | [Apache-2.0](https://spdx.org/licenses/Apache-2.0.html) |
+| **Podman** | Red Hat, Inc. & Podman Community | [Apache-2.0](https://spdx.org/licenses/Apache-2.0.html) |
 
 ---
 
@@ -199,7 +200,7 @@ SOFTWARE.
 ---
 
 ### 7. Apache License, Version 2.0 (Apache-2.0)
-Applied to: `laya` (Convai Innovations), `ModernBERT` (Answer.AI & LightOn).
+Applied to: `laya` (Convai Innovations), `ModernBERT` (Answer.AI & LightOn), `Podman` (Red Hat, Inc. & Podman Community).
 
                                  Apache License
                            Version 2.0, January 2004

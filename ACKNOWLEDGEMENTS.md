@@ -51,6 +51,10 @@ We express our sincere gratitude to the following projects, models, tools, and p
 - **[uv](https://github.com/astral-sh/uv)** (Astral) — Apache-2.0 / MIT Licenses  
   *Extremely fast Python package and project manager used to isolate auxiliary developer tooling, scripts, and evaluation environments under `./tools/*` without polluting the host system.*
 
+### 8. Containerized Sandboxing & Testing Isolation
+- **[Podman](https://podman.io/)** (Red Hat, Inc. & Podman Community) — Apache-2.0 License  
+  *A daemonless, rootless container engine.*
+
 ---
 
 ## Legal Notices & Third-Party Licenses
