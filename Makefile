@@ -1,15 +1,7 @@
-.PHONY: all build test clean probe run release-snapshot
+.PHONY: all build test integration-test clean lint sbom probe run
 
-BINARY_NAME=lokol
-BIN_DIR=bin
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "v0.1.0-alpha")
-COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "dev")
-DATE ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
-
-LDFLAGS=-ldflags "-s -w \
-	-X github.com/boggycreek/lokol/pkg/version.Version=$(VERSION) \
-	-X github.com/boggycreek/lokol/pkg/version.GitCommit=$(COMMIT) \
-	-X github.com/boggycreek/lokol/pkg/version.BuildDate=$(DATE)"
+SUBPROJECTS = liblokol cmd/lk cmd/lokol cmd/lokol-mcp
+BIN_DIR = bin
 
 # Enforce XDG Base Directory specification and prevent GOROOT pollution
 unexport GOROOT
@@ -23,17 +15,40 @@ all: test build
 
 build:
 	@mkdir -p $(BIN_DIR)
-	CGO_ENABLED=0 go build $(LDFLAGS) -o $(BIN_DIR)/$(BINARY_NAME) ./cmd/lokol
-	CGO_ENABLED=0 go build $(LDFLAGS) -o $(BIN_DIR)/lokol-mcp ./cmd/lokol-mcp
+	@for p in $(SUBPROJECTS); do \
+		echo "==> Building $$p"; \
+		$(MAKE) -C $$p build BIN_DIR=$(CURDIR)/$(BIN_DIR) || exit 1; \
+	done
 
 test:
-	go test -v ./test/...
+	@for p in $(SUBPROJECTS); do \
+		echo "==> Testing $$p"; \
+		$(MAKE) -C $$p test || exit 1; \
+	done
 
-probe: build
-	./$(BIN_DIR)/$(BINARY_NAME) probe
+integration-test:
+	@for p in $(SUBPROJECTS); do \
+		echo "==> Integration Testing $$p"; \
+		$(MAKE) -C $$p integration-test || exit 1; \
+	done
 
 clean:
+	@for p in $(SUBPROJECTS); do \
+		$(MAKE) -C $$p clean BIN_DIR=$(CURDIR)/$(BIN_DIR) || true; \
+	done
 	rm -rf $(BIN_DIR) dist/
+
+lint:
+	@for p in $(SUBPROJECTS); do \
+		echo "==> Linting $$p"; \
+		$(MAKE) -C $$p lint || exit 1; \
+	done
+
+probe: build
+	./$(BIN_DIR)/lokol probe
+
+run: build
+	./$(BIN_DIR)/lk
 
 sbom:
 	@mkdir -p dist
@@ -50,7 +65,3 @@ sbom:
 	fi
 	@sha256sum dist/lokol-sbom.spdx.json > dist/lokol-sbom.spdx.json.sha256
 	@echo "Generated dist/lokol-sbom.spdx.json and dist/lokol-sbom.spdx.json.sha256"
-
-run: build
-	./$(BIN_DIR)/$(BINARY_NAME)
-

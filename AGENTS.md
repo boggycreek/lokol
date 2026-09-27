@@ -129,21 +129,27 @@ bd prime                # Refresh Beads context
 
 ## Agent Evaluation Benchmark Suite & Semantic Testing
 
-When developing agent loop enhancements, tool execution changes, or prompt alterations, use the **10-tier integration evaluation suite** in [`test/eval_test.go`](test/eval_test.go).
+When developing agent loop enhancements, tool execution changes, or prompt alterations, use the **10-tier integration evaluation suite** in [`liblokol/test/eval_test.go`](liblokol/test/eval_test.go).
 
-### Running Evaluations
+### Running Evaluations & Integration Tests
 
 ```bash
-# 1. Run the live 10-tier benchmark against the local engine (http://127.0.0.1:8080)
-go test -v ./test -run TestEvalSuite_LiveEngine
+# 1. Run all subproject unit tests (fast, hermetic, no inference required)
+make test
 
-# 2. Run the loop circuit breaker & oscillation intervention test
-go test -v ./test -run TestRunner_LoopCircuitBreaker
+# 2. Run live integration tests across all subprojects (requires llama-server on http://127.0.0.1:8080)
+make integration-test
 
-# 3. Run the sandboxed Podman container evaluation (scoped project purpose evaluation)
-go test -v ./test -run TestPodmanSandbox_ProjectEvaluation
+# 3. Run the live 10-tier benchmark against the local engine (http://127.0.0.1:8080)
+go test -v -tags integration ./liblokol/test -run TestEvalSuite_LiveEngine
 
-# 4. Test Laya semantic judge health
+# 4. Run the loop circuit breaker & oscillation intervention test
+go test -v ./liblokol/test -run TestRunner_LoopCircuitBreaker
+
+# 5. Run the sandboxed Podman container evaluation (scoped project purpose evaluation)
+go test -v -tags integration ./cmd/lokol/test -run TestPodmanSandbox_ProjectEvaluation
+
+# 6. Test Laya semantic judge health
 uv run --python .venv tools/laya/judge.py --health
 ```
 
@@ -161,7 +167,7 @@ uv run --python .venv tools/laya/judge.py --health
    - **Tier 9**: Targeted window edits in large files (`replace_file`)
    - **Tier 10**: Architectural overview with **Laya decision model** evaluation
 2. **Containerized Sandboxing via Podman ([ADR-0016](doc/adr/0016-containerized-test-sandboxing-via-podman.md))**:
-   - Tests evaluating agent autonomy on scoped test projects must run within a rootless Podman container (`test/podman_sandbox_test.go`).
+   - Tests evaluating agent autonomy on scoped test projects must run within a rootless Podman container (`cmd/lokol/test/podman_sandbox_test.go`).
    - **Zero Host Memory Pollution**: Host `.beads/` and memories are strictly protected by setting `BEADS_DIR=/workspace/.beads` and `GIT_CEILING_DIRECTORIES` so tools cannot discover host databases.
    - **No Root Binaries**: Never compile binaries into the repository root. Test binaries are built into `t.TempDir()` and mounted read-only.
    - **Inference Networking**: Containers use `--network=host` to access local `llama-server` on `127.0.0.1:8080`.
@@ -169,10 +175,10 @@ uv run --python .venv tools/laya/judge.py --health
    - Tests execute in isolated temporary directories (`t.TempDir()`).
    - Verifications validate physical file modifications, JSON unmarshaling, or `go test` exit codes rather than fuzzy string matching.
 4. **Semantic Scoring via Laya**:
-   - Subjective/semantic artifacts (e.g. `ARCHITECTURE.md` in Tier 10) are scored using Convai's Laya model (`tools/laya/judge.py`) bridged through `test/laya_judge_test.go`.
+   - Subjective/semantic artifacts (e.g. `ARCHITECTURE.md` in Tier 10) are scored using Convai's Laya model (`tools/laya/judge.py`) bridged through `liblokol/test/laya_judge_test.go`.
    - Laya executes in ~33ms, returning calibrated probability (`noul`) and quality score (`score`).
 5. **Extending the Evaluation Suite**:
-   - To add a new tier or prompt scenario, append a `BenchmarkCase` struct to `cases` in [`test/eval_test.go`](test/eval_test.go):
+   - To add a new tier or prompt scenario, append a `BenchmarkCase` struct to `cases` in [`liblokol/test/eval_test.go`](liblokol/test/eval_test.go):
      ```go
      BenchmarkCase{
          Name:     "TierX_ScenarioName",
@@ -186,4 +192,4 @@ uv run --python .venv tools/laya/judge.py --health
    - All Python tools must live in distinct subdirectories under `./tools/*` (e.g., `./tools/laya/`).
    - Use `uv` with PEP 723 metadata (`uv run --python .venv tools/...`). Never run system-wide `pip install`.
 7. **Local Developer Artifacts**:
-   - Benchmark reports are automatically saved to gitignored `data/eval_results.json`.
+   - Benchmark reports are automatically saved to subproject gitignored `liblokol/data/eval_results.json`.

@@ -61,20 +61,30 @@ This protocol applies when ending a Beads implementation workflow. It is subordi
 ## Build & Test
 
 ```bash
-# Build the lokol binary
+# Build all subprojects (lk, lokol, lokol-mcp)
 make build
 
-# Run unit and integration tests
+# Run unit tests across all subprojects (fast, hermetic)
 make test
 
+# Run live integration tests across all subprojects (requires llama-server)
+make integration-test
+
+# Build or test specific subprojects
+make -C cmd/lk build
+make -C cmd/lokol build
+make -C cmd/lokol-mcp build
+make -C liblokol test
+make -C liblokol integration-test
+
 # Run the 10-tier graded live evaluation suite (requires llama-server at http://127.0.0.1:8080)
-go test -v ./test -run TestEvalSuite_LiveEngine
+go test -v -tags integration ./liblokol/test -run TestEvalSuite_LiveEngine
 
 # Run loop circuit breaker and repetition intervention tests
-go test -v ./test -run TestRunner_LoopCircuitBreaker
+go test -v ./liblokol/test -run TestRunner_LoopCircuitBreaker
 
 # Run sandboxed Podman container evaluation (scoped project evaluation)
-go test -v ./test -run TestPodmanSandbox_ProjectEvaluation
+go test -v ./cmd/lokol/test -run TestPodmanSandbox_ProjectEvaluation
 
 # Check Laya semantic evaluator health
 uv run --python .venv tools/laya/judge.py --health
@@ -82,29 +92,35 @@ uv run --python .venv tools/laya/judge.py --health
 
 ## Architecture Overview
 
-- **Core Agent Loop (`pkg/agent/`)**:
-  - `client.go`: Connects to `llama-server`, parses `<action name="...">` delimiters, injects `<environment>` grounding.
-  - `runner.go`: Multi-turn orchestrator, turn bounds, oscillation detection, loop intervention nudges, and internalized inferences.
-  - `tools.go`: File and shell tool execution (`write_file`, `replace_file`, `exec_bash`, etc.) with strict `WorkDir` isolation and git/beads ceiling barriers.
-- **Context Refinery & Facades (`pkg/tools/refinery/`)**:
-  - Mechanical filtering: AST outlines (`read_outline`), bounded windows <= 100 lines (`read_window`), and 1-line failure assertions (`run_test`).
-- **Evaluation Harness & Laya Decision Model (`test/eval_test.go`, `tools/laya/`)**:
-  - 10-tier progressive benchmark evaluating tool use, error recovery, git workflows, and multi-turn refactoring.
-  - `tools/laya/judge.py` + `test/laya_judge_test.go`: Non-autoregressive decision model (`convaiinnovations/laya`) scoring semantic correctness in ~33ms.
-  - Output reports stored in gitignored `data/eval_results.json`.
-- **Containerized Sandbox Testing (`test/podman_sandbox_test.go`, [ADR-0016](doc/adr/0016-containerized-test-sandboxing-via-podman.md))**:
-  - Ephemeral rootless Podman container sandboxing for evaluating agent autonomy on scoped test projects.
-  - Total host isolation: `BEADS_DIR=/workspace/.beads` and `GIT_CEILING_DIRECTORIES` ensure zero pollution of host Dolt databases or git refs.
-  - Binaries compiled strictly into `t.TempDir()` and mounted read-only, preventing rogue binaries in repository root.
+`lokol` is structured as a Go monorepo orchestrated via `go.work`:
+
+- **SDK & Core Agent Engine (`liblokol/`)**:
+  - `agent/`: Deterministic agent loop (`runner.go`), SSE streaming client (`client.go`), action parser (`tools.go`), and session contract (`session.go`).
+  - `refinery/`: Mechanical filtering: AST outlines (`read_outline`), bounded windows <= 120 lines (`read_window`), search and diff tools (`find_files`, `search_code`, `git_diff_summary`), and 1-line test failure assertions (`run_test`).
+  - `mcp/`: Pure-Go Model Context Protocol stdio JSON-RPC server implementation.
+  - `model/`: VRAM tiering and hardware model matrix sizing.
+  - `probe/`: Hardware and GPU capability detection (NVIDIA VRAM, CPU vector flags).
+  - `setup/`: Environment bootstrap and dependency checking.
+  - `update/`: Self-updater fetching signed GitHub releases.
+  - `version/`: Build-time version metadata injected via `-ldflags`.
+  - `test/`: Integration test suite, 10-tier evaluation benchmark, and Laya bridge.
+- **Interactive TUI Launcher (`cmd/lk/`)**:
+  - Dedicated Bubble Tea interactive terminal UI (`bin/lk`) with live context HUD, prompt history, viewport wrapping, and hardware status.
+- **Admin & Configuration CLI (`cmd/lokol/`)**:
+  - Administrative CLI tool (`bin/lokol`) handling `setup`, `probe`, `exec` (headless agent runner), `update`, and `version`.
+- **In-Repo MCP Server (`cmd/lokol-mcp/`)**:
+  - Standalone stdio JSON-RPC MCP server binary (`bin/lokol-mcp`) exposing refinery tools to Claude Code, Codex, and Cursor.
 
 ## Conventions & Patterns
 
-1. **Tool Invocation Protocol**: Actions use XML tags: `<action name="tool_name">...</action>`. Exactly one action per model turn.
-2. **Deterministic Workspace Isolation & Container Sandboxing**: All tests operate within isolated temporary directories (`t.TempDir()`). Autonomous agent evaluations on scoped projects must execute in Podman container sandboxes ([ADR-0016](doc/adr/0016-containerized-test-sandboxing-via-podman.md)). Never build binaries into the repository root.
-3. **Internalized Inferences**: The agent internalizes intermediate reasoning and tool progress. Standard output is reserved for clean completions, while intermediate tool steps route to stderr or transient TUI status.
-4. **Python Developer Tooling**:
+1. **Subproject Isolation**:
+   - Each subproject maintains its own `Makefile` (`build`, `test`, `clean`, `lint`), local `.gitignore`, and isolated `data/` and `tmp/` directories.
+   - Root `Makefile` orchestrates across subprojects (`liblokol`, `cmd/lk`, `cmd/lokol`, `cmd/lokol-mcp`).
+   - Never write to a global root `./data/` or `./tmp/`.
+2. **Tool Invocation Protocol**: Actions use XML tags: `<action name="tool_name">...</action>`. Exactly one action per model turn.
+3. **Deterministic Workspace Isolation & Container Sandboxing**: All tests operate within isolated temporary directories (`t.TempDir()`). Autonomous agent evaluations on scoped projects must execute in Podman container sandboxes ([ADR-0016](doc/adr/0016-containerized-test-sandboxing-via-podman.md)). Never build binaries into the repository root.
+4. **Internalized Inferences**: The agent internalizes intermediate reasoning and tool progress. Standard output is reserved for clean completions, while intermediate tool steps route to stderr or transient TUI status.
+5. **Python Developer Tooling**:
    - Must live in dedicated subdirectories under `./tools/*` (e.g. `./tools/laya/`).
    - Managed strictly via `uv` with PEP 723 inline script metadata. Never install to global Python.
-5. **Transient Data & Artifacts**:
-   - Store local developer test dumps, benchmark history, and scratch logs in `./data/` (gitignored).
 6. **Non-Interactive Commands**: Always use non-interactive flags (`cp -f`, `rm -rf`, `apt-get -y`, `HOMEBREW_NO_AUTO_UPDATE=1`) to prevent hangs.

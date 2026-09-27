@@ -176,11 +176,11 @@ Once dependencies are installed and `~/.local/bin` is in your `PATH`, verify the
 ```bash
 make test
 ```
-Runs unit tests across all packages under `./pkg/...` and unit tests in `./test/...` with race detection.
+Runs tests across all subprojects (`liblokol`, `cmd/lk`, `cmd/lokol`, `cmd/lokol-mcp`). Each subproject maintains its own `Makefile`, localized `.gitignore`, and isolated `data/` and `tmp/` scratch directories.
 
 ### 2. Run the 10-Tier Live Integration Evaluation Suite
 ```bash
-go test -v ./test -run TestEvalSuite_LiveEngine
+go test -v ./liblokol/test -run TestEvalSuite_LiveEngine
 ```
 Runs the graded benchmark suite across 10 progressive tiers against your local inference engine (`http://127.0.0.1:8080`). Verifies:
 - **Tier 1**: JSON file creation and schema adherence (`write_file`)
@@ -194,18 +194,18 @@ Runs the graded benchmark suite across 10 progressive tiers against your local i
 - **Tier 9**: Targeted in-place edits in large files
 - **Tier 10**: Architectural documentation scored semantically via **Laya**
 
-Test results and performance metrics are automatically persisted to the gitignored `./data/eval_results.json` file.
+Test results and performance metrics are automatically persisted to the subproject-local gitignored `./liblokol/data/eval_results.json` file.
 
 ### 3. Run Loop Circuit Breaker & Oscillation Tests
 ```bash
-go test -v ./test -run TestRunner_LoopCircuitBreaker
+go test -v ./liblokol/test -run TestRunner_LoopCircuitBreaker
 ```
 Verifies that the runner detects consecutive edit failures or command repetitions, injects corrective system intervention nudges, and aborts runaway loops.
 
-### 4. Sandboxed Podman Container Evaluation (`test/podman_sandbox_test.go`)
+### 4. Sandboxed Podman Container Evaluation (`cmd/lokol/test/podman_sandbox_test.go`)
 To evaluate autonomous agent capabilities on scoped projects without risking host memory pollution:
 ```bash
-go test -v ./test -run TestPodmanSandbox_ProjectEvaluation
+go test -v ./cmd/lokol/test -run TestPodmanSandbox_ProjectEvaluation
 ```
 Spawns an ephemeral rootless Podman container (`docker.io/library/golang:1.25-bookworm`), mounts an isolated scoped test project into `/workspace:rw,Z`, binds network to the local `llama-server` engine, and asserts that:
 - Host `.beads/` and memories are completely unpolluted (`BEADS_DIR=/workspace/.beads`, `GIT_CEILING_DIRECTORIES`).

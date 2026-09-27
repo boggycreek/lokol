@@ -15,14 +15,12 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/boggycreek/lokol/pkg/agent"
-	"github.com/boggycreek/lokol/pkg/model"
-	"github.com/boggycreek/lokol/pkg/probe"
-	"github.com/boggycreek/lokol/pkg/setup"
-	"github.com/boggycreek/lokol/pkg/tui"
-	"github.com/boggycreek/lokol/pkg/update"
-	"github.com/boggycreek/lokol/pkg/version"
-	tea "github.com/charmbracelet/bubbletea"
+	"github.com/boggycreek/lokol/liblokol/agent"
+	"github.com/boggycreek/lokol/liblokol/model"
+	"github.com/boggycreek/lokol/liblokol/probe"
+	"github.com/boggycreek/lokol/liblokol/setup"
+	"github.com/boggycreek/lokol/liblokol/update"
+	"github.com/boggycreek/lokol/liblokol/version"
 )
 
 func main() {
@@ -30,7 +28,6 @@ func main() {
 	promptFlag := flag.String("prompt", "", "Run prompt directly in headless mode (alias: -p)")
 	flag.StringVar(promptFlag, "p", "", "Run prompt directly in headless mode (shorthand)")
 	topEngine := flag.String("engine", "http://127.0.0.1:8080", "URL of local llama-server engine")
-	topYOLO := flag.Bool("yolo", false, "Engage YOLO mode: autonomous bash execution without interactive approval")
 	topMaxTurns := flag.Int("max-turns", 15, "Max turns for agent loop in headless mode")
 	topVerbose := flag.Bool("verbose", false, "Display internal reasoning tokens and verbose tool activity")
 	flag.BoolVar(topVerbose, "v", false, "Display internal reasoning tokens (shorthand)")
@@ -41,12 +38,6 @@ func main() {
 	// Subcommands
 	probeCmd := flag.NewFlagSet("probe", flag.ExitOnError)
 	simVRAM := probeCmd.Float64("simulate-vram-gib", 0, "Simulate a specific VRAM amount in GiB (e.g. 4.0 for GTX 1650)")
-
-	chatCmd := flag.NewFlagSet("chat", flag.ExitOnError)
-	engineURL := chatCmd.String("engine", "http://127.0.0.1:8080", "URL of local llama-server engine")
-	yolo := chatCmd.Bool("yolo", false, "Engage YOLO mode: autonomous bash execution without interactive approval")
-	chatVerbose := chatCmd.Bool("verbose", false, "Display internal reasoning and tool stream in chat")
-	chatCmd.BoolVar(chatVerbose, "v", false, "Display internal reasoning (shorthand)")
 
 	execCmd := flag.NewFlagSet("exec", flag.ExitOnError)
 	execEngine := execCmd.String("engine", "http://127.0.0.1:8080", "URL of local llama-server engine")
@@ -88,10 +79,6 @@ func main() {
 				_ = probeCmd.Parse(flag.Args()[1:])
 				runProbe(*simVRAM)
 				return
-			case "chat":
-				_ = chatCmd.Parse(flag.Args()[1:])
-				runChat(*engineURL, *yolo || *topYOLO, *chatVerbose || *topVerbose)
-				return
 			case "exec":
 				_ = execCmd.Parse(flag.Args()[1:])
 				prompt := strings.Join(execCmd.Args(), " ")
@@ -121,9 +108,6 @@ func main() {
 	case "probe":
 		_ = probeCmd.Parse(os.Args[2:])
 		runProbe(*simVRAM)
-	case "chat":
-		_ = chatCmd.Parse(os.Args[2:])
-		runChat(*engineURL, *yolo, *chatVerbose)
 	case "exec":
 		_ = execCmd.Parse(os.Args[2:])
 		prompt := strings.Join(execCmd.Args(), " ")
@@ -147,10 +131,10 @@ func printUsage() {
 	fmt.Println("lokol - Local-first autonomous AI agent for consumer GPUs")
 	fmt.Println()
 	fmt.Println("Usage:")
+	fmt.Println("  lk           [--engine=...] [--yolo] [-v]         Start interactive Bubble Tea TUI agent session")
+	fmt.Println("  lokol exec   [--engine=...] [-v] <prompt>         Run autonomous agent in headless mode")
 	fmt.Println("  lokol setup  [--download-model] [--install-llama] Bootstrap environment, probe hardware & check dependencies")
 	fmt.Println("  lokol probe  [--simulate-vram-gib=X]              Probe host capabilities and compute optimal model tier")
-	fmt.Println("  lokol chat   [--engine=...] [--yolo] [-v]         Start interactive Bubble Tea TUI agent session")
-	fmt.Println("  lokol exec   [--engine=...] [-v] <prompt>         Run autonomous agent in headless mode")
 	fmt.Println("  lokol update [--pre] [--version=vX]               Update to latest release from GitHub (or specific version)")
 	fmt.Println("  lokol update --list                               List all published releases available on GitHub")
 	fmt.Println("  lokol [-p | --prompt] \"<prompt>\" [-v]            Run agent in headless mode directly")
@@ -282,26 +266,6 @@ func runExec(engineURL string, maxTurns int, prompt string, verbose bool) {
 
 	if !finished && summary != "" {
 		fmt.Println(summary)
-	}
-}
-
-func runChat(engineURL string, yolo bool, verbose bool) {
-	hw, err := probe.Detect()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: probe error: %v\n", err)
-	}
-
-	workDir, _ := os.Getwd()
-	client := agent.NewClient(engineURL)
-	m := tui.New(client, hw, yolo, workDir)
-	if verbose {
-		m.SetVerbose(true)
-	}
-
-	p := tea.NewProgram(m, tea.WithAltScreen())
-	if _, err := p.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error running TUI: %v\n", err)
-		os.Exit(1)
 	}
 }
 
