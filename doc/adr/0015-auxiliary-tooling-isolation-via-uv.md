@@ -1,4 +1,4 @@
-# ADR 0015: Auxiliary Developer Tooling Isolation via uv and Segregated Subdirectories
+# ADR 0015: Auxiliary Developer Tooling Isolation via Virtual Environments
 
 ## Status
 Accepted
@@ -7,54 +7,38 @@ Accepted
 2026-09-27
 
 ## Context
-While the core `lokol` agent runtime and binary are strictly implemented in pure Go ([ADR-0001](0001-implementation-language-and-architecture.md)), advanced developer tooling, evaluation harnesses, and ML model judges (such as Laya in [ADR-0014](0014-non-autoregressive-decision-model-judging.md)) often require Python or specialized scripting environments.
+While the core agent runtime and binary are strictly implemented in pure Go ([ADR-0001](0001-implementation-language-and-architecture.md)), advanced developer tooling, evaluation harnesses, and ML model judges ([ADR-0014](0014-non-autoregressive-decision-model-judging.md)) often require secondary runtime environments such as Python.
 
-Unregulated Python scripts in a Go repository introduce friction:
-- Global `pip install` commands fail or trigger PEP 668 errors on modern Linux systems (e.g. Ubuntu 24.04 externally-managed environments).
-- Ad-hoc scripts scattered in root directories or test folders cause dependency conflicts and clutter.
-- Storing transient test data, logs, and evaluation run artifacts inside source directories risks accidental git commits.
+Unmanaged auxiliary scripts in a compiled systems repository introduce friction:
+- Global package installations conflict with host package managers and break in externally managed environments.
+- Ad-hoc scripts scattered across source or test directories cause dependency conflicts and codebase clutter.
+- Storing transient test data, logs, and evaluation run artifacts inside source directories risks accidental repository pollution.
 
-We need a clear architectural policy for managing auxiliary developer tooling, scripts, and local developer artifacts without polluting the Go codebase.
+We need a clear architectural policy for managing auxiliary developer tooling, scripts, and local developer artifacts without polluting the core codebase.
 
 ## Decision
-We establish a standard policy for all auxiliary developer tooling and test artifacts:
+We establish a standard architectural policy for all auxiliary developer tooling and test artifacts:
 
-```
-lokol/
-├── cmd/
-├── pkg/
-├── test/
-│   ├── eval_test.go          # Evaluation suite driver (Go)
-│   └── laya_judge_test.go    # Subprocess bridge to tools/laya
-├── tools/                    # Dedicated home for auxiliary dev tooling
-│   └── laya/
-│       └── judge.py          # Standalone PEP 723 script
-├── data/                     # Gitignored local developer artifacts
-│   └── eval_results.json     # Persisted test run reports
-└── .gitignore                # data/, .venv/, __pycache__/ ignored
-```
+### 1. Segregation Under Dedicated Tool Subdirectories
+All non-Go developer tools, evaluators, and maintenance scripts must live in distinct subdirectories under a dedicated tooling directory. No auxiliary scripts or virtual environments are allowed in the repository root or Go package source directories.
 
-### 1. Segregation Under `./tools/<toolname>/`
-All non-Go developer tools, evaluators, and maintenance scripts must live in distinct subdirectories under `./tools/*` (e.g. `./tools/laya/`). No Python scripts or virtual environments are allowed in the repository root or package source directories.
+### 2. Isolated Virtual Environment Management
+All auxiliary tooling dependencies must be managed through isolated, ephemeral virtual environments:
+- Tool scripts declare explicit dependency contracts within their own tooling boundary.
+- Global package installations are strictly prohibited.
+- Virtual environments and bytecode caches are excluded from version control.
 
-### 2. Standardization on `uv` for Python Execution
-All Python tooling must be managed through `uv`:
-- Scripts declare dependencies inline using PEP 723 metadata (`# /// script ... # ///`).
-- Scripts are executed using `uv run --python .venv tools/<toolname>/<script>.py`.
-- No global `pip install` or `--break-system-packages` commands are used.
-- The virtual environment (`.venv/`), bytecode caches (`__pycache__/`, `*.pyc`), and environments are tracked in `.gitignore`.
-
-### 3. Gitignored `./data/` for Developer Artifacts
-Evaluation test runs, benchmark histories, and diagnostic logs for local developers are stored in a dedicated `./data/` directory at the repository root:
-- The `./data/` directory is gitignored.
-- Benchmark drivers (such as `test/eval_test.go`) write structured JSON reports (`data/eval_results.json`) if the directory is present, providing persistent history across test iterations without dirtying git status.
+### 3. Dedicated Transient Artifact Directory
+Evaluation test runs, benchmark histories, and diagnostic logs are stored in a dedicated, gitignored developer data directory at the repository root:
+- The transient data directory is excluded from version control.
+- Test and benchmark runners may write structured reports to this directory to provide persistent history across iterations without dirtying the working tree.
 
 ## Consequences
 
 ### Positive
-- **Clean Go Ecosystem**: The core Go project remains pristine, fast to build, and free of foreign runtime artifacts.
-- **Hermetic & Reproducible**: `uv` guarantees fast, reproducible virtual environment management and package resolution without system-level side effects.
-- **Zero Accidental Commits**: All developer output artifacts, test run dumps, and virtual environments are reliably gitignored.
+- **Clean Core Ecosystem**: The core runtime remains pristine, fast to build, and free of foreign runtime artifacts.
+- **Hermetic & Reproducible**: Guarantees reproducible virtual environment management and package resolution without host system side effects.
+- **Zero Accidental Commits**: All developer output artifacts, test run dumps, and virtual environments are reliably excluded from version control.
 
 ### Negative / Trade-offs
-- Developers who wish to run Laya semantic evaluation tiers locally must have `uv` installed on their path (the evaluation suite detects presence and skips gracefully if unavailable).
+- Developers who execute auxiliary evaluation tiers locally must maintain the auxiliary runtime toolchain.

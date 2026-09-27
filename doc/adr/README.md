@@ -17,7 +17,7 @@ This directory contains the Architecture Decision Records for the `lokol` projec
 | [ADR-0011](0011-local-vector-database-adoption.md) | Local Vector Database Adoption for Memory and Source Code Indexing | Accepted | 2026-09-20 |
 | [ADR-0012](0012-in-repo-mcp-facades.md) | In-Repo MCP Servers as Architectural Facades for Deterministic Tool Call Invocations | Accepted | 2026-09-20 |
 | [ADR-0013](0013-graded-multi-tier-agent-evaluations.md) | Graded Multi-Tier Integration Benchmark Suite | Accepted | 2026-09-27 |
-| [ADR-0014](0014-non-autoregressive-decision-model-judging.md) | Non-Autoregressive Decision Models (Laya) for Semantic Evaluation | Accepted | 2026-09-27 |
-| [ADR-0015](0015-auxiliary-tooling-isolation-via-uv.md) | Auxiliary Developer Tooling Isolation via uv and Segregated Subdirectories | Accepted | 2026-09-27 |
-| [ADR-0016](0016-containerized-test-sandboxing-via-podman.md) | Containerized Test Sandboxing via Podman for Host Memory and State Isolation | Accepted | 2026-09-27 |
+| [ADR-0014](0014-non-autoregressive-decision-model-judging.md) | Non-Autoregressive Decision Models for Semantic Evaluation | Accepted | 2026-09-27 |
+| [ADR-0015](0015-auxiliary-tooling-isolation-via-uv.md) | Auxiliary Developer Tooling Isolation via Virtual Environments | Accepted | 2026-09-27 |
+| [ADR-0016](0016-containerized-test-sandboxing-via-podman.md) | Containerized Test Sandboxing for Host Memory and State Isolation | Accepted | 2026-09-27 |
 
