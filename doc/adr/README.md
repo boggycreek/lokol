@@ -20,4 +20,5 @@ This directory contains the Architecture Decision Records for the `lokol` projec
 | [ADR-0014](0014-non-autoregressive-decision-model-judging.md) | Non-Autoregressive Decision Models for Semantic Evaluation | Accepted | 2026-09-27 |
 | [ADR-0015](0015-auxiliary-tooling-isolation-via-uv.md) | Auxiliary Developer Tooling Isolation via Virtual Environments | Accepted | 2026-09-27 |
 | [ADR-0016](0016-containerized-test-sandboxing-via-podman.md) | Containerized Test Sandboxing for Host Memory and State Isolation | Accepted | 2026-09-27 |
+| [ADR-0017](0017-decoupled-core-agent-engine-from-presentation.md) | Decoupled Core Agent Engine from Presentation Layers | Accepted | 2026-09-27 |
 

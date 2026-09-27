@@ -253,3 +253,93 @@ func ExecuteGetEnvironment(ctx context.Context, payload string, workDir ...strin
 	return envInfo.FormatJSON()
 }
 
+// DispatchAction executes an action against the host system or tool suite.
+// It serves as the single source of truth for tool invocation across headless,
+// TUI, and any future presentation layers.
+func DispatchAction(ctx context.Context, act *Action, workDir string) (string, error) {
+	if act == nil {
+		return "", fmt.Errorf("action is nil")
+	}
+
+	switch act.Name {
+	case "exec_bash":
+		return ExecuteBash(ctx, act.Command, workDir)
+	case "replace_file":
+		return ExecuteReplaceFile(ctx, act.Command, workDir)
+	case "write_file":
+		return ExecuteWriteFile(ctx, act.Command, workDir)
+	case "read_outline":
+		return ExecuteReadOutline(ctx, act.Command, workDir)
+	case "read_window":
+		return ExecuteReadWindow(ctx, act.Command, workDir)
+	case "run_test":
+		return ExecuteRunTest(ctx, act.Command, workDir)
+	case "get_environment":
+		return ExecuteGetEnvironment(ctx, act.Command, workDir)
+	case "task_finish":
+		return act.Command, nil
+	default:
+		return "", fmt.Errorf("unknown action: %s", act.Name)
+	}
+}
+
+// TargetSummary returns a concise description or target path for the action.
+func (a *Action) TargetSummary() string {
+	if a == nil {
+		return ""
+	}
+	switch a.Name {
+	case "replace_file":
+		if input, _ := ParseReplaceFileInput(a.Command); input != nil {
+			return input.Path
+		}
+		return "file"
+	case "write_file":
+		if input, _ := ParseWriteFileInput(a.Command); input != nil {
+			return input.Path
+		}
+		return "file"
+	case "read_outline", "read_window":
+		p := strings.TrimSpace(extractTagContent(a.Command, "path"))
+		if p != "" {
+			return p
+		}
+		return strings.TrimSpace(a.Command)
+	case "exec_bash", "run_test":
+		return strings.TrimSpace(a.Command)
+	case "get_environment":
+		return "environment"
+	case "task_finish":
+		return strings.TrimSpace(a.Command)
+	default:
+		return a.Command
+	}
+}
+
+// VerboseDescription returns a formatted presentation banner for the action.
+func (a *Action) VerboseDescription() string {
+	if a == nil {
+		return ""
+	}
+	switch a.Name {
+	case "exec_bash":
+		return fmt.Sprintf("⚡ Executing: %s", a.Command)
+	case "replace_file":
+		return fmt.Sprintf("⚡ Editing: %s", a.TargetSummary())
+	case "write_file":
+		return fmt.Sprintf("⚡ Writing: %s", a.TargetSummary())
+	case "read_outline":
+		return fmt.Sprintf("⚡ Reading Outline: %s", a.TargetSummary())
+	case "read_window":
+		return fmt.Sprintf("⚡ Reading Window: %s", a.TargetSummary())
+	case "run_test":
+		return fmt.Sprintf("⚡ Verifying Tests: %s", a.TargetSummary())
+	case "get_environment":
+		return "⚡ Inspecting Environment"
+	case "task_finish":
+		return fmt.Sprintf("⚡ Finishing Task: %s", a.TargetSummary())
+	default:
+		return fmt.Sprintf("⚡ Executing %s: %s", a.Name, a.TargetSummary())
+	}
+}
+
