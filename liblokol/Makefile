@@ -1,4 +1,4 @@
-.PHONY: all build test clean lint
+.PHONY: all build test integration-test clean lint
 
 all: test build
 
@@ -7,6 +7,9 @@ build:
 
 test:
 	go test -v ./...
+
+integration-test:
+	go test -v -tags integration ./...
 
 clean:
 	rm -rf data/ tmp/ *.out *.test

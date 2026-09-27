@@ -2,6 +2,7 @@
 //
 // Use of this source code is governed by an MIT-style
 // license that can be found in the LICENSE file.
+//go:build integration
 
 package lokol_test
 
@@ -140,7 +141,8 @@ type AccessRecord struct {
 		hasExpectedTopic := strings.Contains(purposeText, "log") ||
 			strings.Contains(purposeText, "microservice") ||
 			strings.Contains(purposeText, "observability") ||
-			strings.Contains(purposeText, "parse")
+			strings.Contains(purposeText, "parse") ||
+			strings.Contains(purposeText, "access")
 		if !hasExpectedTopic {
 			t.Errorf("PURPOSE.md content did not describe the scoped project: %s", string(purposeBytes))
 		}

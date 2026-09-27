@@ -129,21 +129,27 @@ bd prime                # Refresh Beads context
 
 ## Agent Evaluation Benchmark Suite & Semantic Testing
 
-When developing agent loop enhancements, tool execution changes, or prompt alterations, use the **10-tier integration evaluation suite** in [`test/eval_test.go`](test/eval_test.go).
+When developing agent loop enhancements, tool execution changes, or prompt alterations, use the **10-tier integration evaluation suite** in [`liblokol/test/eval_test.go`](liblokol/test/eval_test.go).
 
-### Running Evaluations
+### Running Evaluations & Integration Tests
 
 ```bash
-# 1. Run the live 10-tier benchmark against the local engine (http://127.0.0.1:8080)
-go test -v ./liblokol/test -run TestEvalSuite_LiveEngine
+# 1. Run all subproject unit tests (fast, hermetic, no inference required)
+make test
 
-# 2. Run the loop circuit breaker & oscillation intervention test
+# 2. Run live integration tests across all subprojects (requires llama-server on http://127.0.0.1:8080)
+make integration-test
+
+# 3. Run the live 10-tier benchmark against the local engine (http://127.0.0.1:8080)
+go test -v -tags integration ./liblokol/test -run TestEvalSuite_LiveEngine
+
+# 4. Run the loop circuit breaker & oscillation intervention test
 go test -v ./liblokol/test -run TestRunner_LoopCircuitBreaker
 
-# 3. Run the sandboxed Podman container evaluation (scoped project purpose evaluation)
-go test -v ./cmd/lokol/test -run TestPodmanSandbox_ProjectEvaluation
+# 5. Run the sandboxed Podman container evaluation (scoped project purpose evaluation)
+go test -v -tags integration ./cmd/lokol/test -run TestPodmanSandbox_ProjectEvaluation
 
-# 4. Test Laya semantic judge health
+# 6. Test Laya semantic judge health
 uv run --python .venv tools/laya/judge.py --health
 ```
 

@@ -1,4 +1,4 @@
-.PHONY: all build test clean lint
+.PHONY: all build test integration-test clean lint
 
 BIN_DIR ?= ../../bin
 BINARY ?= $(BIN_DIR)/lokol
@@ -20,6 +20,9 @@ build:
 
 test:
 	go test -v ./...
+
+integration-test:
+	go test -v -tags integration ./...
 
 clean:
 	rm -rf $(BINARY) data/ tmp/ *.out *.test

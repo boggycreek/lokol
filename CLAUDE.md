@@ -64,17 +64,21 @@ This protocol applies when ending a Beads implementation workflow. It is subordi
 # Build all subprojects (lk, lokol, lokol-mcp)
 make build
 
-# Run tests across all subprojects
+# Run unit tests across all subprojects (fast, hermetic)
 make test
+
+# Run live integration tests across all subprojects (requires llama-server)
+make integration-test
 
 # Build or test specific subprojects
 make -C cmd/lk build
 make -C cmd/lokol build
 make -C cmd/lokol-mcp build
 make -C liblokol test
+make -C liblokol integration-test
 
 # Run the 10-tier graded live evaluation suite (requires llama-server at http://127.0.0.1:8080)
-go test -v ./liblokol/test -run TestEvalSuite_LiveEngine
+go test -v -tags integration ./liblokol/test -run TestEvalSuite_LiveEngine
 
 # Run loop circuit breaker and repetition intervention tests
 go test -v ./liblokol/test -run TestRunner_LoopCircuitBreaker

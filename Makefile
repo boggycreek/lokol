@@ -1,4 +1,4 @@
-.PHONY: all build test clean lint sbom probe run
+.PHONY: all build test integration-test clean lint sbom probe run
 
 SUBPROJECTS = liblokol cmd/lk cmd/lokol cmd/lokol-mcp
 BIN_DIR = bin
@@ -24,6 +24,12 @@ test:
 	@for p in $(SUBPROJECTS); do \
 		echo "==> Testing $$p"; \
 		$(MAKE) -C $$p test || exit 1; \
+	done
+
+integration-test:
+	@for p in $(SUBPROJECTS); do \
+		echo "==> Integration Testing $$p"; \
+		$(MAKE) -C $$p integration-test || exit 1; \
 	done
 
 clean:

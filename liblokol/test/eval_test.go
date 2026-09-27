@@ -3,14 +3,14 @@
 // Use of this source code is governed by an MIT-style
 // license that can be found in the LICENSE file.
 
+//go:build integration
+
 package lokol_test
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,94 +20,6 @@ import (
 
 	"github.com/boggycreek/lokol/liblokol/agent"
 )
-
-// TestRunner_LoopCircuitBreaker verifies that the runner halts runaway loops
-// when the agent executes the exact same failed action repeatedly.
-func TestRunner_LoopCircuitBreaker(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	turnsExecuted := 0
-	var receivedIntervention bool
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var req agent.StreamChatRequest
-		_ = json.NewDecoder(r.Body).Decode(&req)
-
-		// Check if runner injected loop intervention into the user message
-		for _, msg := range req.Messages {
-			if strings.Contains(msg.Content, "SYSTEM INTERVENTION: Loop detected") {
-				receivedIntervention = true
-			}
-		}
-
-		turnsExecuted++
-		w.Header().Set("Content-Type", "text/event-stream")
-		flusher, _ := w.(http.Flusher)
-
-		// Model stubbornly repeats the exact same non-existent file replacement
-		tokens := []string{
-			"I will edit the file.\n",
-			"<action name=\"replace_file\">\n",
-			"<path>missing.txt</path>\n<target>foo</target>\n<replacement>bar</replacement>\n",
-			"</action>",
-		}
-
-		for _, tok := range tokens {
-			chunk := agent.ChatChunkResponse{
-				Choices: []struct {
-					Delta struct {
-						Content string `json:"content"`
-					} `json:"delta"`
-					FinishReason string `json:"finish_reason"`
-				}{
-					{Delta: struct {
-						Content string `json:"content"`
-					}{Content: tok}},
-				},
-			}
-			bytesChunk, _ := json.Marshal(chunk)
-			fmt.Fprintf(w, "data: %s\n\n", bytesChunk)
-			flusher.Flush()
-		}
-		fmt.Fprintf(w, "data: [DONE]\n\n")
-		flusher.Flush()
-	}))
-	defer server.Close()
-
-	client := agent.NewClient(server.URL)
-	runner := &agent.Runner{
-		Client:   client,
-		MaxTurns: 10,
-		YOLO:     true,
-		WorkDir:  tmpDir,
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	_, err := runner.Run(ctx, "Fix the missing file")
-
-	t.Run("TripBreakerWithError", func(t *testing.T) {
-		if err == nil {
-			t.Fatal("expected runner to trip circuit breaker on loop, got nil error")
-		}
-		if !strings.Contains(err.Error(), "loop detected") {
-			t.Fatalf("expected loop detected error, got: %v", err)
-		}
-	})
-
-	t.Run("InjectInterventionNudge", func(t *testing.T) {
-		if !receivedIntervention {
-			t.Errorf("expected runner to inject SYSTEM INTERVENTION before tripping circuit breaker")
-		}
-	})
-
-	t.Run("HaltBeforeMaxTurns", func(t *testing.T) {
-		if turnsExecuted > 5 {
-			t.Errorf("runner executed %d turns; expected circuit breaker to trip by turn 4", turnsExecuted)
-		}
-	})
-}
 
 // BenchmarkCase defines an evaluation test case with deterministic ground-truth verification.
 type BenchmarkCase struct {
