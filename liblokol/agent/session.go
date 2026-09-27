@@ -28,6 +28,7 @@ type SessionCore interface {
 	Reset()
 	GetMode() Mode
 	SetMode(mode Mode)
+	GetWorkDir() string
 }
 
 // Session represents a stateful conversational agent session.
@@ -170,3 +171,12 @@ func (s *Session) Reset() {
 		{Role: "system", Content: BuildSystemPromptForMode(s.GetMode(), env, s.CodebaseContext)},
 	}
 }
+
+// GetWorkDir returns the absolute workspace directory associated with the session.
+func (s *Session) GetWorkDir() string {
+	if s.WorkDir == "" {
+		return "."
+	}
+	return s.WorkDir
+}
+

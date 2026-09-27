@@ -67,6 +67,11 @@ func TestValidateFilesystemBounds(t *testing.T) {
 		t.Errorf("expected safe write_file with command XML to pass, got: %v", err)
 	}
 
+	// Critical: XML <path> takes precedence over placeholder targetPath
+	if err := guardrail.ValidateFilesystemBounds(workDir, "write_file", "file", "<path>../../etc/shadow</path>"); err == nil {
+		t.Errorf("expected malicious XML <path> to take precedence over placeholder targetPath, but succeeded")
+	}
+
 	// Out of bounds action
 	if err := guardrail.ValidateFilesystemBounds(workDir, "replace_file", "../../etc/shadow", ""); err == nil {
 		t.Errorf("expected out of bounds replace_file to fail, got nil")
@@ -75,6 +80,23 @@ func TestValidateFilesystemBounds(t *testing.T) {
 	// Missing path parameter
 	if err := guardrail.ValidateFilesystemBounds(workDir, "read_window", "", ""); err == nil {
 		t.Errorf("expected missing path parameter to fail, got nil")
+	}
+
+	// Expanded tool coverage: find_files, search_code, git_diff_summary, get_environment
+	inspectionTools := []string{"find_files", "search_code", "git_diff_summary", "get_environment"}
+	for _, tool := range inspectionTools {
+		// Valid path inside workspace
+		if err := guardrail.ValidateFilesystemBounds(workDir, tool, "", "<path>pkg/sub</path>"); err != nil {
+			t.Errorf("expected valid path for %s to pass, got: %v", tool, err)
+		}
+		// Invalid traversal path outside workspace
+		if err := guardrail.ValidateFilesystemBounds(workDir, tool, "", "<path>../../outside</path>"); err == nil {
+			t.Errorf("expected out of bounds %s to fail, got nil", tool)
+		}
+		// Empty path allows defaulting to workspace root
+		if err := guardrail.ValidateFilesystemBounds(workDir, tool, "", ""); err != nil {
+			t.Errorf("expected empty path for %s to allow workspace root, got: %v", tool, err)
+		}
 	}
 }
 
