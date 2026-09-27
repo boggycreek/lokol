@@ -224,6 +224,8 @@ func executeAction(act *agent.Action, workDir string) tea.Cmd {
 			out, err = agent.ExecuteReadWindow(context.Background(), act.Command, workDir)
 		case "run_test":
 			out, err = agent.ExecuteRunTest(context.Background(), act.Command, workDir)
+		case "get_environment":
+			out, err = agent.ExecuteGetEnvironment(context.Background(), act.Command, workDir)
 		default:
 			return actionExecutedMsg(fmt.Sprintf("[Unknown action: %s]", act.Name))
 		}
@@ -416,7 +418,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			// Check for actions
 			act := agent.ParseAction(response)
-			if act != nil && (act.Name == "exec_bash" || act.Name == "replace_file" || act.Name == "write_file" || act.Name == "read_outline" || act.Name == "read_window" || act.Name == "run_test") {
+			if act != nil && (act.Name == "exec_bash" || act.Name == "replace_file" || act.Name == "write_file" || act.Name == "read_outline" || act.Name == "read_window" || act.Name == "run_test" || act.Name == "get_environment") {
 				m.pendingAct = act
 				m.stepCount++
 				m.lastThought = act.CleanThought
@@ -453,6 +455,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							m.appendLog("⚡ Reading Window: " + strings.TrimSpace(act.Command) + "\n")
 						case "run_test":
 							m.appendLog("⚡ Verifying Tests: " + strings.TrimSpace(act.Command) + "\n")
+						case "get_environment":
+							m.appendLog("⚡ Inspecting Environment\n")
 						}
 					}
 					return m, executeAction(act, m.workDir)
@@ -639,6 +643,8 @@ func (m Model) View() string {
 				toolDesc = "read_window: " + strings.TrimSpace(m.pendingAct.Command)
 			case "run_test":
 				toolDesc = "run_test: " + strings.TrimSpace(m.pendingAct.Command)
+			case "get_environment":
+				toolDesc = "get_environment"
 			}
 		}
 		statusLine = fmt.Sprintf("⚡ [Step %d] Executing %s locally... | [Ctrl+C] Stop", m.stepCount, toolDesc)

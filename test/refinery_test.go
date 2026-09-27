@@ -8,6 +8,7 @@ package lokol_test
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -106,5 +107,49 @@ func TestRunTestVerifier(t *testing.T) {
 	}
 	if !strings.Contains(failRes.ErrorOutput, "auth_test.go:42") {
 		t.Errorf("expected extracted assertion, got: %s", failRes.ErrorOutput)
+	}
+}
+
+func TestGetEnvironment(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// 1. Basic environment detection in empty temp dir
+	env, err := refinery.GetEnvironment(tmpDir)
+	if err != nil {
+		t.Fatalf("unexpected error getting environment: %v", err)
+	}
+
+	if env.WorkingDirectory != tmpDir {
+		t.Errorf("expected WorkingDirectory %q, got %q", tmpDir, env.WorkingDirectory)
+	}
+	if env.OS == "" || env.Arch == "" {
+		t.Errorf("expected non-empty OS/Arch, got %s/%s", env.OS, env.Arch)
+	}
+	if env.Shell == "" {
+		t.Errorf("expected non-empty Shell")
+	}
+	if env.Git.IsRepo {
+		t.Errorf("expected Git.IsRepo to be false in temp dir, got true")
+	}
+
+	// 2. Format JSON validation
+	jsonStr, err := env.FormatJSON()
+	if err != nil {
+		t.Fatalf("FormatJSON failed: %v", err)
+	}
+	if !strings.Contains(jsonStr, "\"working_directory\"") || !strings.Contains(jsonStr, "\"os\"") {
+		t.Errorf("expected JSON to contain working_directory and os keys, got:\n%s", jsonStr)
+	}
+
+	// 3. Test git detection
+	gitCmd := exec.Command("git", "init", tmpDir)
+	if err := gitCmd.Run(); err == nil {
+		envGit, err := refinery.GetEnvironment(tmpDir)
+		if err != nil {
+			t.Fatalf("unexpected error in git dir: %v", err)
+		}
+		if !envGit.Git.IsRepo {
+			t.Errorf("expected Git.IsRepo to be true after git init")
+		}
 	}
 }

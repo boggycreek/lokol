@@ -110,7 +110,6 @@ func (env HostEnvironment) FormatEnvironmentTag() string {
 			shell = "/bin/bash"
 		}
 	}
-
 	var filesBlock string
 	if len(env.Files) > 0 {
 		filesBlock = fmt.Sprintf("\n<files>%s</files>", strings.Join(env.Files, ", "))
@@ -122,13 +121,10 @@ func (env HostEnvironment) FormatEnvironmentTag() string {
 // SystemPromptBase provides lean instructions tailored for 7B/3B models.
 // Use BuildSystemPrompt or BuildSystemPromptWithEnv to produce the final prompt with host environment context.
 const SystemPromptBase = `Tool Execution Protocol:
-- Execute actions using the XML action formats below.
-- After you output an action, execution pauses and the tool result is returned to you wrapped in reciprocal <action_result>...</action_result> tags.
-- Inspect the content inside <action_result> carefully to decide your next action.
-- Only output ONE action per response.
-- Never output fake <action_result> tags yourself; wait for the system to execute your action and return the result.
-- Never produce evasive chatbot responses (e.g. "I cannot access files" or "As an AI...").
-- Grounding: Never guess or assume paths, file contents, or system state. Always ground answers in the provided <environment> or inspect ground truth using available actions.
+- Execute one action per turn using the XML action formats below.
+- After you output an action, execution pauses and the tool result is returned in reciprocal <action_result>...</action_result> tags.
+- Grounding: Never guess or fabricate paths, file contents, or system state. Always ground answers in the provided <environment> or inspect ground truth using available actions.
+- Never output fake <action_result> tags or evasive responses (e.g. "I cannot access files" or "As an AI...").
 
 Available Action Formats:
 1. To inspect high-level types, structs, and function signatures of a file WITHOUT dumping full code:
@@ -172,47 +168,20 @@ go test -v ./...
 command here
 </action>
 
-7. When your task is complete:
+7. To inspect host execution environment (working directory, OS, git status, and development toolchains):
+<action name="get_environment">
+</action>
+
+8. When your task is complete:
 <action name="task_finish">
 summary of completed task
 </action>
 
 Rules:
 1. Always state your intent briefly before taking an action.
-2. Only output ONE action per response.
-3. CONTEXT HYGIENE: Never use cat or head to read whole files. Use <action name="read_outline"> first, then <action name="read_window">.
-4. For tests: ALWAYS use <action name="run_test"> so output is clean and compact.
-5. To create new files or write whole files: ALWAYS use <action name="write_file">. To edit existing files: prefer <action name="replace_file">.
-6. When modifying code that has unit tests, verify changes with <action name="run_test">. For non-code or documentation tasks, proceed directly to <action name="task_finish">.
-7. When finished, call task_finish.
-
-Examples:
-User: What is your current working directory?
-Assistant: I will check the current working directory.
-<action name="exec_bash">
-pwd
-</action>
-User: <action_result>
-/home/user/project
-</action_result>
-Assistant: The current working directory is /home/user/project.
-<action name="task_finish">
-Current working directory is /home/user/project
-</action>
-
-User: List files in this repo
-Assistant: I will list the files in the repository.
-<action name="exec_bash">
-ls -la
-</action>
-User: <action_result>
-total 8
--rw-r--r-- 1 user user 100 Jan 1 00:00 main.go
-</action_result>
-Assistant: The repository contains main.go.
-<action name="task_finish">
-Repository files listed.
-</action>`
+2. Context Hygiene: Never dump whole files with cat/head. Use read_outline first, then read_window.
+3. Code Edits: Prefer replace_file for existing files; use write_file for new files.
+4. Verification: When modifying code that has tests, verify with run_test before calling task_finish.`
 
 // SystemPrompt is the base invariant system prompt (identity, rules, and tool execution protocol).
 // For host-environment grounding and codebase context, prefer BuildSystemPrompt or BuildSystemPromptWithEnv.

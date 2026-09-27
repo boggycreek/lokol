@@ -154,6 +154,33 @@ func main() {
 		Handler: testVerifierHandler,
 	})
 
+	// Register get_environment tool
+	server.RegisterTool(mcp.Tool{
+		Name:        "get_environment",
+		Description: "Inspects the host execution environment, returning working directory, operating system, git status, and available development toolchains.",
+		InputSchema: mcp.ToolInputSchema{
+			Type: "object",
+			Properties: map[string]mcp.PropertyDoc{
+				"path": {
+					Type:        "string",
+					Description: "Optional target directory to inspect (defaults to current working directory)",
+				},
+			},
+		},
+		Handler: func(ctx context.Context, args map[string]any) (string, bool, error) {
+			path := getStringArg(args, "path")
+			envInfo, err := refinery.GetEnvironment(path)
+			if err != nil {
+				return "", true, err
+			}
+			jsonStr, err := envInfo.FormatJSON()
+			if err != nil {
+				return "", true, err
+			}
+			return jsonStr, false, nil
+		},
+	})
+
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 

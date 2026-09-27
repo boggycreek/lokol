@@ -209,6 +209,8 @@ func runExec(engineURL string, maxTurns int, prompt string, verbose bool) {
 					fmt.Printf("\n⚡ Reading Window: %s\n", content)
 				case "run_test":
 					fmt.Printf("\n⚡ Verifying Tests: %s\n", content)
+				case "get_environment":
+					fmt.Printf("\n⚡ Inspecting Environment: %s\n", content)
 				case "task_finish", "finish":
 					finished = true
 					fmt.Printf("\n✅ Complete: %s\n", content)
@@ -240,6 +242,9 @@ func runExec(engineURL string, maxTurns int, prompt string, verbose bool) {
 			case "run_test":
 				stepCount++
 				fmt.Fprintf(os.Stderr, "⚡ [Step %d] Verifying Tests: %s\n", stepCount, content)
+			case "get_environment":
+				stepCount++
+				fmt.Fprintf(os.Stderr, "⚡ [Step %d] Inspecting Environment: %s\n", stepCount, content)
 			case "task_finish", "finish":
 				finished = true
 				plural := ""
