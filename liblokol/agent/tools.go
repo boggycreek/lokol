@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/boggycreek/lokol/liblokol/guardrail"
 	"github.com/boggycreek/lokol/liblokol/refinery"
 )
 
@@ -46,11 +47,12 @@ func ParseReplaceFileInput(payload string) (*ReplaceFileInput, error) {
 	}, nil
 }
 
-func resolvePath(path string, workDir ...string) string {
-	if filepath.IsAbs(path) || len(workDir) == 0 || workDir[0] == "" {
-		return path
+func resolveSafePath(path string, workDir ...string) (string, error) {
+	wd := "."
+	if len(workDir) > 0 && workDir[0] != "" {
+		wd = workDir[0]
 	}
-	return filepath.Join(workDir[0], path)
+	return guardrail.CheckPathWithinBounds(wd, path)
 }
 
 // ExecuteReplaceFile performs an exact in-place string replacement in the specified file.
@@ -67,7 +69,10 @@ func ExecuteReplaceFile(ctx context.Context, payload string, workDir ...string) 
 		return "", err
 	}
 
-	targetPath := resolvePath(input.Path, workDir...)
+	targetPath, err := resolveSafePath(input.Path, workDir...)
+	if err != nil {
+		return "", fmt.Errorf("boundary check failed for %s: %w", input.Path, err)
+	}
 
 	data, err := os.ReadFile(targetPath)
 	if err != nil {
@@ -147,12 +152,26 @@ func ExecuteWriteFile(ctx context.Context, payload string, workDir ...string) (s
 		return "", err
 	}
 
-	targetPath := resolvePath(input.Path, workDir...)
+	targetPath, err := resolveSafePath(input.Path, workDir...)
+	if err != nil {
+		return "", fmt.Errorf("boundary check failed for %s: %w", input.Path, err)
+	}
 
 	dir := filepath.Dir(targetPath)
 	if dir != "" && dir != "." {
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return "", fmt.Errorf("failed to create directory %s: %w", dir, err)
+		}
+	}
+
+	// TOCTOU mitigation: verify target file is not a symlink pointing outside bounds
+	if fi, err := os.Lstat(targetPath); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+		wd := "."
+		if len(workDir) > 0 && workDir[0] != "" {
+			wd = workDir[0]
+		}
+		if _, err := guardrail.CheckPathWithinBounds(wd, targetPath); err != nil {
+			return "", fmt.Errorf("symlink target escapes workspace bounds: %w", err)
 		}
 	}
 
@@ -210,7 +229,10 @@ func ExecuteReadOutline(ctx context.Context, payload string, workDir ...string) 
 	if path == "" {
 		path = strings.TrimSpace(payload)
 	}
-	targetPath := resolvePath(path, workDir...)
+	targetPath, err := resolveSafePath(path, workDir...)
+	if err != nil {
+		return "", fmt.Errorf("boundary check failed for %s: %w", path, err)
+	}
 	return refinery.ReadOutline(targetPath)
 }
 
@@ -220,7 +242,10 @@ func ExecuteReadWindow(ctx context.Context, payload string, workDir ...string) (
 	if err != nil {
 		return "", err
 	}
-	targetPath := resolvePath(input.Path, workDir...)
+	targetPath, err := resolveSafePath(input.Path, workDir...)
+	if err != nil {
+		return "", fmt.Errorf("boundary check failed for %s: %w", input.Path, err)
+	}
 	return refinery.ReadWindow(targetPath, input.StartLine, input.EndLine)
 }
 
@@ -244,7 +269,11 @@ func ExecuteGetEnvironment(ctx context.Context, payload string, workDir ...strin
 		wd = workDir[0]
 	}
 	if p := extractTagContent(payload, "path"); p != "" {
-		wd = resolvePath(strings.TrimSpace(p), wd)
+		resolved, err := resolveSafePath(strings.TrimSpace(p), wd)
+		if err != nil {
+			return "", fmt.Errorf("boundary check failed for %s: %w", p, err)
+		}
+		wd = resolved
 	}
 	envInfo, err := refinery.GetEnvironment(wd)
 	if err != nil {
@@ -265,7 +294,11 @@ func ExecuteFindFiles(ctx context.Context, payload string, workDir ...string) (s
 	}
 	targetDir := wd
 	if input.Path != "" {
-		targetDir = resolvePath(input.Path, wd)
+		resolved, err := resolveSafePath(input.Path, wd)
+		if err != nil {
+			return "", fmt.Errorf("boundary check failed for %s: %w", input.Path, err)
+		}
+		targetDir = resolved
 	}
 	return refinery.FindFiles(input.Pattern, targetDir, input.MaxResults)
 }
@@ -282,7 +315,11 @@ func ExecuteSearchCode(ctx context.Context, payload string, workDir ...string) (
 	}
 	targetDir := wd
 	if input.Path != "" {
-		targetDir = resolvePath(input.Path, wd)
+		resolved, err := resolveSafePath(input.Path, wd)
+		if err != nil {
+			return "", fmt.Errorf("boundary check failed for %s: %w", input.Path, err)
+		}
+		targetDir = resolved
 		input.Path = "" // already resolved into targetDir
 	}
 	return refinery.SearchCode(targetDir, *input)
@@ -300,7 +337,11 @@ func ExecuteGitDiffSummary(ctx context.Context, payload string, workDir ...strin
 	}
 	targetDir := wd
 	if input.Path != "" {
-		targetDir = resolvePath(input.Path, wd)
+		resolved, err := resolveSafePath(input.Path, wd)
+		if err != nil {
+			return "", fmt.Errorf("boundary check failed for %s: %w", input.Path, err)
+		}
+		targetDir = resolved
 	}
 	return refinery.GitDiffSummary(ctx, targetDir, *input)
 }

@@ -25,6 +25,7 @@ type MockSession struct {
 
 	// Mode tracking
 	CurrentMode agent.Mode
+	WorkDir     string
 
 	// Recorded interactions for test assertions
 	UserMessages      []string
@@ -134,3 +135,13 @@ func (m *MockSession) SetMode(mode agent.Mode) {
 	defer m.mu.Unlock()
 	m.CurrentMode = mode
 }
+
+func (m *MockSession) GetWorkDir() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.WorkDir == "" {
+		return "."
+	}
+	return m.WorkDir
+}
+

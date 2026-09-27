@@ -459,7 +459,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.appendLog(agentStyle.Render("lokol: ") + act.CleanThought + "\n")
 				}
 
-				guard := guardrail.New(".")
+				workDir := "."
+				if m.session != nil && m.session.GetWorkDir() != "" {
+					workDir = m.session.GetWorkDir()
+				}
+				guard := guardrail.New(workDir)
 				perm := guard.CheckPermission(context.Background(), guardrail.ActionCandidate{
 					Name:    act.Name,
 					Command: act.Command,

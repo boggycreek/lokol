@@ -120,9 +120,13 @@ func ExtractTagContent(payload, tag string) string {
 
 // ValidateFilesystemBounds inspects an action and confirms all referenced paths are within the workspace.
 func ValidateFilesystemBounds(workDir string, actionName string, targetPath string, command string) error {
-	path := strings.TrimSpace(targetPath)
-	if path == "" && command != "" {
+	// Always prioritize actual XML payload <path> tag if present in the command
+	path := ""
+	if command != "" {
 		path = strings.TrimSpace(ExtractTagContent(command, "path"))
+	}
+	if path == "" {
+		path = strings.TrimSpace(targetPath)
 	}
 
 	switch actionName {
@@ -133,7 +137,7 @@ func ValidateFilesystemBounds(workDir string, actionName string, targetPath stri
 		_, err := CheckPathWithinBounds(workDir, path)
 		return err
 
-	case "run_test":
+	case "find_files", "search_code", "git_diff_summary", "get_environment", "run_test":
 		if path != "" {
 			_, err := CheckPathWithinBounds(workDir, path)
 			return err
