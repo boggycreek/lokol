@@ -315,11 +315,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		headerHeight := 2
-		inputHeight := 5
-		bottomHeight := 2
-		spacing := 4
-		vpHeight := msg.Height - headerHeight - inputHeight - bottomHeight - spacing
+		vpHeight := msg.Height - 10
 		if vpHeight < 5 {
 			vpHeight = 5
 		}
@@ -840,19 +836,15 @@ func (m Model) View() string {
 
 	bottomBars := fmt.Sprintf("%s\n%s", hotkeyLine, infoLine)
 
+	middle := "\n"
 	if spinnerLine != "" {
-		return fmt.Sprintf("%s\n\n%s\n\n%s\n%s\n%s",
-			header,
-			m.viewport.View(),
-			spinnerLine,
-			framedInput,
-			bottomBars,
-		)
+		middle = spinnerLine + "\n"
 	}
 
-	return fmt.Sprintf("%s\n\n%s\n\n%s\n%s",
+	return fmt.Sprintf("%s\n\n%s\n%s%s\n%s",
 		header,
 		m.viewport.View(),
+		middle,
 		framedInput,
 		bottomBars,
 	)

@@ -636,5 +636,30 @@ func TestTUI_Presentation_NewModelAutoDetectsHardware(t *testing.T) {
 	}
 }
 
+// TestTUI_Presentation_FullWindowHeightUtilization verifies that the TUI utilizes the full terminal window height
+// so that the bottom status line renders at the exact bottom line without blank line padding.
+func TestTUI_Presentation_FullWindowHeightUtilization(t *testing.T) {
+	mock := NewMockSession()
+	m := tui.NewWithSession(mock, nil, false)
+
+	// Simulate window resize to 80x24 (standard terminal height)
+	newModel, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = newModel.(tui.Model)
+
+	viewOutput := m.View()
+	lines := strings.Split(viewOutput, "\n")
+	if len(lines) != 24 {
+		t.Errorf("expected view output to have exactly 24 lines, got %d", len(lines))
+	}
+	lastLine := lines[len(lines)-1]
+	if !strings.Contains(lastLine, "~ ") {
+		t.Errorf("expected last line of terminal to contain project info, got: %q", lastLine)
+	}
+	secondLastLine := lines[len(lines)-2]
+	if !strings.Contains(secondLastLine, "[Ready] Enter send") {
+		t.Errorf("expected second to last line of terminal to contain hotkey menu, got: %q", secondLastLine)
+	}
+}
+
 
 
