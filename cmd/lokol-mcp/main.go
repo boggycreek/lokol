@@ -181,6 +181,40 @@ func main() {
 		},
 	})
 
+	// Register find_files tool
+	server.RegisterTool(mcp.Tool{
+		Name:        "find_files",
+		Description: "Discovers files matching a glob or substring pattern, respecting .gitignore and enforcing a 50-file bounding limit to protect context.",
+		InputSchema: mcp.ToolInputSchema{
+			Type: "object",
+			Properties: map[string]mcp.PropertyDoc{
+				"pattern": {
+					Type:        "string",
+					Description: "Glob or substring pattern to match (e.g. '*.go', 'test', '*.md'). Empty or '*' matches all files.",
+				},
+				"path": {
+					Type:        "string",
+					Description: "Optional base directory to search (defaults to current working directory)",
+				},
+				"max_results": {
+					Type:        "integer",
+					Description: "Maximum number of files to return (default: 50, maximum: 100)",
+				},
+			},
+		},
+		Handler: func(ctx context.Context, args map[string]any) (string, bool, error) {
+			pattern := getStringArg(args, "pattern")
+			path := getStringArg(args, "path")
+			maxResults := getIntArg(args, "max_results", 50)
+
+			out, err := refinery.FindFiles(pattern, path, maxResults)
+			if err != nil {
+				return "", true, err
+			}
+			return out, false, nil
+		},
+	})
+
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
