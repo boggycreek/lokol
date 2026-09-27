@@ -214,6 +214,10 @@ func runExec(engineURL string, maxTurns int, prompt string, verbose bool) {
 				case "task_finish", "finish":
 					finished = true
 					fmt.Printf("\n✅ Complete: %s\n", content)
+				default:
+					if role != "error" && role != "result" {
+						fmt.Printf("\n⚡ Executing %s: %s\n", role, content)
+					}
 				}
 				return
 			}
@@ -222,7 +226,7 @@ func runExec(engineURL string, maxTurns int, prompt string, verbose bool) {
 			// Suppress intermediate thought tokens.
 			// Emit compact progress on stderr so stdout remains clean for piping.
 			switch role {
-			case "token":
+			case "token", "error", "result":
 				// Internalized
 			case "exec_bash":
 				stepCount++
@@ -256,6 +260,9 @@ func runExec(engineURL string, maxTurns int, prompt string, verbose bool) {
 					stepInfo = fmt.Sprintf(" (in %d step%s)", stepCount, plural)
 				}
 				fmt.Printf("\n✅ Complete%s: %s\n", stepInfo, content)
+			default:
+				stepCount++
+				fmt.Fprintf(os.Stderr, "⚡ [Step %d] Executing %s: %s\n", stepCount, role, content)
 			}
 		},
 	}

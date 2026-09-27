@@ -9,14 +9,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/boggycreek/lokol/pkg/agent"
 	"github.com/boggycreek/lokol/pkg/probe"
-	"github.com/boggycreek/lokol/pkg/tools/refinery"
 	"github.com/boggycreek/lokol/pkg/version"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -25,32 +22,32 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-type state int
+// State represents the current lifecycle state of the TUI.
+type State int
 
 const (
-	stateIdle state = iota
-	stateStreaming
-	stateWaitingActionApproval
-	stateExecutingAction
+	StateIdle State = iota
+	StateStreaming
+	StateWaitingActionApproval
+	StateExecutingAction
 )
 
-type tokenMsg string
-type streamDoneMsg string
-type actionExecutedMsg string
-type errMsg error
-type slotTickMsg *agent.SlotStatus
+type TokenMsg string
+type StreamDoneMsg string
+type ActionExecutedMsg string
+type ErrMsg error
+type SlotTickMsg *agent.SlotStatus
 
 // Model is the Bubble Tea application state.
 // Bubble Tea requires Model to be passed by value in Update/View,
 // so strings.Builder must NOT be embedded directly as a value field.
 // We use simple string variables for immutable, safe value copying.
 type Model struct {
-	client       *agent.Client
+	session      agent.SessionCore
 	hardware     *probe.HardwareProfile
-	state        state
+	state        State
 	viewport     viewport.Model
 	textarea     textarea.Model
-	history      []agent.Message
 	chatLog      string
 	pendingAct   *agent.Action
 	currentResp  string
@@ -61,7 +58,6 @@ type Model struct {
 	width        int
 	height       int
 	slotStatus   *agent.SlotStatus
-	workDir      string
 	err          error
 
 	// Internalized activity & step tracking
@@ -69,7 +65,6 @@ type Model struct {
 	lastThought string
 	lastTool    string
 }
-
 
 var (
 	headerStyle = lipgloss.NewStyle().
@@ -112,8 +107,33 @@ func (m *Model) SetVerbose(v bool) {
 	m.verbose = v
 }
 
+// Session returns the underlying agent SessionCore.
+func (m Model) Session() agent.SessionCore {
+	return m.session
+}
+
+// State returns the current interactive state of the TUI model.
+func (m Model) State() State {
+	return m.state
+}
+
+// StepCount returns the current autonomous step count.
+func (m Model) StepCount() int {
+	return m.stepCount
+}
+
 // New creates and initializes the TUI model.
 func New(client *agent.Client, hw *probe.HardwareProfile, yoloMode bool, workDirOpt ...string) Model {
+	workDir := ""
+	if len(workDirOpt) > 0 {
+		workDir = workDirOpt[0]
+	}
+	session := agent.NewSession(client, workDir)
+	return NewWithSession(session, hw, yoloMode)
+}
+
+// NewWithSession creates and initializes the TUI model with an existing agent SessionCore.
+func NewWithSession(session agent.SessionCore, hw *probe.HardwareProfile, yoloMode bool) Model {
 	ta := textarea.New()
 	ta.Placeholder = "Ask lokol to inspect code, run tests, or refactor files..."
 	ta.Focus()
@@ -130,55 +150,37 @@ func New(client *agent.Client, hw *probe.HardwareProfile, yoloMode bool, workDir
 	}
 	vp.SetContent(wrapContent(initialText, 76))
 
-	workDir := ""
-	if len(workDirOpt) > 0 {
-		workDir = workDirOpt[0]
-	}
-	if workDir == "" {
-		workDir, _ = os.Getwd()
-	}
-	if abs, err := filepath.Abs(workDir); err == nil {
-		workDir = abs
-	} else {
-		workDir = filepath.Clean(workDir)
-	}
-
-	codebaseCtx := refinery.LoadCodebaseContext(workDir)
-	systemContent := agent.BuildSystemPrompt(workDir, codebaseCtx)
-
-	m := Model{
-		client:    client,
+	return Model{
+		session:   session,
 		hardware:  hw,
-		state:     stateIdle,
+		state:     StateIdle,
 		viewport:  vp,
 		textarea:  ta,
 		tokenChan: make(chan string, 100),
 		yoloMode:  yoloMode,
-		history: []agent.Message{
-			{Role: "system", Content: systemContent},
-		},
-		chatLog: initialText,
-		workDir: workDir,
+		chatLog:   initialText,
 	}
-	return m
 }
 
-func pollSlotStatus(client *agent.Client) tea.Cmd {
+func pollSlotStatus(session agent.SessionCore) tea.Cmd {
 	return func() tea.Msg {
+		if session == nil {
+			return nil
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		slot, err := client.GetSlotStatus(ctx)
+		slot, err := session.GetSlotStatus(ctx)
 		if err != nil {
 			return nil
 		}
-		return slotTickMsg(slot)
+		return SlotTickMsg(slot)
 	}
 }
 
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(
 		textarea.Blink,
-		pollSlotStatus(m.client),
+		pollSlotStatus(m.session),
 	)
 }
 
@@ -186,54 +188,40 @@ func waitForToken(tokenChan chan string) tea.Cmd {
 	return func() tea.Msg {
 		token, ok := <-tokenChan
 		if !ok {
-			return streamDoneMsg("")
+			return StreamDoneMsg("")
 		}
-		return tokenMsg(token)
+		return TokenMsg(token)
 	}
 }
 
-func startStream(ctx context.Context, client *agent.Client, history []agent.Message, tokenChan chan string) tea.Cmd {
+func startStream(ctx context.Context, session agent.SessionCore, tokenChan chan string) tea.Cmd {
 	return func() tea.Msg {
-		fullContent, err := client.StreamResponse(ctx, history, tokenChan)
+		if session == nil {
+			close(tokenChan)
+			return ErrMsg(fmt.Errorf("session is nil"))
+		}
+		fullContent, err := session.StreamTurn(ctx, tokenChan)
 		close(tokenChan)
 		if err != nil {
-			return errMsg(err)
+			return ErrMsg(err)
 		}
-		return streamDoneMsg(fullContent)
+		return StreamDoneMsg(fullContent)
 	}
 }
 
-func executeAction(act *agent.Action, workDir string) tea.Cmd {
+func executeAction(session agent.SessionCore, act *agent.Action) tea.Cmd {
 	return func() tea.Msg {
 		if act == nil {
-			return actionExecutedMsg("")
+			return ActionExecutedMsg("")
 		}
-		var out string
-		var err error
-
-		switch act.Name {
-		case "exec_bash":
-			out, err = agent.ExecuteBash(context.Background(), act.Command, workDir)
-		case "replace_file":
-			out, err = agent.ExecuteReplaceFile(context.Background(), act.Command, workDir)
-		case "write_file":
-			out, err = agent.ExecuteWriteFile(context.Background(), act.Command, workDir)
-		case "read_outline":
-			out, err = agent.ExecuteReadOutline(context.Background(), act.Command, workDir)
-		case "read_window":
-			out, err = agent.ExecuteReadWindow(context.Background(), act.Command, workDir)
-		case "run_test":
-			out, err = agent.ExecuteRunTest(context.Background(), act.Command, workDir)
-		case "get_environment":
-			out, err = agent.ExecuteGetEnvironment(context.Background(), act.Command, workDir)
-		default:
-			return actionExecutedMsg(fmt.Sprintf("[Unknown action: %s]", act.Name))
+		if session == nil {
+			return ActionExecutedMsg("[Error: session is nil]")
 		}
-
+		out, err := session.ExecuteAction(context.Background(), act)
 		if err != nil {
-			return actionExecutedMsg(fmt.Sprintf("[Error: %v]\n%s", err, out))
+			return ActionExecutedMsg(fmt.Sprintf("[Error: %v]\n%s", err, out))
 		}
-		return actionExecutedMsg(out)
+		return ActionExecutedMsg(out)
 	}
 }
 
@@ -242,19 +230,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var vpCmd tea.Cmd
 
 	switch msg := msg.(type) {
-	case slotTickMsg:
+	case SlotTickMsg:
 		if msg != nil {
 			m.slotStatus = msg
 		}
 		// Schedule next poll in 3 seconds
 		return m, tea.Tick(3*time.Second, func(t time.Time) tea.Msg {
+			if m.session == nil {
+				return nil
+			}
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
-			slot, err := m.client.GetSlotStatus(ctx)
+			slot, err := m.session.GetSlotStatus(ctx)
 			if err != nil {
 				return nil
 			}
-			return slotTickMsg(slot)
+			return SlotTickMsg(slot)
 		})
 
 	case tea.WindowSizeMsg:
@@ -276,29 +267,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.Type {
 		case tea.KeyCtrlC:
-			if m.state == stateStreaming || m.state == stateExecutingAction {
+			if m.state == StateStreaming || m.state == StateExecutingAction {
 				if m.streamCancel != nil {
 					m.streamCancel()
 					m.streamCancel = nil
 				}
-				m.state = stateIdle
+				m.state = StateIdle
 				m.stepCount = 0
 				m.lastThought = ""
 				m.lastTool = ""
 				m.appendLog("\n[Stream cancelled by user (Ctrl+C). Slot released.]\n")
 				return m, nil
 			}
-			abortCtx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-			_ = m.client.AbortActiveSlots(abortCtx)
-			cancel()
+			if m.session != nil {
+				abortCtx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+				_ = m.session.Abort(abortCtx)
+				cancel()
+			}
 			return m, tea.Quit
 		case tea.KeyEsc:
-			if m.state == stateStreaming || m.state == stateExecutingAction {
+			if m.state == StateStreaming || m.state == StateExecutingAction {
 				if m.streamCancel != nil {
 					m.streamCancel()
 					m.streamCancel = nil
 				}
-				m.state = stateIdle
+				m.state = StateIdle
 				m.stepCount = 0
 				m.lastThought = ""
 				m.lastTool = ""
@@ -329,22 +322,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.viewport.LineDown(5)
 			return m, nil
 		case tea.KeyEnter:
-			if m.state == stateWaitingActionApproval {
+			if m.state == StateWaitingActionApproval {
 				// Approve action
-				m.state = stateExecutingAction
+				m.state = StateExecutingAction
 				m.appendLog(outputBoxStyle.Render("⚡ Executing command: " + m.pendingAct.Command))
-				return m, executeAction(m.pendingAct, m.workDir)
+				return m, executeAction(m.session, m.pendingAct)
 			}
 
-			if m.state == stateIdle {
+			if m.state == StateIdle {
 				input := strings.TrimSpace(m.textarea.Value())
 				if input == "" {
 					return m, nil
 				}
 				m.textarea.Reset()
 				m.appendLog(userStyle.Render("User: ") + input + "\n\n")
-				m.history = append(m.history, agent.Message{Role: "user", Content: input})
-				m.state = stateStreaming
+				if m.session != nil {
+					m.session.AppendUserMessage(input)
+				}
+				m.state = StateStreaming
 				m.stepCount = 0
 				m.lastThought = ""
 				m.lastTool = ""
@@ -355,43 +350,41 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.streamCancel = cancel
 
 				return m, tea.Batch(
-					startStream(streamCtx, m.client, m.history, m.tokenChan),
+					startStream(streamCtx, m.session, m.tokenChan),
 					waitForToken(m.tokenChan),
 				)
 			}
 		}
 
 		// Allow Alt+Up/Down or Ctrl+Up/Down for scrolling when typing in textarea
-		if msg.Type == tea.KeyUp && (msg.Alt || m.state != stateIdle) {
+		if msg.Type == tea.KeyUp && (msg.Alt || m.state != StateIdle) {
 			m.viewport.LineUp(2)
 			return m, nil
 		}
-		if msg.Type == tea.KeyDown && (msg.Alt || m.state != stateIdle) {
+		if msg.Type == tea.KeyDown && (msg.Alt || m.state != StateIdle) {
 			m.viewport.LineDown(2)
 			return m, nil
 		}
 
-
-		if m.state == stateWaitingActionApproval {
+		if m.state == StateWaitingActionApproval {
 			switch msg.String() {
 			case "y", "Y":
-				m.state = stateExecutingAction
+				m.state = StateExecutingAction
 				m.appendLog(outputBoxStyle.Render("⚡ Executing approved command: " + m.pendingAct.Command))
-				return m, executeAction(m.pendingAct, m.workDir)
+				return m, executeAction(m.session, m.pendingAct)
 			case "n", "N":
-				m.state = stateIdle
+				m.state = StateIdle
 				m.appendLog("[Action rejected by user]\n")
-				m.history = append(m.history, agent.Message{
-					Role:    "user",
-					Content: "User rejected the action proposal. Please decide on an alternative or ask for clarification.",
-				})
+				if m.session != nil {
+					m.session.AppendUserMessage("User rejected the action proposal. Please decide on an alternative or ask for clarification.")
+				}
 				m.pendingAct = nil
 				return m, nil
 			}
 		}
 
-	case tokenMsg:
-		if m.state == stateStreaming {
+	case TokenMsg:
+		if m.state == StateStreaming {
 			m.currentResp += string(msg)
 			if m.verbose {
 				// Filter out action XML from the live stream display in verbose mode
@@ -407,18 +400,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, waitForToken(m.tokenChan)
 		}
 
-	case streamDoneMsg:
+	case StreamDoneMsg:
 		m.streamCancel = nil
-		if m.state == stateStreaming {
+		if m.state == StateStreaming {
 			response := string(msg)
 			if response == "" {
 				response = m.currentResp
 			}
-			m.history = append(m.history, agent.Message{Role: "assistant", Content: response})
+			if m.session != nil {
+				m.session.AppendAssistantMessage(response)
+			}
 
 			// Check for actions
 			act := agent.ParseAction(response)
-			if act != nil && (act.Name == "exec_bash" || act.Name == "replace_file" || act.Name == "write_file" || act.Name == "read_outline" || act.Name == "read_window" || act.Name == "run_test" || act.Name == "get_environment") {
+			if act != nil && act.Name != "task_finish" {
 				m.pendingAct = act
 				m.stepCount++
 				m.lastThought = act.CleanThought
@@ -430,46 +425,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 				if m.yoloMode {
 					// YOLO Mode: execute immediately without waiting for user approval
-					m.state = stateExecutingAction
+					m.state = StateExecutingAction
 					if m.verbose {
-						switch act.Name {
-						case "exec_bash":
-							m.appendLog("⚡ Executing: " + act.Command + "\n")
-						case "replace_file":
-							input, _ := agent.ParseReplaceFileInput(act.Command)
-							p := "file"
-							if input != nil {
-								p = input.Path
-							}
-							m.appendLog("⚡ Editing: " + p + "\n")
-						case "write_file":
-							input, _ := agent.ParseWriteFileInput(act.Command)
-							p := "file"
-							if input != nil {
-								p = input.Path
-							}
-							m.appendLog("⚡ Writing: " + p + "\n")
-						case "read_outline":
-							m.appendLog("⚡ Reading Outline: " + strings.TrimSpace(act.Command) + "\n")
-						case "read_window":
-							m.appendLog("⚡ Reading Window: " + strings.TrimSpace(act.Command) + "\n")
-						case "run_test":
-							m.appendLog("⚡ Verifying Tests: " + strings.TrimSpace(act.Command) + "\n")
-						case "get_environment":
-							m.appendLog("⚡ Inspecting Environment\n")
-						}
+						m.appendLog(act.VerboseDescription() + "\n")
 					}
-					return m, executeAction(act, m.workDir)
+					return m, executeAction(m.session, act)
 				}
 
-				m.state = stateWaitingActionApproval
+				m.state = StateWaitingActionApproval
 				box := actionBoxStyle.Render(fmt.Sprintf(
 					"PROPOSED ACTION: %s\nPayload:\n%s\n\nPress [Enter] or [Y] to approve, [N] to reject | [Ctrl+Y] Auto-approve all",
 					act.Name, act.Command,
 				))
 				m.appendLog("\n" + box + "\n")
 			} else if act != nil && act.Name == "task_finish" {
-				m.state = stateIdle
+				m.state = StateIdle
 				finalText := strings.TrimSpace(act.Command)
 				if act.CleanThought != "" {
 					if finalText != "" && !strings.Contains(act.CleanThought, finalText) {
@@ -497,7 +467,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.lastThought = ""
 				m.lastTool = ""
 			} else {
-				m.state = stateIdle
+				m.state = StateIdle
 				m.appendLog(agentStyle.Render("lokol: ") + strings.TrimSpace(response) + "\n\n")
 				m.stepCount = 0
 				m.lastThought = ""
@@ -506,18 +476,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-	case actionExecutedMsg:
+	case ActionExecutedMsg:
 		output := string(msg)
 		if m.verbose {
 			m.appendLog("✓ Executed successfully\n")
 		}
 
-		// Feed tool output back to agent history
-		toolResult := fmt.Sprintf("<action_result>\n%s\n</action_result>", output)
-		m.history = append(m.history, agent.Message{Role: "user", Content: toolResult})
+		// Feed tool output back to agent session
+		if m.session != nil {
+			m.session.AppendActionResult(output, nil)
+		}
 
 		// Trigger next agent iteration
-		m.state = stateStreaming
+		m.state = StateStreaming
 		m.currentResp = ""
 		m.tokenChan = make(chan string, 100)
 
@@ -525,20 +496,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.streamCancel = cancel
 
 		return m, tea.Batch(
-			startStream(streamCtx, m.client, m.history, m.tokenChan),
+			startStream(streamCtx, m.session, m.tokenChan),
 			waitForToken(m.tokenChan),
 		)
 
-	case errMsg:
+	case ErrMsg:
 		m.err = msg
-		m.state = stateIdle
+		m.state = StateIdle
 		m.streamCancel = nil
 		if !errors.Is(msg, context.Canceled) && !strings.Contains(msg.Error(), "context canceled") {
 			m.appendLog(fmt.Sprintf("[Error: %v]\n", msg))
 		}
 	}
 
-	if m.state == stateIdle {
+	if m.state == StateIdle {
 		var taCmd tea.Cmd
 		m.textarea, taCmd = m.textarea.Update(msg)
 		cmds = append(cmds, taCmd)
@@ -610,9 +581,9 @@ func (m Model) View() string {
 
 	var statusLine string
 	switch m.state {
-	case stateIdle:
+	case StateIdle:
 		statusLine = "[Ready] Press Enter to send | [PgUp/PgDn] Scroll | [Ctrl+Y] YOLO | [Ctrl+V] Verbose | [Ctrl+C] Quit"
-	case stateStreaming:
+	case StateStreaming:
 		if m.stepCount > 0 {
 			toolHint := ""
 			if m.lastTool != "" {
@@ -622,29 +593,16 @@ func (m Model) View() string {
 		} else {
 			statusLine = "[Thinking] Generating response from local engine... | [Ctrl+C] Stop"
 		}
-	case stateWaitingActionApproval:
+	case StateWaitingActionApproval:
 		statusLine = "[Approval Needed] Review proposed action above. Press [Y] Approve, [N] Deny | [Ctrl+Y] Auto-approve all"
-	case stateExecutingAction:
+	case StateExecutingAction:
 		toolDesc := "tool"
 		if m.pendingAct != nil {
-			toolDesc = m.pendingAct.Name
-			switch m.pendingAct.Name {
-			case "replace_file":
-				if input, _ := agent.ParseReplaceFileInput(m.pendingAct.Command); input != nil {
-					toolDesc = "replace_file: " + input.Path
-				}
-			case "write_file":
-				if input, _ := agent.ParseWriteFileInput(m.pendingAct.Command); input != nil {
-					toolDesc = "write_file: " + input.Path
-				}
-			case "read_outline":
-				toolDesc = "read_outline: " + strings.TrimSpace(m.pendingAct.Command)
-			case "read_window":
-				toolDesc = "read_window: " + strings.TrimSpace(m.pendingAct.Command)
-			case "run_test":
-				toolDesc = "run_test: " + strings.TrimSpace(m.pendingAct.Command)
-			case "get_environment":
-				toolDesc = "get_environment"
+			target := m.pendingAct.TargetSummary()
+			if target != "" {
+				toolDesc = fmt.Sprintf("%s: %s", m.pendingAct.Name, target)
+			} else {
+				toolDesc = m.pendingAct.Name
 			}
 		}
 		statusLine = fmt.Sprintf("⚡ [Step %d] Executing %s locally... | [Ctrl+C] Stop", m.stepCount, toolDesc)
@@ -662,4 +620,3 @@ func (m Model) View() string {
 func (m Model) ViewportContent() string {
 	return wrapContent(m.chatLog, m.viewport.Width)
 }
-

@@ -9,8 +9,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-
-	"github.com/boggycreek/lokol/pkg/tools/refinery"
 )
 
 // Runner manages an autonomous execution loop (e.g. for batch execution or self-improvement).
@@ -20,6 +18,7 @@ type Runner struct {
 	YOLO            bool
 	WorkDir         string // Current working directory for host environment and prompt context
 	CodebaseContext string // Optional pre-loaded codebase context
+	Session         *Session
 	OnOutput        func(role, content string)
 }
 
@@ -34,14 +33,11 @@ func (r *Runner) Run(ctx context.Context, initialPrompt string) (string, error) 
 		workDir = "."
 	}
 
-	codebaseCtx := r.CodebaseContext
-	if codebaseCtx == "" {
-		codebaseCtx = refinery.LoadCodebaseContext(workDir)
+	session := r.Session
+	if session == nil {
+		session = NewSession(r.Client, workDir, r.CodebaseContext)
 	}
-	history := []Message{
-		{Role: "system", Content: BuildSystemPrompt(workDir, codebaseCtx)},
-		{Role: "user", Content: initialPrompt},
-	}
+	session.AppendUserMessage(initialPrompt)
 
 	if r.MaxTurns <= 0 {
 		r.MaxTurns = 20
@@ -58,7 +54,7 @@ func (r *Runner) Run(ctx context.Context, initialPrompt string) (string, error) 
 
 		errChan := make(chan error, 1)
 		go func() {
-			_, err := r.Client.StreamResponse(ctx, history, tokenChan)
+			_, err := session.StreamTurn(ctx, tokenChan)
 			close(tokenChan)
 			errChan <- err
 		}()
@@ -104,7 +100,7 @@ func (r *Runner) Run(ctx context.Context, initialPrompt string) (string, error) 
 		}
 
 		replyText := assistantReply.String()
-		history = append(history, Message{Role: "assistant", Content: replyText})
+		session.AppendAssistantMessage(replyText)
 
 		act := ParseAction(replyText)
 		if act == nil {
@@ -114,10 +110,7 @@ func (r *Runner) Run(ctx context.Context, initialPrompt string) (string, error) 
 				return replyText, nil
 			}
 			// Nudge agent to execute an action in autonomous mode
-			history = append(history, Message{
-				Role:    "user",
-				Content: "Please execute your next action using an <action name=\"...\"> tag, or call <action name=\"task_finish\"> if your task is complete.",
-			})
+			session.AppendUserMessage("Please execute your next action using an <action name=\"...\"> tag, or call <action name=\"task_finish\"> if your task is complete.")
 			continue
 		}
 		consecutiveNoAction = 0
@@ -141,42 +134,24 @@ func (r *Runner) Run(ctx context.Context, initialPrompt string) (string, error) 
 			return "", fmt.Errorf("agent aborted: loop detected (action %s repeated %d times consecutively without progress)", act.Name, repeatCount)
 		}
 
-		if act.Name == "exec_bash" {
-			if r.OnOutput != nil {
-				r.OnOutput("exec_bash", act.Command)
-			}
+		targetSummary := act.TargetSummary()
+		if r.OnOutput != nil {
+			r.OnOutput(act.Name, targetSummary)
+		}
 
-			out, err := ExecuteBash(ctx, act.Command, workDir)
-			toolResult := fmt.Sprintf("<action_result>\n%s\n</action_result>", out)
-			if err != nil {
+		out, err := session.ExecuteAction(ctx, act)
+
+		// Format reciprocal action_result with loop intervention heuristics
+		var toolResult string
+		if err != nil {
+			switch act.Name {
+			case "exec_bash":
 				toolResult = fmt.Sprintf("<action_result>\n[Exit error: %v]\n%s\n</action_result>", err, out)
 				if repeatCount >= 2 {
 					toolResult += fmt.Sprintf("\n\n[SYSTEM INTERVENTION: Loop detected. You have executed this EXACT command %d times consecutively and it failed. DO NOT repeat the same command. Change your strategy or inspect the environment.]", repeatCount)
 				}
-			}
-
-			if r.OnOutput != nil {
-				if err != nil {
-					r.OnOutput("error", fmt.Sprintf("Error: %v\n%s", err, out))
-				} else {
-					r.OnOutput("result", out)
-				}
-			}
-
-			history = append(history, Message{Role: "user", Content: toolResult})
-		} else if act.Name == "replace_file" {
-			input, _ := ParseReplaceFileInput(act.Command)
-			path := "file"
-			if input != nil {
-				path = input.Path
-			}
-			if r.OnOutput != nil {
-				r.OnOutput("replace_file", path)
-			}
-
-			out, err := ExecuteReplaceFile(ctx, act.Command, workDir)
-			toolResult := fmt.Sprintf("<action_result>\n%s\n</action_result>", out)
-			if err != nil {
+			case "replace_file":
+				path := targetSummary
 				editFailures[path]++
 				toolResult = fmt.Sprintf("<action_result>\n[Edit error: %v]\n</action_result>", err)
 				if repeatCount >= 2 {
@@ -184,103 +159,42 @@ func (r *Runner) Run(ctx context.Context, initialPrompt string) (string, error) 
 				} else if editFailures[path] >= 2 {
 					toolResult += fmt.Sprintf("\n\n[SYSTEM HINT: Exact block replacement in %s has failed %d times. Consider using <action name=\"write_file\"> to rewrite %s with the full updated content.]", path, editFailures[path], path)
 				}
-			} else {
-				editFailures[path] = 0
-			}
-
-			if r.OnOutput != nil {
-				if err != nil {
-					r.OnOutput("error", fmt.Sprintf("Error: %v", err))
-				} else {
-					r.OnOutput("result", out)
-				}
-			}
-
-			history = append(history, Message{Role: "user", Content: toolResult})
-		} else if act.Name == "write_file" {
-			input, _ := ParseWriteFileInput(act.Command)
-			path := "file"
-			if input != nil {
-				path = input.Path
-			}
-			if r.OnOutput != nil {
-				r.OnOutput("write_file", path)
-			}
-
-			out, err := ExecuteWriteFile(ctx, act.Command, workDir)
-			toolResult := fmt.Sprintf("<action_result>\n%s\n</action_result>", out)
-			if err != nil {
-				toolResult = fmt.Sprintf("<action_result>\n[Write error: %v]\n</action_result>", err)
-			} else {
-				editFailures[path] = 0
-			}
-
-			if r.OnOutput != nil {
-				if err != nil {
-					r.OnOutput("error", fmt.Sprintf("Error: %v", err))
-				} else {
-					r.OnOutput("result", out)
-				}
-			}
-
-			history = append(history, Message{Role: "user", Content: toolResult})
-		} else if act.Name == "read_outline" {
-			target := strings.TrimSpace(act.Command)
-			if p := extractTagContent(target, "path"); p != "" {
-				target = p
-			}
-			if r.OnOutput != nil {
-				r.OnOutput("read_outline", target)
-			}
-			out, err := ExecuteReadOutline(ctx, act.Command, workDir)
-			toolResult := fmt.Sprintf("<action_result>\n%s\n</action_result>", out)
-			if err != nil {
-				toolResult = fmt.Sprintf("<action_result>\n[Outline error: %v]\n</action_result>", err)
-			}
-			history = append(history, Message{Role: "user", Content: toolResult})
-		} else if act.Name == "read_window" {
-			target := strings.TrimSpace(act.Command)
-			if p := extractTagContent(target, "path"); p != "" {
-				target = p
-			}
-			if r.OnOutput != nil {
-				r.OnOutput("read_window", target)
-			}
-			out, err := ExecuteReadWindow(ctx, act.Command, workDir)
-			toolResult := fmt.Sprintf("<action_result>\n%s\n</action_result>", out)
-			if err != nil {
+			case "read_window":
 				toolResult = fmt.Sprintf("<action_result>\n[Read error: %v]\n</action_result>", err)
-			}
-			if repeatCount >= 2 {
-				toolResult += fmt.Sprintf("\n\n[SYSTEM INTERVENTION: Loop detected. You have read this exact line window %d times consecutively. You now have the contents. Take action to edit the file (<action name=\"replace_file\"> or <action name=\"write_file\">) or proceed with your next step.]", repeatCount)
-			}
-			history = append(history, Message{Role: "user", Content: toolResult})
-		} else if act.Name == "run_test" {
-			if r.OnOutput != nil {
-				r.OnOutput("run_test", act.Command)
-			}
-			out, err := ExecuteRunTest(ctx, act.Command, workDir)
-			toolResult := fmt.Sprintf("<action_result>\n%s\n</action_result>", out)
-			if err != nil {
+			case "read_outline":
+				toolResult = fmt.Sprintf("<action_result>\n[Outline error: %v]\n</action_result>", err)
+			case "run_test":
 				toolResult = fmt.Sprintf("<action_result>\n[Test execution error: %v]\n</action_result>", err)
+			case "get_environment":
+				toolResult = fmt.Sprintf("<action_result>\n[Environment error: %v]\n</action_result>", err)
+			default:
+				toolResult = fmt.Sprintf("<action_result>\n[Error: %v]\n%s\n</action_result>", err, out)
 			}
-			if repeatCount >= 2 && err != nil {
+		} else {
+			if act.Name == "replace_file" || act.Name == "write_file" {
+				editFailures[targetSummary] = 0
+			}
+			toolResult = fmt.Sprintf("<action_result>\n%s\n</action_result>", out)
+		}
+
+		if repeatCount >= 2 {
+			if act.Name == "read_window" {
+				toolResult += fmt.Sprintf("\n\n[SYSTEM INTERVENTION: Loop detected. You have read this exact line window %d times consecutively. You now have the contents. Take action to edit the file (<action name=\"replace_file\"> or <action name=\"write_file\">) or proceed with your next step.]", repeatCount)
+			} else if act.Name == "run_test" && err != nil {
 				toolResult += fmt.Sprintf("\n\n[SYSTEM INTERVENTION: Loop detected. You have run the exact same test command %d times consecutively and tests are failing. Inspect or edit the source code with <action name=\"replace_file\"> or <action name=\"write_file\"> before re-running tests.]", repeatCount)
 			}
-			history = append(history, Message{Role: "user", Content: toolResult})
-		} else if act.Name == "get_environment" {
-			if r.OnOutput != nil {
-				r.OnOutput("get_environment", workDir)
-			}
-			out, err := ExecuteGetEnvironment(ctx, act.Command, workDir)
-			toolResult := fmt.Sprintf("<action_result>\n%s\n</action_result>", out)
-			if err != nil {
-				toolResult = fmt.Sprintf("<action_result>\n[Environment error: %v]\n</action_result>", err)
-			}
-			history = append(history, Message{Role: "user", Content: toolResult})
 		}
+
+		if r.OnOutput != nil {
+			if err != nil {
+				r.OnOutput("error", fmt.Sprintf("Error: %v\n%s", err, out))
+			} else {
+				r.OnOutput("result", out)
+			}
+		}
+
+		session.History = append(session.History, Message{Role: "user", Content: toolResult})
 	}
 
 	return "", fmt.Errorf("exceeded max turns (%d) without completing task", r.MaxTurns)
 }
-
