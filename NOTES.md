@@ -1,6 +1,6 @@
 # Machine Specific Notes & Target Environments (NOTES.md)
 
-This document tracks target machine specifications, operational environments, and testing configurations for `quik`. While the core project code, ADRs, and README remain generalized for arbitrary Linux/POSIX hardware, this file records real-world benchmarks and device quirks.
+This document tracks target machine specifications, operational environments, and testing configurations for `lokol`. While the core project code, ADRs, and README remain generalized for arbitrary Linux/POSIX hardware, this file records real-world benchmarks and device quirks.
 
 ---
 
@@ -17,7 +17,11 @@ This document tracks target machine specifications, operational environments, an
   - KV Cache: 65,536 tokens (64k), `q8_0` quantized (~1.85 GB)
   - GPU Offload: 100% VRAM offload (`-ngl 99`)
   - Total VRAM Consumption: ~6.56 GB (~5.7 GB free headroom)
-  - Generation Throughput: ~66 tokens/second
+  - Raw Generation Throughput: ~66 tokens/second
+- **Real-World Agent Loop Benchmarks**:
+  - **10-Tier Integration Evaluation Suite**: ~81.5 seconds total runtime across all 10 tiers (~8.1s per multi-turn coding tier).
+  - **Laya Semantic Decision Scoring**: ~33ms per forward pass (evaluating documentation correctness without chat LLMs).
+  - **Loop Circuit Breaker**: Aborts runaway loops by Turn 4 in ~12ms.
 
 ---
 
@@ -42,15 +46,25 @@ This document tracks target machine specifications, operational environments, an
 
 ---
 
-## 3. Generalization Rules for `quik`
+## 3. Generalization Rules for `lokol`
 
-To ensure `quik` remains portable beyond these specific machines:
+To ensure `lokol` remains portable beyond these specific machines:
 1. **Dynamic VRAM Headroom Deduction**:
-   - `pkg/probe` will query current VRAM usage before launch. If `nvidia-smi` shows active Xorg/Wayland usage on the GPU, `quik` automatically treats the GPU as a "shared display" device and docks 1.5 GB from the usable budget.
-   - If `used_vram < 100 MiB` (e.g. Pop!_OS hybrid mode or headless server), `quik` unlocks the "dedicated compute" profile.
+   - `pkg/probe` will query current VRAM usage before launch. If `nvidia-smi` shows active Xorg/Wayland usage on the GPU, `lokol` automatically treats the GPU as a "shared display" device and docks 1.5 GB from the usable budget.
+   - If `used_vram < 100 MiB` (e.g. Pop!_OS hybrid mode or headless server), `lokol` unlocks the "dedicated compute" profile.
 2. **Fallback Ladder**:
    - 10GB+ VRAM -> 7B (64k context)
    - 6GB–10GB VRAM -> 7B (16k–32k context) or 3B (64k context)
    - 4GB VRAM (dedicated) -> 3B (32k context)
    - 4GB VRAM (shared display) -> 3B (16k context) or 1.5B (32k context)
    - <4GB / No GPU -> 1.5B (8k context) via CPU AVX2
+
+---
+
+## 4. Developer Environment & Tooling Architecture
+
+1. **Python Tooling Isolation (`tools/`)**:
+   - Non-Go developer scripts and evaluators reside in `./tools/<toolname>/` (e.g. `./tools/laya/judge.py`).
+   - Managed strictly via `uv` with PEP 723 inline script metadata.
+2. **Local Run Artifacts (`data/`)**:
+   - Persistent test dumps, benchmark metrics (`data/eval_results.json`), and diagnostic logs reside in the gitignored `./data/` directory.

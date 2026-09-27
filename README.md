@@ -15,8 +15,9 @@ lokol/
 ├── cmd/
 │   ├── lokol/              # CLI entrypoint (setup, probe, chat, exec, version)
 │   └── lokol-mcp/          # Standalone MCP context refinery server (stdio JSON-RPC)
+├── data/                   # Local developer test reports & run persistence (gitignored)
 ├── doc/
-│   └── adr/                # Architecture Decision Records (ADR-0001 – ADR-0012)
+│   └── adr/                # Architecture Decision Records (ADR-0001 – ADR-0015)
 ├── pages/                  # GitHub Pages landing site
 ├── pkg/
 │   ├── agent/              # Deterministic agent loop, SSE streaming & action parser
@@ -29,6 +30,9 @@ lokol/
 │   ├── tui/                # Interactive Bubble Tea terminal UI with live context HUD
 │   ├── update/             # Release updater: GitHub release fetching, semver targets, asset extraction
 │   └── version/            # Build-time version metadata (injected via ldflags)
+├── test/                   # 10-tier integration evaluation suite & Laya decision bridge
+├── tools/
+│   └── laya/               # Standalone Laya semantic evaluator script (managed via uv)
 ├── go.mod
 └── README.md
 ```
@@ -87,6 +91,23 @@ make build
 ```bash
 ./bin/lokol -p "Run the tests and inspect the repository"
 ```
+
+### Integration Evaluation Suite & Semantic Scoring
+
+Verify the agent loop, tool execution, and oscillation prevention against your local model:
+
+```bash
+# Run the 10-tier live evaluation suite against llama-server (http://127.0.0.1:8080)
+go test -v ./test -run TestEvalSuite_LiveEngine
+
+# Run loop circuit breaker and oscillation intervention tests
+go test -v ./test -run TestRunner_LoopCircuitBreaker
+
+# Check Laya non-autoregressive decision model health
+uv run --python .venv tools/laya/judge.py --health
+```
+
+The 10-tier benchmark exercises atomic file operations, directory grounding, bug fixes, bounded window inspection, outline parsing, git workflows, multi-turn feature addition, large-file edits, and subjective architectural synthesis scored in ~33ms via Convai's Laya model ([ADR-0014](doc/adr/0014-non-autoregressive-decision-model-judging.md)). Benchmark results persist automatically to `data/eval_results.json`.
 
 ### In-Repo MCP Context Refinery (`lokol-mcp`)
 `lokol-mcp` is a standalone Model Context Protocol (MCP) server that exposes mechanical noise filtering over standard JSON-RPC stdio (per [ADR-0012](doc/adr/0012-in-repo-mcp-facades.md)):
