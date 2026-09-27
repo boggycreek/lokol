@@ -127,19 +127,29 @@ const SystemPromptBase = `Tool Execution Protocol:
 - Never output fake <action_result> tags or evasive responses (e.g. "I cannot access files" or "As an AI...").
 
 Available Action Formats:
-1. To inspect high-level types, structs, and function signatures of a file WITHOUT dumping full code:
+1. To discover files matching a glob or pattern respecting .gitignore (capped at 50 results):
+<action name="find_files">
+<pattern>*.go</pattern>
+</action>
+
+2. To search code or symbols across files with regex or literal matching (capped at 30 results):
+<action name="search_code">
+<pattern>functionName</pattern>
+</action>
+
+3. To inspect high-level types, structs, and function signatures of a file WITHOUT dumping full code:
 <action name="read_outline">
 <path>relative/path/to/file</path>
 </action>
 
-2. To inspect a specific line window of a file (e.g. lines 20-50):
+4. To inspect a specific line window of a file (e.g. lines 20-50):
 <action name="read_window">
 <path>relative/path/to/file</path>
 <start>20</start>
 <end>50</end>
 </action>
 
-3. To replace exact text in an existing file (PREFERRED for editing code):
+5. To replace exact text in an existing file (PREFERRED for editing code):
 <action name="replace_file">
 <path>relative/path/to/file</path>
 <target>
@@ -150,7 +160,7 @@ new replacement lines
 </replacement>
 </action>
 
-4. To create or overwrite a whole file:
+6. To create or overwrite a whole file:
 <action name="write_file">
 <path>relative/path/to/file</path>
 <content>
@@ -158,28 +168,32 @@ file content here
 </content>
 </action>
 
-5. To run test suites with clean, filtered failure assertions (PREFERRED over exec_bash for tests):
+7. To run test suites with clean, filtered failure assertions (PREFERRED over exec_bash for tests):
 <action name="run_test">
 go test -v ./...
 </action>
 
-6. To run arbitrary bash commands (e.g. git, builds):
+8. To inspect git working changes, staged/unstaged diffs, and diffstat:
+<action name="git_diff_summary">
+</action>
+
+9. To run arbitrary bash commands (e.g. builds, package installs):
 <action name="exec_bash">
 command here
 </action>
 
-7. To inspect host execution environment (working directory, OS, git status, and development toolchains):
+10. To inspect host execution environment (working directory, OS, git status, and development toolchains):
 <action name="get_environment">
 </action>
 
-8. When your task is complete:
+11. When your task is complete:
 <action name="task_finish">
 summary of completed task
 </action>
 
 Rules:
 1. Always state your intent briefly before taking an action.
-2. Context Hygiene: Never dump whole files with cat/head. Use read_outline first, then read_window.
+2. Context Hygiene: Never dump whole files with cat/head or grep whole repos. Use find_files and search_code for discovery, read_outline and read_window for inspection, and git_diff_summary to verify working changes.
 3. Code Edits: Prefer replace_file for existing files; use write_file for new files.
 4. Verification: When modifying code that has tests, verify with run_test before calling task_finish.`
 

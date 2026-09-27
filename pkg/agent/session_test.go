@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -120,7 +121,34 @@ func TestDispatchAction_Execution(t *testing.T) {
 		t.Errorf("expected hello.txt in find_files output, got: %s", out)
 	}
 
-	// 5. task_finish via DispatchAction
+	// 5. search_code via DispatchAction
+	searchAct := &Action{
+		Name:    "search_code",
+		Command: "<pattern>Lokol</pattern>",
+	}
+	out, err = DispatchAction(ctx, searchAct, tmpDir)
+	if err != nil {
+		t.Fatalf("search_code failed: %v", err)
+	}
+	if !strings.Contains(out, "hello.txt") || !strings.Contains(out, "Hello Lokol") {
+		t.Errorf("expected hello.txt with Hello Lokol in search_code output, got: %s", out)
+	}
+
+	// 6. git_diff_summary via DispatchAction
+	exec.Command("git", "init", tmpDir).Run()
+	diffAct := &Action{
+		Name:    "git_diff_summary",
+		Command: "",
+	}
+	out, err = DispatchAction(ctx, diffAct, tmpDir)
+	if err != nil {
+		t.Fatalf("git_diff_summary failed: %v", err)
+	}
+	if !strings.Contains(out, "hello.txt") {
+		t.Errorf("expected hello.txt in git_diff_summary output, got: %s", out)
+	}
+
+	// 7. task_finish via DispatchAction
 	finishAct := &Action{
 		Name:    "task_finish",
 		Command: "Work complete.",
@@ -219,6 +247,22 @@ func TestAction_PresentationHelpers(t *testing.T) {
 			},
 			wantTarget:  "*.go",
 			wantVerbose: "⚡ Finding Files: *.go",
+		},
+		{
+			act: &Action{
+				Name:    "search_code",
+				Command: "<pattern>NewUser</pattern>",
+			},
+			wantTarget:  "NewUser",
+			wantVerbose: "⚡ Searching Code: NewUser",
+		},
+		{
+			act: &Action{
+				Name:    "git_diff_summary",
+				Command: "",
+			},
+			wantTarget:  "working state",
+			wantVerbose: "⚡ Diff Summary: working state",
 		},
 		{
 			act: &Action{
