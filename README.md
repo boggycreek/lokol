@@ -11,29 +11,36 @@
 ## Project Structure
 ```
 lokol/
-├── bin/                    # Compiled lokol binaries
+├── bin/                    # Compiled binaries (lk, lokol, lokol-mcp)
 ├── cmd/
-│   ├── lokol/              # CLI entrypoint (setup, probe, chat, exec, version)
+│   ├── lk/                 # Interactive Bubble Tea TUI launcher (bin/lk)
+│   │   ├── Makefile        # Subproject Makefile
+│   │   ├── tui/            # Full-terminal interactive UI with live context HUD
+│   │   └── test/           # Local test harness (data/ & tmp/ isolated)
+│   ├── lokol/              # CLI entrypoint (setup, probe, exec, update, version)
+│   │   ├── Makefile        # Subproject Makefile
+│   │   └── test/           # Local test harness (data/ & tmp/ isolated)
 │   └── lokol-mcp/          # Standalone MCP context refinery server (stdio JSON-RPC)
-├── data/                   # Local developer test reports & run persistence (gitignored)
+│       ├── Makefile        # Subproject Makefile
+│       └── test/           # Local test harness (data/ & tmp/ isolated)
 ├── doc/
-│   └── adr/                # Architecture Decision Records (ADR-0001 – ADR-0016)
-├── pages/                  # GitHub Pages landing site
-├── pkg/
+│   └── adr/                # Architecture Decision Records (ADR-0001 – ADR-0018)
+├── liblokol/               # Core agent engine SDK (0 external dependencies)
+│   ├── Makefile            # Subproject Makefile
 │   ├── agent/              # Deterministic agent loop, SSE streaming & action parser
-│   ├── mcp/                # Pure-Go MCP JSON-RPC stdio protocol server
+│   ├── mcp/                # Pure-Go MCP JSON-RPC protocol implementation
 │   ├── model/              # Hardware sizing & VRAM-tier model selection matrix
 │   ├── probe/              # Pure Go hardware & GPU capability prober
+│   ├── refinery/           # Context refinery: bounded reads, AST outlines, test filtering
 │   ├── setup/              # Environment auditing, dependency bootstrap & weight verifier
-│   ├── tools/
-│   │   └── refinery/       # Context refinery: bounded reads, AST outlines, test filtering
-│   ├── tui/                # Interactive Bubble Tea terminal UI with live context HUD
-│   ├── update/             # Release updater: GitHub release fetching, semver targets, asset extraction
-│   └── version/            # Build-time version metadata (injected via ldflags)
-├── test/                   # 10-tier evaluation benchmark, Podman sandbox & Laya bridge
+│   ├── update/             # Release updater: GitHub release fetching, semver targets
+│   ├── version/            # Build-time version metadata (injected via ldflags)
+│   └── test/               # Integration tests, 10-tier eval suite & Laya bridge
+├── pages/                  # GitHub Pages landing site
 ├── tools/
 │   └── laya/               # Standalone Laya semantic evaluator script (managed via uv)
-├── go.mod
+├── go.work                 # Multi-module Go workspace orchestration
+├── Makefile                # Root Makefile orchestrating subproject targets
 └── README.md
 ```
 
@@ -87,8 +94,25 @@ make build
 ./bin/lokol probe --simulate-vram-gib=4.0
 ```
 
-### Run Autonomous Task
+### Interactive Desktop Companion (`lk`)
+Start the dedicated interactive Bubble Tea TUI:
 ```bash
+# Launch interactive TUI session
+./bin/lk
+
+# Launch with pre-seeded prompt
+./bin/lk "Inspect the project and fix failing tests"
+
+# Engage autonomous YOLO mode
+./bin/lk --yolo
+```
+
+### Headless Execution & Autonomous Tasks (`lokol`)
+Run headless tasks directly via the `lokol` CLI:
+```bash
+./bin/lokol exec "Run the tests and inspect the repository"
+
+# or shorthand:
 ./bin/lokol -p "Run the tests and inspect the repository"
 ```
 
@@ -98,16 +122,19 @@ Verify the agent loop, tool execution, and oscillation prevention against your l
 
 ```bash
 # Run the 10-tier live evaluation suite against llama-server (http://127.0.0.1:8080)
-go test -v ./test -run TestEvalSuite_LiveEngine
+go test -v ./liblokol/test -run TestEvalSuite_LiveEngine
 
 # Run loop circuit breaker and oscillation intervention tests
-go test -v ./test -run TestRunner_LoopCircuitBreaker
+go test -v ./liblokol/test -run TestRunner_LoopCircuitBreaker
+
+# Run sandboxed Podman container evaluation
+go test -v ./cmd/lokol/test -run TestPodmanSandbox_ProjectEvaluation
 
 # Check Laya non-autoregressive decision model health
 uv run --python .venv tools/laya/judge.py --health
 ```
 
-The 10-tier benchmark exercises atomic file operations, directory grounding, bug fixes, bounded window inspection, outline parsing, git workflows, multi-turn feature addition, large-file edits, and subjective architectural synthesis scored in ~33ms via Convai's Laya model ([ADR-0014](doc/adr/0014-non-autoregressive-decision-model-judging.md)). Benchmark results persist automatically to `data/eval_results.json`.
+The 10-tier benchmark exercises atomic file operations, directory grounding, bug fixes, bounded window inspection, outline parsing, git workflows, multi-turn feature addition, large-file edits, and subjective architectural synthesis scored in ~33ms via Convai's Laya model ([ADR-0014](doc/adr/0014-non-autoregressive-decision-model-judging.md)). Benchmark results persist automatically to subproject-local `liblokol/data/eval_results.json`.
 
 ### In-Repo MCP Context Refinery (`lokol-mcp`)
 `lokol-mcp` is a standalone Model Context Protocol (MCP) server that exposes mechanical noise filtering over standard JSON-RPC stdio (per [ADR-0012](doc/adr/0012-in-repo-mcp-facades.md)):

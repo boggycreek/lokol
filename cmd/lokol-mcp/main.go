@@ -15,9 +15,9 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/boggycreek/lokol/pkg/mcp"
-	"github.com/boggycreek/lokol/pkg/tools/refinery"
-	"github.com/boggycreek/lokol/pkg/version"
+	"github.com/boggycreek/lokol/liblokol/mcp"
+	"github.com/boggycreek/lokol/liblokol/refinery"
+	"github.com/boggycreek/lokol/liblokol/version"
 )
 
 func main() {

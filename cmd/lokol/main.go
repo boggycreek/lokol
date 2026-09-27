@@ -15,14 +15,12 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/boggycreek/lokol/pkg/agent"
-	"github.com/boggycreek/lokol/pkg/model"
-	"github.com/boggycreek/lokol/pkg/probe"
-	"github.com/boggycreek/lokol/pkg/setup"
-	"github.com/boggycreek/lokol/pkg/tui"
-	"github.com/boggycreek/lokol/pkg/update"
-	"github.com/boggycreek/lokol/pkg/version"
-	tea "github.com/charmbracelet/bubbletea"
+	"github.com/boggycreek/lokol/liblokol/agent"
+	"github.com/boggycreek/lokol/liblokol/model"
+	"github.com/boggycreek/lokol/liblokol/probe"
+	"github.com/boggycreek/lokol/liblokol/setup"
+	"github.com/boggycreek/lokol/liblokol/update"
+	"github.com/boggycreek/lokol/liblokol/version"
 )
 
 func main() {
@@ -147,10 +145,10 @@ func printUsage() {
 	fmt.Println("lokol - Local-first autonomous AI agent for consumer GPUs")
 	fmt.Println()
 	fmt.Println("Usage:")
+	fmt.Println("  lk           [--engine=...] [--yolo] [-v]         Start interactive Bubble Tea TUI agent session")
+	fmt.Println("  lokol exec   [--engine=...] [-v] <prompt>         Run autonomous agent in headless mode")
 	fmt.Println("  lokol setup  [--download-model] [--install-llama] Bootstrap environment, probe hardware & check dependencies")
 	fmt.Println("  lokol probe  [--simulate-vram-gib=X]              Probe host capabilities and compute optimal model tier")
-	fmt.Println("  lokol chat   [--engine=...] [--yolo] [-v]         Start interactive Bubble Tea TUI agent session")
-	fmt.Println("  lokol exec   [--engine=...] [-v] <prompt>         Run autonomous agent in headless mode")
 	fmt.Println("  lokol update [--pre] [--version=vX]               Update to latest release from GitHub (or specific version)")
 	fmt.Println("  lokol update --list                               List all published releases available on GitHub")
 	fmt.Println("  lokol [-p | --prompt] \"<prompt>\" [-v]            Run agent in headless mode directly")
@@ -286,23 +284,8 @@ func runExec(engineURL string, maxTurns int, prompt string, verbose bool) {
 }
 
 func runChat(engineURL string, yolo bool, verbose bool) {
-	hw, err := probe.Detect()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: probe error: %v\n", err)
-	}
-
-	workDir, _ := os.Getwd()
-	client := agent.NewClient(engineURL)
-	m := tui.New(client, hw, yolo, workDir)
-	if verbose {
-		m.SetVerbose(true)
-	}
-
-	p := tea.NewProgram(m, tea.WithAltScreen())
-	if _, err := p.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error running TUI: %v\n", err)
-		os.Exit(1)
-	}
+	fmt.Println("Interactive TUI is now provided by the dedicated 'lk' command.")
+	fmt.Println("Run 'lk' directly to start an interactive chat session, or 'lokol exec <prompt>' for headless execution.")
 }
 
 func runProbe(simVRAM float64) {

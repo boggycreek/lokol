@@ -47,9 +47,14 @@ XDG_CACHE_HOME="${XDG_CACHE_HOME:-${HOME}/.cache}"
 GO_SDK_BASE="${XDG_DATA_HOME}/go/sdk"
 GO_CURRENT_LINK="${GO_SDK_BASE}/current"
 
-# Resolve default Go version from go.mod if present, otherwise 1.25.8
+# Resolve default Go version from go.work or go.mod if present, otherwise 1.25.8
 DEFAULT_GO_VER="1.25.8"
-if [ -f "go.mod" ]; then
+if [ -f "go.work" ]; then
+  DETECTED_MOD_GO="$(grep -E '^go [0-9]' go.work 2>/dev/null | awk '{print $2}' || echo "")"
+  if [ -n "${DETECTED_MOD_GO}" ]; then
+    DEFAULT_GO_VER="${DETECTED_MOD_GO}"
+  fi
+elif [ -f "go.mod" ]; then
   DETECTED_MOD_GO="$(grep -E '^go [0-9]' go.mod 2>/dev/null | awk '{print $2}' || echo "")"
   if [ -n "${DETECTED_MOD_GO}" ]; then
     DEFAULT_GO_VER="${DETECTED_MOD_GO}"
@@ -369,8 +374,8 @@ run_environment_doctor() {
     echo "  [PASS] Active Go: ${go_ver_str} (${active_go})"
     passes=$((passes + 1))
 
-    # Compatibility with go.mod
-    echo "  [INFO] Target in go.mod: go ${DEFAULT_GO_VER}"
+    # Compatibility with go.work / go.mod
+    echo "  [INFO] Target in go.work / go.mod: go ${DEFAULT_GO_VER}"
     # Minimal version check: compare major.minor
     local cur_major_minor
     cur_major_minor="$(echo "${raw_ver}" | cut -d. -f1,2)"
@@ -384,7 +389,7 @@ run_environment_doctor() {
       echo "  [PASS] Go compiler version (${raw_ver}) satisfies project requirement (${DEFAULT_GO_VER})"
       passes=$((passes + 1))
     else
-      echo "  [WARN] Installed Go (${raw_ver}) is older than go.mod requirement (${DEFAULT_GO_VER})"
+      echo "  [WARN] Installed Go (${raw_ver}) is older than project requirement (${DEFAULT_GO_VER})"
       warnings=$((warnings + 1))
       remediation+=("./setup.sh --go-version ${DEFAULT_GO_VER}")
     fi

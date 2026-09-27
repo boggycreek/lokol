@@ -51,7 +51,7 @@ This document tracks target machine specifications, operational environments, an
 
 To ensure `lokol` remains portable beyond these specific machines:
 1. **Dynamic VRAM Headroom Deduction**:
-   - `pkg/probe` will query current VRAM usage before launch. If `nvidia-smi` shows active Xorg/Wayland usage on the GPU, `lokol` automatically treats the GPU as a "shared display" device and docks 1.5 GB from the usable budget.
+   - `liblokol/probe` will query current VRAM usage before launch. If `nvidia-smi` shows active Xorg/Wayland usage on the GPU, `lokol` automatically treats the GPU as a "shared display" device and docks 1.5 GB from the usable budget.
    - If `used_vram < 100 MiB` (e.g. Pop!_OS hybrid mode or headless server), `lokol` unlocks the "dedicated compute" profile.
 2. **Fallback Ladder**:
    - 10GB+ VRAM -> 7B (64k context)
@@ -67,5 +67,5 @@ To ensure `lokol` remains portable beyond these specific machines:
 1. **Python Tooling Isolation (`tools/`)**:
    - Non-Go developer scripts and evaluators reside in `./tools/<toolname>/` (e.g. `./tools/laya/judge.py`).
    - Managed strictly via `uv` with PEP 723 inline script metadata.
-2. **Local Run Artifacts (`data/`)**:
-   - Persistent test dumps, benchmark metrics (`data/eval_results.json`), and diagnostic logs reside in the gitignored `./data/` directory.
+2. **Subproject Run Artifacts (`<subproject>/data/`)**:
+   - Persistent test dumps, benchmark metrics (`liblokol/data/eval_results.json`), and diagnostic logs reside in each subproject's local, gitignored `./data/` directory. No global common `./data` directory is used.
