@@ -1,6 +1,7 @@
 # Binaries
 bin/
 dist/
+/lokol
 *.exe
 *.exe~
 *.dll

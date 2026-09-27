@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -56,11 +57,17 @@ type Model struct {
 	tokenChan    chan string
 	streamCancel context.CancelFunc
 	yoloMode     bool
+	verbose      bool
 	width        int
 	height       int
 	slotStatus   *agent.SlotStatus
 	workDir      string
 	err          error
+
+	// Internalized activity & step tracking
+	stepCount   int
+	lastThought string
+	lastTool    string
 }
 
 
@@ -83,6 +90,10 @@ var (
 			Bold(true).
 			Foreground(lipgloss.Color("#FF79C6"))
 
+	completeBannerStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#50FA7B"))
+
 	actionBoxStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("#F1FA8C")).
@@ -95,6 +106,11 @@ var (
 			Padding(0, 1).
 			Foreground(lipgloss.Color("#8BE9FD"))
 )
+
+// SetVerbose toggles verbose display of intermediate inferences and tool payloads.
+func (m *Model) SetVerbose(v bool) {
+	m.verbose = v
+}
 
 // New creates and initializes the TUI model.
 func New(client *agent.Client, hw *probe.HardwareProfile, yoloMode bool, workDirOpt ...string) Model {
@@ -121,8 +137,10 @@ func New(client *agent.Client, hw *probe.HardwareProfile, yoloMode bool, workDir
 	if workDir == "" {
 		workDir, _ = os.Getwd()
 	}
-	if workDir == "" {
-		workDir = "."
+	if abs, err := filepath.Abs(workDir); err == nil {
+		workDir = abs
+	} else {
+		workDir = filepath.Clean(workDir)
 	}
 
 	codebaseCtx := refinery.LoadCodebaseContext(workDir)
@@ -256,12 +274,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.Type {
 		case tea.KeyCtrlC:
-			if m.state == stateStreaming {
+			if m.state == stateStreaming || m.state == stateExecutingAction {
 				if m.streamCancel != nil {
 					m.streamCancel()
 					m.streamCancel = nil
 				}
 				m.state = stateIdle
+				m.stepCount = 0
+				m.lastThought = ""
+				m.lastTool = ""
 				m.appendLog("\n[Stream cancelled by user (Ctrl+C). Slot released.]\n")
 				return m, nil
 			}
@@ -270,12 +291,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cancel()
 			return m, tea.Quit
 		case tea.KeyEsc:
-			if m.state == stateStreaming {
+			if m.state == stateStreaming || m.state == stateExecutingAction {
 				if m.streamCancel != nil {
 					m.streamCancel()
 					m.streamCancel = nil
 				}
 				m.state = stateIdle
+				m.stepCount = 0
+				m.lastThought = ""
+				m.lastTool = ""
 				m.appendLog("\n[Stream aborted (Esc). Slot released.]\n")
 				return m, nil
 			}
@@ -286,6 +310,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.appendLog("⚡ [YOLO MODE ENGAGED] Autonomous command execution active.\n")
 			} else {
 				m.appendLog("🛡️ [SAFE MODE ENGAGED] Manual action approval required.\n")
+			}
+			return m, nil
+		case tea.KeyCtrlV:
+			m.verbose = !m.verbose
+			if m.verbose {
+				m.appendLog("🔍 [VERBOSE ON] Showing intermediate thought streams and tool payloads.\n\n")
+			} else {
+				m.appendLog("✨ [VERBOSE OFF] Intermediary inferences and tool activity internalized.\n\n")
 			}
 			return m, nil
 		case tea.KeyPgUp:
@@ -308,9 +340,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				m.textarea.Reset()
-				m.appendLog(userStyle.Render("User: ") + input + "\n")
+				m.appendLog(userStyle.Render("User: ") + input + "\n\n")
 				m.history = append(m.history, agent.Message{Role: "user", Content: input})
 				m.state = stateStreaming
+				m.stepCount = 0
+				m.lastThought = ""
+				m.lastTool = ""
 				m.currentResp = ""
 				m.tokenChan = make(chan string, 100)
 
@@ -356,83 +391,122 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tokenMsg:
 		if m.state == stateStreaming {
 			m.currentResp += string(msg)
-			// Filter out action XML from the live stream display
-			displayStr := m.currentResp
-			if idx := strings.Index(displayStr, "<action"); idx != -1 {
-				displayStr = strings.TrimSpace(displayStr[:idx])
+			if m.verbose {
+				// Filter out action XML from the live stream display in verbose mode
+				displayStr := m.currentResp
+				if idx := strings.Index(displayStr, "<action"); idx != -1 {
+					displayStr = strings.TrimSpace(displayStr[:idx])
+				}
+				if displayStr != "" {
+					m.viewport.SetContent(wrapContent(m.chatLog+agentStyle.Render("lokol: ")+displayStr, m.viewport.Width))
+				}
+				m.viewport.GotoBottom()
 			}
-			if displayStr != "" {
-				m.viewport.SetContent(wrapContent(m.chatLog+agentStyle.Render("lokol: ")+displayStr, m.viewport.Width))
-			}
-			m.viewport.GotoBottom()
 			return m, waitForToken(m.tokenChan)
 		}
 
 	case streamDoneMsg:
 		m.streamCancel = nil
 		if m.state == stateStreaming {
-			response := m.currentResp
+			response := string(msg)
+			if response == "" {
+				response = m.currentResp
+			}
 			m.history = append(m.history, agent.Message{Role: "assistant", Content: response})
 
 			// Check for actions
 			act := agent.ParseAction(response)
 			if act != nil && (act.Name == "exec_bash" || act.Name == "replace_file" || act.Name == "write_file" || act.Name == "read_outline" || act.Name == "read_window" || act.Name == "run_test") {
 				m.pendingAct = act
-				if act.CleanThought != "" {
+				m.stepCount++
+				m.lastThought = act.CleanThought
+				m.lastTool = act.Name
+
+				if m.verbose && act.CleanThought != "" {
 					m.appendLog(agentStyle.Render("lokol: ") + act.CleanThought + "\n")
 				}
+
 				if m.yoloMode {
 					// YOLO Mode: execute immediately without waiting for user approval
 					m.state = stateExecutingAction
-					switch act.Name {
-					case "exec_bash":
-						m.appendLog("⚡ Executing: " + act.Command + "\n")
-					case "replace_file":
-						input, _ := agent.ParseReplaceFileInput(act.Command)
-						p := "file"
-						if input != nil {
-							p = input.Path
+					if m.verbose {
+						switch act.Name {
+						case "exec_bash":
+							m.appendLog("⚡ Executing: " + act.Command + "\n")
+						case "replace_file":
+							input, _ := agent.ParseReplaceFileInput(act.Command)
+							p := "file"
+							if input != nil {
+								p = input.Path
+							}
+							m.appendLog("⚡ Editing: " + p + "\n")
+						case "write_file":
+							input, _ := agent.ParseWriteFileInput(act.Command)
+							p := "file"
+							if input != nil {
+								p = input.Path
+							}
+							m.appendLog("⚡ Writing: " + p + "\n")
+						case "read_outline":
+							m.appendLog("⚡ Reading Outline: " + strings.TrimSpace(act.Command) + "\n")
+						case "read_window":
+							m.appendLog("⚡ Reading Window: " + strings.TrimSpace(act.Command) + "\n")
+						case "run_test":
+							m.appendLog("⚡ Verifying Tests: " + strings.TrimSpace(act.Command) + "\n")
 						}
-						m.appendLog("⚡ Editing: " + p + "\n")
-					case "write_file":
-						input, _ := agent.ParseWriteFileInput(act.Command)
-						p := "file"
-						if input != nil {
-							p = input.Path
-						}
-						m.appendLog("⚡ Writing: " + p + "\n")
-					case "read_outline":
-						m.appendLog("⚡ Reading Outline: " + strings.TrimSpace(act.Command) + "\n")
-					case "read_window":
-						m.appendLog("⚡ Reading Window: " + strings.TrimSpace(act.Command) + "\n")
-					case "run_test":
-						m.appendLog("⚡ Verifying Tests: " + strings.TrimSpace(act.Command) + "\n")
 					}
 					return m, executeAction(act, m.workDir)
 				}
 
 				m.state = stateWaitingActionApproval
 				box := actionBoxStyle.Render(fmt.Sprintf(
-					"PROPOSED ACTION: %s\nPayload:\n%s\n\nPress [Enter] or [Y] to approve, [N] to reject",
+					"PROPOSED ACTION: %s\nPayload:\n%s\n\nPress [Enter] or [Y] to approve, [N] to reject | [Ctrl+Y] Auto-approve all",
 					act.Name, act.Command,
 				))
 				m.appendLog("\n" + box + "\n")
 			} else if act != nil && act.Name == "task_finish" {
 				m.state = stateIdle
+				finalText := strings.TrimSpace(act.Command)
 				if act.CleanThought != "" {
-					m.appendLog(agentStyle.Render("lokol: ") + act.CleanThought + "\n")
+					if finalText != "" && !strings.Contains(act.CleanThought, finalText) {
+						finalText = act.CleanThought + "\n\n" + finalText
+					} else if finalText == "" {
+						finalText = act.CleanThought
+					}
 				}
-				m.appendLog("✅ Complete: " + act.Command + "\n")
+				if finalText == "" {
+					finalText = "Task completed successfully."
+				}
+
+				stepSuffix := ""
+				if m.stepCount > 0 {
+					plural := ""
+					if m.stepCount > 1 {
+						plural = "s"
+					}
+					stepSuffix = fmt.Sprintf(" • Resolved in %d autonomous step%s", m.stepCount, plural)
+				}
+				banner := completeBannerStyle.Render(fmt.Sprintf("✅ Task Complete%s", stepSuffix))
+
+				m.appendLog(agentStyle.Render("lokol: ") + finalText + "\n\n" + banner + "\n\n")
+				m.stepCount = 0
+				m.lastThought = ""
+				m.lastTool = ""
 			} else {
 				m.state = stateIdle
-				m.appendLog(agentStyle.Render("lokol: ") + response + "\n")
+				m.appendLog(agentStyle.Render("lokol: ") + strings.TrimSpace(response) + "\n\n")
+				m.stepCount = 0
+				m.lastThought = ""
+				m.lastTool = ""
 			}
 			return m, nil
 		}
 
 	case actionExecutedMsg:
 		output := string(msg)
-		m.appendLog("✓ Executed successfully\n")
+		if m.verbose {
+			m.appendLog("✓ Executed successfully\n")
+		}
 
 		// Feed tool output back to agent history
 		toolResult := fmt.Sprintf("<action_result>\n%s\n</action_result>", output)
@@ -501,6 +575,10 @@ func (m Model) View() string {
 		yoloBadge := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FF5555")).Render(" [YOLO ACTIVE]")
 		header += yoloBadge
 	}
+	if m.verbose {
+		verbBadge := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#BD93F9")).Render(" [VERBOSE]")
+		header += verbBadge
+	}
 
 	// Real-time Context / KV Cache HUD
 	if m.slotStatus != nil && m.slotStatus.NCtx > 0 {
@@ -529,13 +607,41 @@ func (m Model) View() string {
 	var statusLine string
 	switch m.state {
 	case stateIdle:
-		statusLine = "[Ready] Press Enter to send | [PgUp/PgDn] Scroll | [Ctrl+Y] Toggle YOLO | [Ctrl+C] Quit"
+		statusLine = "[Ready] Press Enter to send | [PgUp/PgDn] Scroll | [Ctrl+Y] YOLO | [Ctrl+V] Verbose | [Ctrl+C] Quit"
 	case stateStreaming:
-		statusLine = "[Generating] Receiving tokens from local engine... | [PgUp/PgDn] Scroll"
+		if m.stepCount > 0 {
+			toolHint := ""
+			if m.lastTool != "" {
+				toolHint = fmt.Sprintf(" (after %s)", m.lastTool)
+			}
+			statusLine = fmt.Sprintf("⚡ [Step %d%s] Reasoning and deciding next action... | [Ctrl+C] Stop", m.stepCount+1, toolHint)
+		} else {
+			statusLine = "[Thinking] Generating response from local engine... | [Ctrl+C] Stop"
+		}
 	case stateWaitingActionApproval:
-		statusLine = "[Approval Needed] Review command above. Press [Y] to Approve, [N] to Deny | [Ctrl+Y] Auto-approve all"
+		statusLine = "[Approval Needed] Review proposed action above. Press [Y] Approve, [N] Deny | [Ctrl+Y] Auto-approve all"
 	case stateExecutingAction:
-		statusLine = "[Executing] Running bash tool locally..."
+		toolDesc := "tool"
+		if m.pendingAct != nil {
+			toolDesc = m.pendingAct.Name
+			switch m.pendingAct.Name {
+			case "replace_file":
+				if input, _ := agent.ParseReplaceFileInput(m.pendingAct.Command); input != nil {
+					toolDesc = "replace_file: " + input.Path
+				}
+			case "write_file":
+				if input, _ := agent.ParseWriteFileInput(m.pendingAct.Command); input != nil {
+					toolDesc = "write_file: " + input.Path
+				}
+			case "read_outline":
+				toolDesc = "read_outline: " + strings.TrimSpace(m.pendingAct.Command)
+			case "read_window":
+				toolDesc = "read_window: " + strings.TrimSpace(m.pendingAct.Command)
+			case "run_test":
+				toolDesc = "run_test: " + strings.TrimSpace(m.pendingAct.Command)
+			}
+		}
+		statusLine = fmt.Sprintf("⚡ [Step %d] Executing %s locally... | [Ctrl+C] Stop", m.stepCount, toolDesc)
 	}
 
 	return fmt.Sprintf("%s\n\n%s\n\n%s\n%s",

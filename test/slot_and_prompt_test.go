@@ -57,6 +57,35 @@ func TestPromptStructureHierarchy(t *testing.T) {
 	}
 }
 
+func TestDetectHostEnvironment_AbsolutePath(t *testing.T) {
+	// Case A: empty workDir resolves to absolute cwd of process
+	envEmpty := agent.DetectHostEnvironment("")
+	if !filepath.IsAbs(envEmpty.Cwd) {
+		t.Errorf("expected absolute path for empty workDir, got: %q", envEmpty.Cwd)
+	}
+
+	// Case B: relative workDir "." resolves to absolute path
+	envDot := agent.DetectHostEnvironment(".")
+	if !filepath.IsAbs(envDot.Cwd) {
+		t.Errorf("expected absolute path for relative workDir '.', got: %q", envDot.Cwd)
+	}
+	if envDot.Cwd != envEmpty.Cwd {
+		t.Errorf("expected '.' to resolve to current working dir %q, got: %q", envEmpty.Cwd, envDot.Cwd)
+	}
+
+	// Case C: Environment tag contains <cwd> with absolute path
+	tag := envDot.FormatEnvironmentTag()
+	expectedTag := fmt.Sprintf("<cwd>%s</cwd>", envDot.Cwd)
+	if !strings.Contains(tag, expectedTag) {
+		t.Errorf("expected tag to contain %q, got:\n%s", expectedTag, tag)
+	}
+
+	// Case D: SystemPromptBase contains generalized grounding principle
+	if !strings.Contains(agent.SystemPromptBase, "Grounding:") || !strings.Contains(agent.SystemPromptBase, "<environment>") {
+		t.Errorf("SystemPromptBase should reference Grounding and <environment>")
+	}
+}
+
 func TestRefineryLoadCodebaseContext(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "refinery-test-*")
 	if err != nil {

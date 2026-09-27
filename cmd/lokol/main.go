@@ -32,6 +32,8 @@ func main() {
 	topEngine := flag.String("engine", "http://127.0.0.1:8080", "URL of local llama-server engine")
 	topYOLO := flag.Bool("yolo", false, "Engage YOLO mode: autonomous bash execution without interactive approval")
 	topMaxTurns := flag.Int("max-turns", 15, "Max turns for agent loop in headless mode")
+	topVerbose := flag.Bool("verbose", false, "Display internal reasoning tokens and verbose tool activity")
+	flag.BoolVar(topVerbose, "v", false, "Display internal reasoning tokens (shorthand)")
 
 	// Custom usage func
 	flag.Usage = printUsage
@@ -43,10 +45,14 @@ func main() {
 	chatCmd := flag.NewFlagSet("chat", flag.ExitOnError)
 	engineURL := chatCmd.String("engine", "http://127.0.0.1:8080", "URL of local llama-server engine")
 	yolo := chatCmd.Bool("yolo", false, "Engage YOLO mode: autonomous bash execution without interactive approval")
+	chatVerbose := chatCmd.Bool("verbose", false, "Display internal reasoning and tool stream in chat")
+	chatCmd.BoolVar(chatVerbose, "v", false, "Display internal reasoning (shorthand)")
 
 	execCmd := flag.NewFlagSet("exec", flag.ExitOnError)
 	execEngine := execCmd.String("engine", "http://127.0.0.1:8080", "URL of local llama-server engine")
 	execMaxTurns := execCmd.Int("max-turns", 15, "Max turns for agent loop")
+	execVerbose := execCmd.Bool("verbose", false, "Display internal reasoning tokens and verbose tool activity")
+	execCmd.BoolVar(execVerbose, "v", false, "Display internal reasoning tokens (shorthand)")
 
 	setupCmd := flag.NewFlagSet("setup", flag.ExitOnError)
 	setupDownload := setupCmd.Bool("download-model", false, "Automatically download recommended GGUF weights if missing")
@@ -68,7 +74,7 @@ func main() {
 	if strings.HasPrefix(os.Args[1], "-") {
 		_ = flag.CommandLine.Parse(os.Args[1:])
 		if *promptFlag != "" {
-			runExec(*topEngine, *topMaxTurns, *promptFlag)
+			runExec(*topEngine, *topMaxTurns, *promptFlag, *topVerbose)
 			return
 		}
 		// If remaining arguments exist after parsing flags
@@ -84,7 +90,7 @@ func main() {
 				return
 			case "chat":
 				_ = chatCmd.Parse(flag.Args()[1:])
-				runChat(*engineURL, *yolo || *topYOLO)
+				runChat(*engineURL, *yolo || *topYOLO, *chatVerbose || *topVerbose)
 				return
 			case "exec":
 				_ = execCmd.Parse(flag.Args()[1:])
@@ -93,7 +99,7 @@ func main() {
 					fmt.Fprintln(os.Stderr, "Error: prompt required for exec")
 					os.Exit(1)
 				}
-				runExec(*execEngine, *execMaxTurns, prompt)
+				runExec(*execEngine, *execMaxTurns, prompt, *execVerbose || *topVerbose)
 				return
 			case "update":
 				_ = updateCmd.Parse(flag.Args()[1:])
@@ -117,7 +123,7 @@ func main() {
 		runProbe(*simVRAM)
 	case "chat":
 		_ = chatCmd.Parse(os.Args[2:])
-		runChat(*engineURL, *yolo)
+		runChat(*engineURL, *yolo, *chatVerbose)
 	case "exec":
 		_ = execCmd.Parse(os.Args[2:])
 		prompt := strings.Join(execCmd.Args(), " ")
@@ -125,7 +131,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, "Error: prompt required for exec")
 			os.Exit(1)
 		}
-		runExec(*execEngine, *execMaxTurns, prompt)
+		runExec(*execEngine, *execMaxTurns, prompt, *execVerbose)
 	case "update":
 		_ = updateCmd.Parse(os.Args[2:])
 		runUpdate(*updatePre, *updateTargetVer, *updateList)
@@ -143,11 +149,11 @@ func printUsage() {
 	fmt.Println("Usage:")
 	fmt.Println("  lokol setup  [--download-model] [--install-llama] Bootstrap environment, probe hardware & check dependencies")
 	fmt.Println("  lokol probe  [--simulate-vram-gib=X]              Probe host capabilities and compute optimal model tier")
-	fmt.Println("  lokol chat   [--engine=...] [--yolo]              Start interactive Bubble Tea TUI agent session")
-	fmt.Println("  lokol exec   [--engine=...] <prompt>              Run autonomous agent in headless mode")
+	fmt.Println("  lokol chat   [--engine=...] [--yolo] [-v]         Start interactive Bubble Tea TUI agent session")
+	fmt.Println("  lokol exec   [--engine=...] [-v] <prompt>         Run autonomous agent in headless mode")
 	fmt.Println("  lokol update [--pre] [--version=vX]               Update to latest release from GitHub (or specific version)")
 	fmt.Println("  lokol update --list                               List all published releases available on GitHub")
-	fmt.Println("  lokol [-p | --prompt] \"<prompt>\"                 Run agent in headless mode directly")
+	fmt.Println("  lokol [-p | --prompt] \"<prompt>\" [-v]            Run agent in headless mode directly")
 	fmt.Println("  lokol version                                    Display version")
 }
 
@@ -175,32 +181,76 @@ func runSetup(downloadModel bool, simVRAM float64, installLlama bool) {
 	}
 }
 
-func runExec(engineURL string, maxTurns int, prompt string) {
+func runExec(engineURL string, maxTurns int, prompt string, verbose bool) {
 	workDir, _ := os.Getwd()
 	client := agent.NewClient(engineURL)
+	stepCount := 0
+	finished := false
+
 	runner := &agent.Runner{
 		Client:   client,
 		MaxTurns: maxTurns,
 		YOLO:     true,
 		WorkDir:  workDir,
 		OnOutput: func(role, content string) {
+			if verbose {
+				switch role {
+				case "token":
+					fmt.Print(content)
+				case "exec_bash":
+					fmt.Printf("\n⚡ Executing: %s\n", content)
+				case "replace_file":
+					fmt.Printf("\n⚡ Editing: %s\n", content)
+				case "write_file":
+					fmt.Printf("\n⚡ Writing: %s\n", content)
+				case "read_outline":
+					fmt.Printf("\n⚡ Reading Outline: %s\n", content)
+				case "read_window":
+					fmt.Printf("\n⚡ Reading Window: %s\n", content)
+				case "run_test":
+					fmt.Printf("\n⚡ Verifying Tests: %s\n", content)
+				case "task_finish", "finish":
+					finished = true
+					fmt.Printf("\n✅ Complete: %s\n", content)
+				}
+				return
+			}
+
+			// Clean internalized presentation:
+			// Suppress intermediate thought tokens.
+			// Emit compact progress on stderr so stdout remains clean for piping.
 			switch role {
 			case "token":
-				fmt.Print(content)
+				// Internalized
 			case "exec_bash":
-				fmt.Printf("\n⚡ Executing: %s\n", content)
+				stepCount++
+				fmt.Fprintf(os.Stderr, "⚡ [Step %d] Executing: %s\n", stepCount, content)
 			case "replace_file":
-				fmt.Printf("\n⚡ Editing: %s\n", content)
+				stepCount++
+				fmt.Fprintf(os.Stderr, "⚡ [Step %d] Editing: %s\n", stepCount, content)
 			case "write_file":
-				fmt.Printf("\n⚡ Writing: %s\n", content)
+				stepCount++
+				fmt.Fprintf(os.Stderr, "⚡ [Step %d] Writing: %s\n", stepCount, content)
 			case "read_outline":
-				fmt.Printf("\n⚡ Reading Outline: %s\n", content)
+				stepCount++
+				fmt.Fprintf(os.Stderr, "⚡ [Step %d] Reading Outline: %s\n", stepCount, content)
 			case "read_window":
-				fmt.Printf("\n⚡ Reading Window: %s\n", content)
+				stepCount++
+				fmt.Fprintf(os.Stderr, "⚡ [Step %d] Reading Window: %s\n", stepCount, content)
 			case "run_test":
-				fmt.Printf("\n⚡ Verifying Tests: %s\n", content)
+				stepCount++
+				fmt.Fprintf(os.Stderr, "⚡ [Step %d] Verifying Tests: %s\n", stepCount, content)
 			case "task_finish", "finish":
-				fmt.Printf("\n✅ Complete: %s\n", content)
+				finished = true
+				plural := ""
+				if stepCount > 1 {
+					plural = "s"
+				}
+				stepInfo := ""
+				if stepCount > 0 {
+					stepInfo = fmt.Sprintf(" (in %d step%s)", stepCount, plural)
+				}
+				fmt.Printf("\n✅ Complete%s: %s\n", stepInfo, content)
 			}
 		},
 	}
@@ -208,7 +258,7 @@ func runExec(engineURL string, maxTurns int, prompt string) {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
-	_, err := runner.Run(ctx, prompt)
+	summary, err := runner.Run(ctx, prompt)
 	if err != nil {
 		if errors.Is(ctx.Err(), context.Canceled) {
 			fmt.Println("\n[Execution interrupted by signal. Slot released.]")
@@ -217,9 +267,13 @@ func runExec(engineURL string, maxTurns int, prompt string) {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
+
+	if !finished && summary != "" {
+		fmt.Println(summary)
+	}
 }
 
-func runChat(engineURL string, yolo bool) {
+func runChat(engineURL string, yolo bool, verbose bool) {
 	hw, err := probe.Detect()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: probe error: %v\n", err)
@@ -228,6 +282,9 @@ func runChat(engineURL string, yolo bool) {
 	workDir, _ := os.Getwd()
 	client := agent.NewClient(engineURL)
 	m := tui.New(client, hw, yolo, workDir)
+	if verbose {
+		m.SetVerbose(true)
+	}
 
 	p := tea.NewProgram(m, tea.WithAltScreen())
 	if _, err := p.Run(); err != nil {

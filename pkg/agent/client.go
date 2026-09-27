@@ -38,6 +38,7 @@ type HostEnvironment struct {
 
 // DetectHostEnvironment resolves the active host environment using the given working directory.
 // If workDir is empty, it defaults to the current process working directory.
+// cwd is always resolved to an absolute path to prevent hallucinated directory locations.
 func DetectHostEnvironment(workDir string) HostEnvironment {
 	cwd := workDir
 	if cwd == "" {
@@ -45,7 +46,11 @@ func DetectHostEnvironment(workDir string) HostEnvironment {
 			cwd = d
 		}
 	}
-	cwd = filepath.Clean(cwd)
+	if abs, err := filepath.Abs(cwd); err == nil {
+		cwd = abs
+	} else {
+		cwd = filepath.Clean(cwd)
+	}
 	shell := os.Getenv("SHELL")
 	if shell == "" {
 		if runtime.GOOS == "windows" {
@@ -86,6 +91,11 @@ func DetectHostEnvironment(workDir string) HostEnvironment {
 func (env HostEnvironment) FormatEnvironmentTag() string {
 	cwd := env.Cwd
 	if cwd == "" {
+		if d, err := os.Getwd(); err == nil {
+			cwd = d
+		}
+	}
+	if cwd == "" {
 		cwd = "."
 	}
 	osName := env.OS
@@ -117,7 +127,8 @@ const SystemPromptBase = `Tool Execution Protocol:
 - Inspect the content inside <action_result> carefully to decide your next action.
 - Only output ONE action per response.
 - Never output fake <action_result> tags yourself; wait for the system to execute your action and return the result.
-- Never produce evasive chatbot responses (e.g. "I do not have a working directory" or "As an AI..."). Always use your available actions to inspect the environment and accomplish tasks.
+- Never produce evasive chatbot responses (e.g. "I cannot access files" or "As an AI...").
+- Grounding: Never guess or assume paths, file contents, or system state. Always ground answers in the provided <environment> or inspect ground truth using available actions.
 
 Available Action Formats:
 1. To inspect high-level types, structs, and function signatures of a file WITHOUT dumping full code:
@@ -489,7 +500,18 @@ func ParseAction(text string) *Action {
 func ExecuteBash(ctx context.Context, command string, workDir ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "bash", "-c", command)
 	if len(workDir) > 0 && workDir[0] != "" {
-		cmd.Dir = workDir[0]
+		cwd, err := filepath.Abs(workDir[0])
+		if err == nil {
+			cmd.Dir = cwd
+			// Sandbox execution: prevent git and beads from walking up to host parent directories
+			// and polluting host repositories or beads memories.
+			cmd.Env = append(os.Environ(),
+				fmt.Sprintf("BEADS_DIR=%s", filepath.Join(cwd, ".beads")),
+				fmt.Sprintf("GIT_CEILING_DIRECTORIES=%s", filepath.Dir(cwd)),
+			)
+		} else {
+			cmd.Dir = workDir[0]
+		}
 	}
 	out, err := cmd.CombinedOutput()
 	outputStr := string(out)

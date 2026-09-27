@@ -225,8 +225,12 @@ func (r *Runner) Run(ctx context.Context, initialPrompt string) (string, error) 
 
 			history = append(history, Message{Role: "user", Content: toolResult})
 		} else if act.Name == "read_outline" {
+			target := strings.TrimSpace(act.Command)
+			if p := extractTagContent(target, "path"); p != "" {
+				target = p
+			}
 			if r.OnOutput != nil {
-				r.OnOutput("read_outline", act.Command)
+				r.OnOutput("read_outline", target)
 			}
 			out, err := ExecuteReadOutline(ctx, act.Command, workDir)
 			toolResult := fmt.Sprintf("<action_result>\n%s\n</action_result>", out)
@@ -235,8 +239,12 @@ func (r *Runner) Run(ctx context.Context, initialPrompt string) (string, error) 
 			}
 			history = append(history, Message{Role: "user", Content: toolResult})
 		} else if act.Name == "read_window" {
+			target := strings.TrimSpace(act.Command)
+			if p := extractTagContent(target, "path"); p != "" {
+				target = p
+			}
 			if r.OnOutput != nil {
-				r.OnOutput("read_window", act.Command)
+				r.OnOutput("read_window", target)
 			}
 			out, err := ExecuteReadWindow(ctx, act.Command, workDir)
 			toolResult := fmt.Sprintf("<action_result>\n%s\n</action_result>", out)
