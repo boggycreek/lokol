@@ -231,6 +231,7 @@ func NewUser(id int, name string) *User {
 		fmt.Sprintf(`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"read_window","arguments":{"path":%q,"start_line":1,"end_line":6}}}`, sampleFile),
 		`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"test_verifier","arguments":{"command":"echo 'PASS: tests ok'"}}}`,
 		`{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"run_test","arguments":{"command":"echo 'FAIL: test assertion'; exit 1"}}}`,
+		fmt.Sprintf(`{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"get_environment","arguments":{"path":%q}}}`, tmpDir),
 	}
 
 	inputData := strings.Join(requests, "\n") + "\n"
@@ -249,8 +250,8 @@ func NewUser(id int, name string) *User {
 	}
 
 	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
-	if len(lines) != 6 { // 7 requests minus 1 notification = 6 responses
-		t.Fatalf("expected 6 response lines, got %d:\n%s", len(lines), stdout.String())
+	if len(lines) != 7 { // 8 requests minus 1 notification = 7 responses
+		t.Fatalf("expected 7 response lines, got %d:\n%s", len(lines), stdout.String())
 	}
 
 	// Verify initialize response
@@ -284,7 +285,7 @@ func NewUser(id int, name string) *User {
 	for _, t := range listResp.Result.Tools {
 		toolNames[t.Name] = true
 	}
-	for _, expected := range []string{"read_outline", "read_window", "test_verifier", "run_test"} {
+	for _, expected := range []string{"read_outline", "read_window", "test_verifier", "run_test", "get_environment"} {
 		if !toolNames[expected] {
 			t.Errorf("expected tool %q in tools/list, got: %+v", expected, toolNames)
 		}
@@ -342,6 +343,21 @@ func NewUser(id int, name string) *User {
 	failText := testFailResp.Result.Content[0].Text
 	if !strings.Contains(failText, "FAIL") {
 		t.Errorf("expected fail text to contain FAIL, got: %s", failText)
+	}
+
+	// Verify get_environment result
+	var envResp struct {
+		Result mcp.ToolCallResult `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(lines[6]), &envResp); err != nil {
+		t.Fatalf("failed to parse get_environment resp: %v", err)
+	}
+	if envResp.Result.IsError || len(envResp.Result.Content) == 0 {
+		t.Fatalf("expected successful get_environment result, got: %+v", envResp.Result)
+	}
+	envText := envResp.Result.Content[0].Text
+	if !strings.Contains(envText, "working_directory") || !strings.Contains(envText, tmpDir) {
+		t.Errorf("expected get_environment output to contain working_directory %q, got: %s", tmpDir, envText)
 	}
 }
 

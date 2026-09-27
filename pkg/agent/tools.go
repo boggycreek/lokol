@@ -237,3 +237,19 @@ func ExecuteRunTest(ctx context.Context, command string, workDir ...string) (str
 	return fmt.Sprintf("%s\n\nFailures:\n%s", res.Summary, res.ErrorOutput), nil
 }
 
+// ExecuteGetEnvironment inspects the execution environment and returns formatted JSON.
+func ExecuteGetEnvironment(ctx context.Context, payload string, workDir ...string) (string, error) {
+	wd := ""
+	if len(workDir) > 0 && workDir[0] != "" {
+		wd = workDir[0]
+	}
+	if p := extractTagContent(payload, "path"); p != "" {
+		wd = resolvePath(strings.TrimSpace(p), wd)
+	}
+	envInfo, err := refinery.GetEnvironment(wd)
+	if err != nil {
+		return "", err
+	}
+	return envInfo.FormatJSON()
+}
+

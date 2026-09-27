@@ -268,6 +268,16 @@ func (r *Runner) Run(ctx context.Context, initialPrompt string) (string, error) 
 				toolResult += fmt.Sprintf("\n\n[SYSTEM INTERVENTION: Loop detected. You have run the exact same test command %d times consecutively and tests are failing. Inspect or edit the source code with <action name=\"replace_file\"> or <action name=\"write_file\"> before re-running tests.]", repeatCount)
 			}
 			history = append(history, Message{Role: "user", Content: toolResult})
+		} else if act.Name == "get_environment" {
+			if r.OnOutput != nil {
+				r.OnOutput("get_environment", workDir)
+			}
+			out, err := ExecuteGetEnvironment(ctx, act.Command, workDir)
+			toolResult := fmt.Sprintf("<action_result>\n%s\n</action_result>", out)
+			if err != nil {
+				toolResult = fmt.Sprintf("<action_result>\n[Environment error: %v]\n</action_result>", err)
+			}
+			history = append(history, Message{Role: "user", Content: toolResult})
 		}
 	}
 

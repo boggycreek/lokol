@@ -58,6 +58,14 @@ func TestParseAction(t *testing.T) {
 			wantThought: "Here is the change:",
 		},
 		{
+			name:        "get_environment action",
+			input:       "I will check the environment.\n<action name=\"get_environment\">\n</action>",
+			wantAction:  true,
+			wantName:    "get_environment",
+			wantCommand: "",
+			wantThought: "I will check the environment.",
+		},
+		{
 			name:        "no action present",
 			input:       "Here is an explanation of the problem.",
 			wantAction:  false,
@@ -194,16 +202,16 @@ func TestBuildSystemPrompt(t *testing.T) {
 		}
 	})
 
-	t.Run("few-shot demonstrations included", func(t *testing.T) {
+	t.Run("action formats and protocol included", func(t *testing.T) {
 		prompt := agent.BuildSystemPrompt("/tmp")
-		if !strings.Contains(prompt, "What is your current working directory?") {
-			t.Error("expected prompt to contain cwd few-shot question")
+		if !strings.Contains(prompt, "<action name=\"get_environment\">") {
+			t.Error("expected prompt to document get_environment action format")
 		}
 		if !strings.Contains(prompt, "<action name=\"exec_bash\">") {
-			t.Error("expected prompt to demonstrate action invocation in examples")
+			t.Error("expected prompt to document exec_bash action format")
 		}
 		if !strings.Contains(prompt, "<action name=\"task_finish\">") {
-			t.Error("expected prompt to demonstrate task_finish in examples")
+			t.Error("expected prompt to document task_finish action format")
 		}
 	})
 
@@ -226,6 +234,23 @@ func TestBuildSystemPrompt(t *testing.T) {
 			t.Errorf("expected cleaned path, got:\n%s", prompt[:300])
 		}
 	})
+}
+
+func TestExecuteGetEnvironment(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Test ExecuteGetEnvironment with empty payload and workDir
+	out, err := agent.ExecuteGetEnvironment(context.Background(), "", tmpDir)
+	if err != nil {
+		t.Fatalf("unexpected error executing get_environment: %v", err)
+	}
+
+	if !strings.Contains(out, tmpDir) {
+		t.Errorf("expected get_environment output to contain %q, got: %s", tmpDir, out)
+	}
+	if !strings.Contains(out, "\"working_directory\"") || !strings.Contains(out, "\"os\"") {
+		t.Errorf("expected get_environment JSON keys, got: %s", out)
+	}
 }
 
 
