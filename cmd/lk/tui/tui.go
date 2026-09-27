@@ -806,24 +806,7 @@ func (m Model) View() string {
 		ctxBadge = hudCtxStyle.Render(ctxStr)
 	}
 
-	w := m.width
-	if w <= 0 {
-		w = 80
-	}
-	var line1 string
-	if ctxBadge != "" {
-		leftWidth := ansi.StringWidth(projBadge)
-		rightWidth := ansi.StringWidth(ctxBadge)
-		gap := w - leftWidth - rightWidth
-		if gap < 1 {
-			gap = 1
-		}
-		line1 = projBadge + strings.Repeat(" ", gap) + ctxBadge
-	} else {
-		line1 = projBadge
-	}
-
-	// Bottom Line: Hotkey options and active state hints with background treatment
+	// Hotkey options and active state hints directly below prompt textarea
 	var hints string
 	switch m.state {
 	case StateIdle:
@@ -835,9 +818,27 @@ func (m Model) View() string {
 	case StateExecutingAction:
 		hints = "[Executing] Local runner active · [Esc] Stop"
 	}
-	line2 := bottomKeyBarStyle.Render(hints)
+	hotkeyLine := bottomKeyBarStyle.Render(hints)
 
-	bottomBars := fmt.Sprintf("%s\n%s", line1, line2)
+	// Bottom-most Line: Left = Project path & branch pill, Right = Right-justified Context Token HUD
+	w := m.width
+	if w <= 0 {
+		w = 80
+	}
+	var infoLine string
+	if ctxBadge != "" {
+		leftWidth := ansi.StringWidth(projBadge)
+		rightWidth := ansi.StringWidth(ctxBadge)
+		gap := w - leftWidth - rightWidth
+		if gap < 1 {
+			gap = 1
+		}
+		infoLine = projBadge + strings.Repeat(" ", gap) + ctxBadge
+	} else {
+		infoLine = projBadge
+	}
+
+	bottomBars := fmt.Sprintf("%s\n%s", hotkeyLine, infoLine)
 
 	if spinnerLine != "" {
 		return fmt.Sprintf("%s\n\n%s\n\n%s\n%s\n%s",
