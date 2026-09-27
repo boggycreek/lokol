@@ -206,11 +206,12 @@ download_prebuilt_release() {
 CURRENT_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || echo "")"
 
 if [ "${BUILD_FROM_SOURCE}" = true ]; then
-  if [ -n "${CURRENT_SCRIPT_DIR}" ] && [ -f "${CURRENT_SCRIPT_DIR}/go.mod" ] && [ -d "${CURRENT_SCRIPT_DIR}/cmd/lokol" ]; then
+  if [ -n "${CURRENT_SCRIPT_DIR}" ] && ([ -f "${CURRENT_SCRIPT_DIR}/go.work" ] || [ -f "${CURRENT_SCRIPT_DIR}/go.mod" ]) && [ -d "${CURRENT_SCRIPT_DIR}/cmd/lokol" ]; then
     echo "  Detected local repository checkout at: ${CURRENT_SCRIPT_DIR}"
-    echo "  Compiling static binary from local source..."
+    echo "  Compiling static binaries from local source..."
     (cd "${CURRENT_SCRIPT_DIR}" && make build)
     cp -f "${CURRENT_SCRIPT_DIR}/bin/lokol" "${TARGET_BIN_DIR}/lokol"
+    [ -f "${CURRENT_SCRIPT_DIR}/bin/lk" ] && cp -f "${CURRENT_SCRIPT_DIR}/bin/lk" "${TARGET_BIN_DIR}/lk"
   else
     install_from_source
   fi
@@ -218,9 +219,10 @@ else
   # Default path: Download prebuilt static binary (zero Go dependencies required)
   if ! download_prebuilt_release; then
     echo "  Falling back to compiling from source..."
-    if [ -n "${CURRENT_SCRIPT_DIR}" ] && [ -f "${CURRENT_SCRIPT_DIR}/go.mod" ] && [ -d "${CURRENT_SCRIPT_DIR}/cmd/lokol" ]; then
+    if [ -n "${CURRENT_SCRIPT_DIR}" ] && ([ -f "${CURRENT_SCRIPT_DIR}/go.work" ] || [ -f "${CURRENT_SCRIPT_DIR}/go.mod" ]) && [ -d "${CURRENT_SCRIPT_DIR}/cmd/lokol" ]; then
       (cd "${CURRENT_SCRIPT_DIR}" && make build)
       cp -f "${CURRENT_SCRIPT_DIR}/bin/lokol" "${TARGET_BIN_DIR}/lokol"
+      [ -f "${CURRENT_SCRIPT_DIR}/bin/lk" ] && cp -f "${CURRENT_SCRIPT_DIR}/bin/lk" "${TARGET_BIN_DIR}/lk"
     else
       install_from_source
     fi
@@ -228,6 +230,7 @@ else
 fi
 
 chmod +x "${TARGET_BIN_DIR}/lokol"
+[ -f "${TARGET_BIN_DIR}/lk" ] && chmod +x "${TARGET_BIN_DIR}/lk"
 
 # 4. PATH Verification
 echo
@@ -273,6 +276,6 @@ else
   echo
   echo "    lokol --help"
   echo "    lokol setup"
-  echo "    lokol chat --yolo"
+  echo "    lk --yolo"
 fi
 echo

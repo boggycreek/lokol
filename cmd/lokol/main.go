@@ -28,7 +28,6 @@ func main() {
 	promptFlag := flag.String("prompt", "", "Run prompt directly in headless mode (alias: -p)")
 	flag.StringVar(promptFlag, "p", "", "Run prompt directly in headless mode (shorthand)")
 	topEngine := flag.String("engine", "http://127.0.0.1:8080", "URL of local llama-server engine")
-	topYOLO := flag.Bool("yolo", false, "Engage YOLO mode: autonomous bash execution without interactive approval")
 	topMaxTurns := flag.Int("max-turns", 15, "Max turns for agent loop in headless mode")
 	topVerbose := flag.Bool("verbose", false, "Display internal reasoning tokens and verbose tool activity")
 	flag.BoolVar(topVerbose, "v", false, "Display internal reasoning tokens (shorthand)")
@@ -39,12 +38,6 @@ func main() {
 	// Subcommands
 	probeCmd := flag.NewFlagSet("probe", flag.ExitOnError)
 	simVRAM := probeCmd.Float64("simulate-vram-gib", 0, "Simulate a specific VRAM amount in GiB (e.g. 4.0 for GTX 1650)")
-
-	chatCmd := flag.NewFlagSet("chat", flag.ExitOnError)
-	engineURL := chatCmd.String("engine", "http://127.0.0.1:8080", "URL of local llama-server engine")
-	yolo := chatCmd.Bool("yolo", false, "Engage YOLO mode: autonomous bash execution without interactive approval")
-	chatVerbose := chatCmd.Bool("verbose", false, "Display internal reasoning and tool stream in chat")
-	chatCmd.BoolVar(chatVerbose, "v", false, "Display internal reasoning (shorthand)")
 
 	execCmd := flag.NewFlagSet("exec", flag.ExitOnError)
 	execEngine := execCmd.String("engine", "http://127.0.0.1:8080", "URL of local llama-server engine")
@@ -86,10 +79,6 @@ func main() {
 				_ = probeCmd.Parse(flag.Args()[1:])
 				runProbe(*simVRAM)
 				return
-			case "chat":
-				_ = chatCmd.Parse(flag.Args()[1:])
-				runChat(*engineURL, *yolo || *topYOLO, *chatVerbose || *topVerbose)
-				return
 			case "exec":
 				_ = execCmd.Parse(flag.Args()[1:])
 				prompt := strings.Join(execCmd.Args(), " ")
@@ -119,9 +108,6 @@ func main() {
 	case "probe":
 		_ = probeCmd.Parse(os.Args[2:])
 		runProbe(*simVRAM)
-	case "chat":
-		_ = chatCmd.Parse(os.Args[2:])
-		runChat(*engineURL, *yolo, *chatVerbose)
 	case "exec":
 		_ = execCmd.Parse(os.Args[2:])
 		prompt := strings.Join(execCmd.Args(), " ")
@@ -281,11 +267,6 @@ func runExec(engineURL string, maxTurns int, prompt string, verbose bool) {
 	if !finished && summary != "" {
 		fmt.Println(summary)
 	}
-}
-
-func runChat(engineURL string, yolo bool, verbose bool) {
-	fmt.Println("Interactive TUI is now provided by the dedicated 'lk' command.")
-	fmt.Println("Run 'lk' directly to start an interactive chat session, or 'lokol exec <prompt>' for headless execution.")
 }
 
 func runProbe(simVRAM float64) {

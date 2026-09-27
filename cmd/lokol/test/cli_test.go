@@ -39,15 +39,15 @@ func TestLokolCLI_Usage(t *testing.T) {
 	}
 }
 
-func TestLokolCLI_ChatRedirection(t *testing.T) {
-	cmd := exec.Command("go", "run", "../main.go", "chat")
+func TestLokolCLI_UnknownCommand(t *testing.T) {
+	cmd := exec.Command("go", "run", "../main.go", "unknowncmd")
 	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("lokol chat failed: %v, output: %s", err, out)
+	if err == nil {
+		t.Fatalf("expected error for unknown subcommand, got nil (output: %s)", out)
 	}
 	output := string(out)
-	if !strings.Contains(output, "Interactive TUI is now provided by the dedicated 'lk' command") {
-		t.Errorf("expected redirection message to 'lk', got: %s", output)
+	if !strings.Contains(output, "Usage:") {
+		t.Errorf("expected usage output on unknown subcommand, got: %s", output)
 	}
 }
 
