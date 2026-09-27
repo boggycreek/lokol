@@ -41,6 +41,16 @@ We express our sincere gratitude to the following projects, models, tools, and p
 - **[The Go Programming Language](https://go.dev/)** (The Go Authors & Google) — BSD-3-Clause License  
   *Provides the robust systems runtime, zero-allocation memory efficiency, cross-platform concurrency primitives, and static binary distribution that makes lokol fast, portable, and dependable.*
 
+### 6. Evaluation & Non-Autoregressive Decision Intelligence
+- **[Laya](https://huggingface.co/convaiinnovations/laya)** (Convai Innovations) — Apache-2.0 License  
+  *A non-autoregressive decision model built on ModernBERT. Enables sub-100ms (~33ms), single-pass semantic scoring and output fidelity verification in the lokol integration test harness without chat LLM variance or hallucinations.*
+- **[ModernBERT](https://github.com/answerdotai/ModernBERT)** (Answer.AI & LightOn) — Apache-2.0 License  
+  *The modern bidirectional encoder backbone powering high-efficiency representation learning and fast decision inference.*
+
+### 7. Developer Tooling & Auxiliary Environment Management
+- **[uv](https://github.com/astral-sh/uv)** (Astral) — Apache-2.0 / MIT Licenses  
+  *Extremely fast Python package and project manager used to isolate auxiliary developer tooling, scripts, and evaluation environments under `./tools/*` without polluting the host system.*
+
 ---
 
 ## Legal Notices & Third-Party Licenses

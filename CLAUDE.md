@@ -60,18 +60,43 @@ This protocol applies when ending a Beads implementation workflow. It is subordi
 
 ## Build & Test
 
-_Add your build and test commands here_
-
 ```bash
-# Example:
-# npm install
-# npm test
+# Build the lokol binary
+make build
+
+# Run unit and integration tests
+make test
+
+# Run the 10-tier graded live evaluation suite (requires llama-server at http://127.0.0.1:8080)
+go test -v ./test -run TestEvalSuite_LiveEngine
+
+# Run loop breaker and repetition intervention tests
+go test -v ./test -run TestEvalSuite_LoopBreaker
+
+# Check Laya semantic evaluator health
+uv run --python .venv tools/laya/judge.py --health
 ```
 
 ## Architecture Overview
 
-_Add a brief overview of your project architecture_
+- **Core Agent Loop (`pkg/agent/`)**:
+  - `client.go`: Connects to `llama-server`, parses `<action name="...">` delimiters, injects `<environment>` grounding.
+  - `runner.go`: Multi-turn orchestrator, turn bounds, oscillation detection, and loop intervention nudges.
+  - `tools.go`: File and shell tool execution (`write_file`, `replace_file`, `exec_bash`, etc.) with strict `WorkDir` isolation.
+- **Context Refinery & Facades (`pkg/tools/refinery/`)**:
+  - Mechanical filtering: AST outlines (`read_outline`), bounded windows <= 100 lines (`read_window`), and 1-line failure assertions (`run_test`).
+- **Evaluation Harness & Laya Decision Model (`test/eval_test.go`, `tools/laya/`)**:
+  - 10-tier progressive benchmark evaluating tool use, error recovery, git workflows, and multi-turn refactoring.
+  - `tools/laya/judge.py` + `test/laya_judge_test.go`: Non-autoregressive decision model (`convaiinnovations/laya`) scoring semantic correctness in ~33ms.
+  - Output reports stored in gitignored `data/eval_results.json`.
 
 ## Conventions & Patterns
 
-_Add your project-specific conventions here_
+1. **Tool Invocation Protocol**: Actions use XML tags: `<action name="tool_name">...</action>`. Exactly one action per model turn.
+2. **Deterministic Workspace Isolation**: All tests and tool executions operate within isolated temporary directories (`t.TempDir()`).
+3. **Python Developer Tooling**:
+   - Must live in dedicated subdirectories under `./tools/*` (e.g. `./tools/laya/`).
+   - Managed strictly via `uv` with PEP 723 inline script metadata. Never install to global Python.
+4. **Transient Data & Artifacts**:
+   - Store local developer test dumps, benchmark history, and scratch logs in `./data/` (gitignored).
+5. **Non-Interactive Commands**: Always use non-interactive flags (`cp -f`, `rm -rf`, `apt-get -y`, `HOMEBREW_NO_AUTO_UPDATE=1`) to prevent hangs.
