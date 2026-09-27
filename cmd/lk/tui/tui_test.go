@@ -510,5 +510,109 @@ func TestTUI_Presentation_GuardrailYOLOIntercept(t *testing.T) {
 	}
 }
 
+// TestTUI_Presentation_Ergonomics_JunieLayoutAndToolFolding verifies Junie-inspired ergonomics:
+// 1. Dual status bar hierarchy (top hardware/mode, dense bottom status bar with git branch, engine, context HUD)
+// 2. Active animated spinner line above framed textarea during inference/action turns
+// 3. Compact tool badges folding consecutive commands into "Ran N commands ▸"
+func TestTUI_Presentation_Ergonomics_JunieLayoutAndToolFolding(t *testing.T) {
+	mock := NewMockSession()
+	hw := &probe.HardwareProfile{
+		OS:        "linux",
+		Arch:      "amd64",
+		GPUName:   "NVIDIA GeForce RTX 3060",
+		VRAMBytes: 12 * 1024 * 1024 * 1024,
+	}
+	m := tui.NewWithSession(mock, hw, true) // YOLO mode engaged
+
+	// Context status tick
+	newM, _ := m.Update(tui.SlotTickMsg(&agent.SlotStatus{
+		NCtx:          2048,
+		NPromptTokens: 500,
+	}))
+	m = newM.(tui.Model)
+
+	// Verify Dense Lower Status Bar layout when idle
+	idleView := m.View()
+	if !strings.Contains(idleView, "⌘ llama.cpp") {
+		t.Errorf("expected dense bottom bar to contain '⌘ llama.cpp', got: %s", idleView)
+	}
+	if !strings.Contains(idleView, "Context: 500/2048 (24.4%) [Pure VRAM]") {
+		t.Errorf("expected dense bottom bar to contain context token HUD, got: %s", idleView)
+	}
+	if !strings.Contains(idleView, "[Ready] Enter send") {
+		t.Errorf("expected dense bottom bar to contain ready hints, got: %s", idleView)
+	}
+	if !strings.Contains(idleView, "> ") {
+		t.Errorf("expected framed prompt to have '> ' prompt icon, got: %s", idleView)
+	}
+
+	// Step 0: User prompt -> enter StateStreaming
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("check codebase")})
+	m = newM.(tui.Model)
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = newM.(tui.Model)
+
+	// Verify active spinner line above prompt during initial thinking
+	streamingView := m.View()
+	if !strings.Contains(streamingView, "Thinking...") || !strings.Contains(streamingView, "esc to stop") {
+		t.Errorf("expected active spinner line with interruption hint above prompt, got: %s", streamingView)
+	}
+
+	// Tool Turn 1: exec_bash git status
+	turn1 := "Checking status.\n<action name=\"exec_bash\">\ngit status\n</action>"
+	newM, _ = m.Update(tui.StreamDoneMsg(turn1))
+	m = newM.(tui.Model)
+	newM, _ = m.Update(tui.ActionExecutedMsg("On branch main\nnothing to commit"))
+	m = newM.(tui.Model)
+
+	content := m.ViewportContent()
+	if !strings.Contains(content, "Ran git status ▸") {
+		t.Errorf("expected compact single tool badge 'Ran git status ▸', got: %s", content)
+	}
+
+	// Tool Turn 2: exec_bash git diff
+	turn2 := "Checking diff.\n<action name=\"exec_bash\">\ngit diff\n</action>"
+	newM, _ = m.Update(tui.StreamDoneMsg(turn2))
+	m = newM.(tui.Model)
+	newM, _ = m.Update(tui.ActionExecutedMsg(""))
+	m = newM.(tui.Model)
+
+	content = m.ViewportContent()
+	if !strings.Contains(content, "Ran 2 commands ▸") {
+		t.Errorf("expected consecutive commands to fold into 'Ran 2 commands ▸', got: %s", content)
+	}
+	if strings.Contains(content, "Ran git status ▸") {
+		t.Errorf("expected previous individual badge to be replaced upon folding, got: %s", content)
+	}
+
+	// Tool Turn 3: exec_bash go test
+	turn3 := "Running tests.\n<action name=\"exec_bash\">\ngo test ./...\n</action>"
+	newM, _ = m.Update(tui.StreamDoneMsg(turn3))
+	m = newM.(tui.Model)
+	newM, _ = m.Update(tui.ActionExecutedMsg("PASS"))
+	m = newM.(tui.Model)
+
+	content = m.ViewportContent()
+	if !strings.Contains(content, "Ran 3 commands ▸") {
+		t.Errorf("expected 3 consecutive commands to fold into 'Ran 3 commands ▸', got: %s", content)
+	}
+
+	// Task finish
+	turnDone := "All checks passed.\n<action name=\"task_finish\">\nCodebase is in good health.\n</action>"
+	newM, _ = m.Update(tui.StreamDoneMsg(turnDone))
+	m = newM.(tui.Model)
+
+	finalContent := m.ViewportContent()
+	if !strings.Contains(finalContent, "Ran 3 commands ▸") {
+		t.Errorf("expected collapsed tool summary preserved in final viewport, got: %s", finalContent)
+	}
+	if !strings.Contains(finalContent, "Codebase is in good health.") {
+		t.Errorf("expected final finish answer, got: %s", finalContent)
+	}
+	if !strings.Contains(finalContent, "✅ Task Complete • Resolved in 3 autonomous steps") {
+		t.Errorf("expected 3 autonomous steps in complete banner, got: %s", finalContent)
+	}
+}
+
 
 

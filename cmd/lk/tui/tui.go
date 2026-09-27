@@ -9,6 +9,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -16,6 +18,7 @@ import (
 	"github.com/boggycreek/lokol/liblokol/guardrail"
 	"github.com/boggycreek/lokol/liblokol/probe"
 	"github.com/boggycreek/lokol/liblokol/version"
+	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -49,6 +52,7 @@ type Model struct {
 	state        State
 	viewport     viewport.Model
 	textarea     textarea.Model
+	spinner      spinner.Model
 	chatLog      string
 	pendingAct   *agent.Action
 	currentResp  string
@@ -62,9 +66,11 @@ type Model struct {
 	err          error
 
 	// Internalized activity & step tracking
-	stepCount   int
-	lastThought string
-	lastTool    string
+	stepCount           int
+	lastThought         string
+	lastTool            string
+	consecutiveCommands int
+	lastBadge           string
 }
 
 var (
@@ -101,6 +107,37 @@ var (
 			BorderForeground(lipgloss.Color("#6272A4")).
 			Padding(0, 1).
 			Foreground(lipgloss.Color("#8BE9FD"))
+
+	toolBadgeStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#6272A4")).
+			Italic(true)
+
+	spinnerStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#BD93F9")).
+			Bold(true)
+
+	spinnerHintStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#6272A4"))
+
+	inputBoxStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("#44475A")).
+			Padding(0, 1)
+
+	inputBoxFocusedStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("#7D56F4")).
+			Padding(0, 1)
+
+	bottomProjStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#BD93F9")).
+			Bold(true)
+
+	bottomEngineStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#8BE9FD"))
+
+	bottomKeyHintStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#F8F8F2"))
 )
 
 // SetVerbose toggles verbose display of intermediate inferences and tool payloads.
@@ -151,11 +188,15 @@ func NewWithSession(session agent.SessionCore, hw *probe.HardwareProfile, yoloMo
 	ta := textarea.New()
 	ta.Placeholder = "Ask lokol to inspect files, write reports, or type /mode..."
 	ta.Focus()
-	ta.Prompt = "│ "
+	ta.Prompt = "> "
 	ta.CharLimit = 1000
 	ta.SetWidth(80)
 	ta.SetHeight(3)
 	ta.ShowLineNumbers = false
+
+	s := spinner.New()
+	s.Spinner = spinner.Dot
+	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#BD93F9"))
 
 	vp := viewport.New(80, 20)
 	initialText := "⚡ Welcome to lokol. Local-first autonomous AI agent.\nType your request below and press Enter to begin.\n\n"
@@ -170,6 +211,7 @@ func NewWithSession(session agent.SessionCore, hw *probe.HardwareProfile, yoloMo
 		state:     StateIdle,
 		viewport:  vp,
 		textarea:  ta,
+		spinner:   s,
 		tokenChan: make(chan string, 100),
 		yoloMode:  yoloMode,
 		chatLog:   initialText,
@@ -194,6 +236,7 @@ func pollSlotStatus(session agent.SessionCore) tea.Cmd {
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(
 		textarea.Blink,
+		m.spinner.Tick,
 		pollSlotStatus(m.session),
 	)
 }
@@ -244,6 +287,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var vpCmd tea.Cmd
 
 	switch msg := msg.(type) {
+	case spinner.TickMsg:
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		return m, cmd
+
 	case SlotTickMsg:
 		if msg != nil {
 			m.slotStatus = msg
@@ -274,7 +322,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.viewport.Width = msg.Width - 4
 		m.viewport.Height = vpHeight
-		m.textarea.SetWidth(msg.Width - 4)
+		taWidth := msg.Width - 8
+		if taWidth < 20 {
+			taWidth = 20
+		}
+		m.textarea.SetWidth(taWidth)
 		m.viewport.SetContent(wrapContent(m.chatLog, m.viewport.Width))
 		m.viewport.GotoBottom()
 
@@ -290,6 +342,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.stepCount = 0
 				m.lastThought = ""
 				m.lastTool = ""
+				m.consecutiveCommands = 0
+				m.lastBadge = ""
 				m.appendLog("\n[Stream cancelled by user (Ctrl+C). Slot released.]\n")
 				return m, nil
 			}
@@ -309,6 +363,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.stepCount = 0
 				m.lastThought = ""
 				m.lastTool = ""
+				m.consecutiveCommands = 0
+				m.lastBadge = ""
 				m.appendLog("\n[Stream aborted (Esc). Slot released.]\n")
 				return m, nil
 			}
@@ -340,7 +396,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Approve action
 				m.state = StateExecutingAction
 				m.appendLog(outputBoxStyle.Render("⚡ Executing command: " + m.pendingAct.Command))
-				return m, executeAction(m.session, m.pendingAct)
+				return m, tea.Batch(
+					executeAction(m.session, m.pendingAct),
+					m.spinner.Tick,
+				)
 			}
 
 			if m.state == StateIdle {
@@ -379,6 +438,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.stepCount = 0
 				m.lastThought = ""
 				m.lastTool = ""
+				m.consecutiveCommands = 0
+				m.lastBadge = ""
 				m.currentResp = ""
 				m.tokenChan = make(chan string, 100)
 
@@ -388,6 +449,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Batch(
 					startStream(streamCtx, m.session, m.tokenChan),
 					waitForToken(m.tokenChan),
+					m.spinner.Tick,
 				)
 			}
 		}
@@ -407,9 +469,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "y", "Y":
 				m.state = StateExecutingAction
 				m.appendLog(outputBoxStyle.Render("⚡ Executing approved command: " + m.pendingAct.Command))
-				return m, executeAction(m.session, m.pendingAct)
+				return m, tea.Batch(
+					executeAction(m.session, m.pendingAct),
+					m.spinner.Tick,
+				)
 			case "n", "N":
 				m.state = StateIdle
+				m.consecutiveCommands = 0
+				m.lastBadge = ""
 				m.appendLog("[Action rejected by user]\n")
 				if m.session != nil {
 					m.session.AppendUserMessage("User rejected the action proposal. Please decide on an alternative or ask for clarification.")
@@ -479,7 +546,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if m.verbose {
 						m.appendLog(act.VerboseDescription() + "\n")
 					}
-					return m, executeAction(m.session, act)
+					return m, tea.Batch(
+						executeAction(m.session, act),
+						m.spinner.Tick,
+					)
 				}
 
 				m.state = StateWaitingActionApproval
@@ -494,6 +564,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.appendLog("\n" + box + "\n")
 			} else if act != nil && act.Name == "task_finish" {
 				m.state = StateIdle
+				m.consecutiveCommands = 0
+				m.lastBadge = ""
 				finalText := strings.TrimSpace(act.Command)
 				if act.CleanThought != "" {
 					if finalText != "" && !strings.Contains(act.CleanThought, finalText) {
@@ -522,6 +594,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.lastTool = ""
 			} else {
 				m.state = StateIdle
+				m.consecutiveCommands = 0
+				m.lastBadge = ""
 				m.appendLog(agentStyle.Render("lokol: ") + strings.TrimSpace(response) + "\n\n")
 				m.stepCount = 0
 				m.lastThought = ""
@@ -534,6 +608,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		output := string(msg)
 		if m.verbose {
 			m.appendLog("✓ Executed successfully\n")
+		} else if m.pendingAct != nil {
+			m.consecutiveCommands++
+			if m.consecutiveCommands == 1 {
+				badge := formatCompactAction(m.pendingAct)
+				badgeStr := toolBadgeStyle.Render(badge) + "\n\n"
+				m.lastBadge = badgeStr
+				m.appendLog(badgeStr)
+			} else {
+				newBadge := fmt.Sprintf("Ran %d commands ▸", m.consecutiveCommands)
+				newBadgeStr := toolBadgeStyle.Render(newBadge) + "\n\n"
+				if m.lastBadge != "" && strings.HasSuffix(m.chatLog, m.lastBadge) {
+					m.chatLog = strings.TrimSuffix(m.chatLog, m.lastBadge) + newBadgeStr
+					m.lastBadge = newBadgeStr
+					w := m.viewport.Width
+					if w <= 0 {
+						w = 76
+					}
+					m.viewport.SetContent(wrapContent(m.chatLog, w))
+					m.viewport.GotoBottom()
+				} else {
+					m.lastBadge = newBadgeStr
+					m.appendLog(newBadgeStr)
+				}
+			}
 		}
 
 		// Feed tool output back to agent session
@@ -552,6 +650,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(
 			startStream(streamCtx, m.session, m.tokenChan),
 			waitForToken(m.tokenChan),
+			m.spinner.Tick,
 		)
 
 	case ErrMsg:
@@ -615,13 +714,73 @@ func (m Model) View() string {
 		header += verbBadge
 	}
 
-	// Real-time Context / KV Cache HUD
+	// Active spinner / interruption line (displayed directly above framed textarea during activity)
+	var spinnerLine string
+	switch m.state {
+	case StateStreaming:
+		if m.stepCount > 0 {
+			toolHint := ""
+			if m.lastTool != "" {
+				toolHint = fmt.Sprintf(" (after %s)", m.lastTool)
+			}
+			spinnerLine = spinnerStyle.Render(fmt.Sprintf("%s [Step %d%s] Reasoning and deciding next action...", m.spinner.View(), m.stepCount+1, toolHint)) + " " + spinnerHintStyle.Render("esc to stop")
+		} else {
+			spinnerLine = spinnerStyle.Render(fmt.Sprintf("%s Thinking... Generating response from local engine...", m.spinner.View())) + " " + spinnerHintStyle.Render("esc to stop")
+		}
+	case StateWaitingActionApproval:
+		approvalStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#F1FA8C")).Bold(true)
+		spinnerLine = approvalStyle.Render("⏸ [Approval Needed] Review proposed action above. Press [Y] Approve, [N] Deny | [Ctrl+Y] Auto-approve all")
+	case StateExecutingAction:
+		toolDesc := "tool"
+		if m.pendingAct != nil {
+			target := m.pendingAct.TargetSummary()
+			if target != "" {
+				toolDesc = fmt.Sprintf("%s: %s", m.pendingAct.Name, target)
+			} else {
+				toolDesc = m.pendingAct.Name
+			}
+		}
+		execStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#50FA7B")).Bold(true)
+		spinnerLine = execStyle.Render(fmt.Sprintf("%s [Step %d] Executing %s locally...", m.spinner.View(), m.stepCount, toolDesc)) + " " + spinnerHintStyle.Render("esc to stop")
+	}
+
+	// Framed Textarea Input
+	var framedInput string
+	if m.state == StateIdle {
+		framedInput = inputBoxFocusedStyle.Render(m.textarea.View())
+	} else {
+		framedInput = inputBoxStyle.Render(m.textarea.View())
+	}
+
+	// Dense Lower Status Bar (directly below user prompt textarea)
+	workDir := "."
+	if m.session != nil && m.session.GetWorkDir() != "" {
+		workDir = m.session.GetWorkDir()
+	}
+	projectName := "workspace"
+	if abs, err := filepath.Abs(workDir); err == nil {
+		base := filepath.Base(abs)
+		if base != "/" && base != "." {
+			projectName = base
+		}
+	}
+	branch := getGitBranch(workDir)
+	projText := fmt.Sprintf("~ %s", projectName)
+	if branch != "" {
+		projText = fmt.Sprintf("~ %s (%s)", projectName, branch)
+	}
+
+	bottomBarParts := []string{
+		bottomProjStyle.Render(projText),
+		bottomEngineStyle.Render("⌘ llama.cpp"),
+	}
+
+	// Context Token & KV Cache HUD in Dense Lower Status Bar
 	if m.slotStatus != nil && m.slotStatus.NCtx > 0 {
 		ctxUsed := m.slotStatus.NPromptTokens
 		ctxMax := m.slotStatus.NCtx
 		pct := (float64(ctxUsed) / float64(ctxMax)) * 100
 
-		// Engine / Memory Status
 		engineStatus := "Pure VRAM"
 		if pct > 90.0 {
 			engineStatus = "High Pressure"
@@ -635,48 +794,109 @@ func (m Model) View() string {
 			hudCtxStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF5555")).Bold(true)
 		}
 
-		ctxStr := fmt.Sprintf(" | Context: %d/%d (%.1f%%) [%s]", ctxUsed, ctxMax, pct, engineStatus)
-		header += hudCtxStyle.Render(ctxStr)
+		ctxStr := fmt.Sprintf("◎ Context: %d/%d (%.1f%%) [%s]", ctxUsed, ctxMax, pct, engineStatus)
+		bottomBarParts = append(bottomBarParts, hudCtxStyle.Render(ctxStr))
 	}
 
-	var statusLine string
+	// Keybindings / State hints in Dense Lower Status Bar
+	var hints string
 	switch m.state {
 	case StateIdle:
-		statusLine = "[Ready] Enter send | [/mode <mode>] Switch mode | [PgUp/PgDn] Scroll | [Ctrl+Y] YOLO | [Ctrl+C] Quit"
+		hints = "[Ready] Enter send · [/mode] Switch · [Ctrl+Y] YOLO"
 	case StateStreaming:
-		if m.stepCount > 0 {
-			toolHint := ""
-			if m.lastTool != "" {
-				toolHint = fmt.Sprintf(" (after %s)", m.lastTool)
-			}
-			statusLine = fmt.Sprintf("⚡ [Step %d%s] Reasoning and deciding next action... | [Ctrl+C] Stop", m.stepCount+1, toolHint)
-		} else {
-			statusLine = "[Thinking] Generating response from local engine... | [Ctrl+C] Stop"
-		}
+		hints = "[Thinking] Local engine · [Esc] Stop"
 	case StateWaitingActionApproval:
-		statusLine = "[Approval Needed] Review proposed action above. Press [Y] Approve, [N] Deny | [Ctrl+Y] Auto-approve all"
+		hints = "[Approval Needed] [Y] Approve · [N] Deny · [Ctrl+Y] Auto"
 	case StateExecutingAction:
-		toolDesc := "tool"
-		if m.pendingAct != nil {
-			target := m.pendingAct.TargetSummary()
-			if target != "" {
-				toolDesc = fmt.Sprintf("%s: %s", m.pendingAct.Name, target)
-			} else {
-				toolDesc = m.pendingAct.Name
-			}
-		}
-		statusLine = fmt.Sprintf("⚡ [Step %d] Executing %s locally... | [Ctrl+C] Stop", m.stepCount, toolDesc)
+		hints = "[Executing] Local runner active · [Esc] Stop"
+	}
+	bottomBarParts = append(bottomBarParts, bottomKeyHintStyle.Render("· "+hints))
+
+	bottomBar := strings.Join(bottomBarParts, " ")
+
+	if spinnerLine != "" {
+		return fmt.Sprintf("%s\n\n%s\n\n%s\n%s\n%s",
+			header,
+			m.viewport.View(),
+			spinnerLine,
+			framedInput,
+			bottomBar,
+		)
 	}
 
 	return fmt.Sprintf("%s\n\n%s\n\n%s\n%s",
 		header,
 		m.viewport.View(),
-		statusLine,
-		m.textarea.View(),
+		framedInput,
+		bottomBar,
 	)
 }
 
 // ViewportContent returns the raw wrapped text content currently held in the viewport.
 func (m Model) ViewportContent() string {
 	return wrapContent(m.chatLog, m.viewport.Width)
+}
+
+func getGitBranch(workDir string) string {
+	if workDir == "" {
+		workDir = "."
+	}
+	gitPath := filepath.Join(workDir, ".git")
+	fi, err := os.Stat(gitPath)
+	if err != nil {
+		return ""
+	}
+	headPath := filepath.Join(gitPath, "HEAD")
+	if !fi.IsDir() {
+		data, err := os.ReadFile(gitPath)
+		if err == nil {
+			line := strings.TrimSpace(string(data))
+			if strings.HasPrefix(line, "gitdir: ") {
+				gitDir := strings.TrimSpace(strings.TrimPrefix(line, "gitdir: "))
+				if !filepath.IsAbs(gitDir) {
+					gitDir = filepath.Join(workDir, gitDir)
+				}
+				headPath = filepath.Join(gitDir, "HEAD")
+			}
+		}
+	}
+	headBytes, err := os.ReadFile(headPath)
+	if err != nil {
+		return ""
+	}
+	headContent := strings.TrimSpace(string(headBytes))
+	if strings.HasPrefix(headContent, "ref: refs/heads/") {
+		return strings.TrimPrefix(headContent, "ref: refs/heads/")
+	}
+	if len(headContent) >= 7 {
+		return headContent[:7]
+	}
+	return headContent
+}
+
+func formatCompactAction(act *agent.Action) string {
+	if act == nil {
+		return "Ran command ▸"
+	}
+	if act.Name == "exec_bash" {
+		cmdStr := strings.TrimSpace(act.Command)
+		if idx := strings.Index(cmdStr, "\n"); idx != -1 {
+			cmdStr = strings.TrimSpace(cmdStr[:idx])
+		}
+		if len(cmdStr) > 40 {
+			cmdStr = cmdStr[:37] + "..."
+		}
+		if cmdStr != "" {
+			return fmt.Sprintf("Ran %s ▸", cmdStr)
+		}
+		return "Ran command ▸"
+	}
+	target := act.TargetSummary()
+	if target != "" {
+		if len(target) > 30 {
+			target = target[:27] + "..."
+		}
+		return fmt.Sprintf("Ran %s %s ▸", act.Name, target)
+	}
+	return fmt.Sprintf("Ran %s ▸", act.Name)
 }
