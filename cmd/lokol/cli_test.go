@@ -3,7 +3,7 @@
 // Use of this source code is governed by an MIT-style
 // license that can be found in the LICENSE file.
 
-package lokol_test
+package main_test
 
 import (
 	"bytes"
@@ -13,7 +13,7 @@ import (
 )
 
 func TestLokolCLI_Version(t *testing.T) {
-	cmd := exec.Command("go", "run", "../main.go", "version")
+	cmd := exec.Command("go", "run", ".", "version")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("lokol version failed: %v, output: %s", err, out)
@@ -25,7 +25,7 @@ func TestLokolCLI_Version(t *testing.T) {
 }
 
 func TestLokolCLI_Usage(t *testing.T) {
-	cmd := exec.Command("go", "run", "../main.go")
+	cmd := exec.Command("go", "run", ".")
 	out, _ := cmd.CombinedOutput()
 	output := string(out)
 	if !strings.Contains(output, "Usage:") {
@@ -40,7 +40,7 @@ func TestLokolCLI_Usage(t *testing.T) {
 }
 
 func TestLokolCLI_UnknownCommand(t *testing.T) {
-	cmd := exec.Command("go", "run", "../main.go", "unknowncmd")
+	cmd := exec.Command("go", "run", ".", "unknowncmd")
 	out, err := cmd.CombinedOutput()
 	if err == nil {
 		t.Fatalf("expected error for unknown subcommand, got nil (output: %s)", out)
@@ -52,7 +52,7 @@ func TestLokolCLI_UnknownCommand(t *testing.T) {
 }
 
 func TestLokolCLI_ProbeSimulation(t *testing.T) {
-	cmd := exec.Command("go", "run", "../main.go", "probe", "--simulate-vram-gib=8.0")
+	cmd := exec.Command("go", "run", ".", "probe", "--simulate-vram-gib=8.0")
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -70,7 +70,7 @@ func TestLokolCLI_ProbeSimulation(t *testing.T) {
 }
 
 func TestLokolCLI_ProbeWithMode(t *testing.T) {
-	cmd := exec.Command("go", "run", "../main.go", "probe", "--simulate-vram-gib=8.0", "-m", "coding")
+	cmd := exec.Command("go", "run", ".", "probe", "--simulate-vram-gib=8.0", "-m", "coding")
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -88,7 +88,7 @@ func TestLokolCLI_ProbeWithMode(t *testing.T) {
 }
 
 func TestLokolCLI_ExecMissingPrompt(t *testing.T) {
-	cmd := exec.Command("go", "run", "../main.go", "exec")
+	cmd := exec.Command("go", "run", ".", "exec")
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

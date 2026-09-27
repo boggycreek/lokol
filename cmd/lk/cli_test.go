@@ -3,7 +3,7 @@
 // Use of this source code is governed by an MIT-style
 // license that can be found in the LICENSE file.
 
-package lokol_test
+package main_test
 
 import (
 	"os/exec"
@@ -12,7 +12,7 @@ import (
 )
 
 func TestLKCLI_Version(t *testing.T) {
-	cmd := exec.Command("go", "run", "../main.go", "--version")
+	cmd := exec.Command("go", "run", ".", "--version")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("lk --version failed: %v, output: %s", err, out)
@@ -24,7 +24,7 @@ func TestLKCLI_Version(t *testing.T) {
 }
 
 func TestLKCLI_Usage(t *testing.T) {
-	cmd := exec.Command("go", "run", "../main.go", "--help")
+	cmd := exec.Command("go", "run", ".", "--help")
 	out, _ := cmd.CombinedOutput()
 	output := string(out)
 	if !strings.Contains(output, "Usage:") {

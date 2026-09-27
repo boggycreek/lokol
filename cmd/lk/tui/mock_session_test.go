@@ -3,7 +3,7 @@
 // Use of this source code is governed by an MIT-style
 // license that can be found in the LICENSE file.
 
-package lokol_test
+package tui_test
 
 import (
 	"context"
@@ -24,7 +24,7 @@ type MockSession struct {
 	ResetFunc         func()
 
 	// Mode tracking
-	CurrentMode       agent.Mode
+	CurrentMode agent.Mode
 
 	// Recorded interactions for test assertions
 	UserMessages      []string
@@ -134,4 +134,3 @@ func (m *MockSession) SetMode(mode agent.Mode) {
 	defer m.mu.Unlock()
 	m.CurrentMode = mode
 }
-
