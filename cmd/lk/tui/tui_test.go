@@ -614,5 +614,19 @@ func TestTUI_Presentation_Ergonomics_JunieLayoutAndToolFolding(t *testing.T) {
 	}
 }
 
+// TestTUI_Presentation_NewModelAutoDetectsHardware verifies that NewModel automatically probes host hardware.
+func TestTUI_Presentation_NewModelAutoDetectsHardware(t *testing.T) {
+	mock := NewMockSession()
+	m := tui.NewModel(mock, false, false)
+	view := m.View()
+
+	hw, _ := probe.Detect()
+	if hw != nil && hw.GPUName != "" {
+		if !strings.Contains(view, hw.GPUName) {
+			t.Errorf("expected view to contain detected GPU %q, got: %s", hw.GPUName, view)
+		}
+	}
+}
+
 
 

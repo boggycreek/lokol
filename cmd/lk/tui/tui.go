@@ -172,7 +172,8 @@ func New(client *agent.Client, hw *probe.HardwareProfile, yoloMode bool, workDir
 
 // NewModel creates a TUI model with the given session, yoloMode, and verbose setting.
 func NewModel(session agent.SessionCore, yoloMode, verbose bool) Model {
-	m := NewWithSession(session, nil, yoloMode)
+	hw, _ := probe.Detect()
+	m := NewWithSession(session, hw, yoloMode)
 	m.verbose = verbose
 	return m
 }
