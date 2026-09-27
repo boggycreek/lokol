@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -93,6 +94,96 @@ func main() {
 				return "", true, err
 			}
 			return window, false, nil
+		},
+	})
+
+	// Register write_file tool
+	server.RegisterTool(mcp.Tool{
+		Name:        "write_file",
+		Description: "Creates or overwrites a file with the given content.",
+		InputSchema: mcp.ToolInputSchema{
+			Type: "object",
+			Properties: map[string]mcp.PropertyDoc{
+				"path": {
+					Type:        "string",
+					Description: "Path to the file to create or write",
+				},
+				"content": {
+					Type:        "string",
+					Description: "Text content to write into the file",
+				},
+			},
+			Required: []string{"path", "content"},
+		},
+		Handler: func(ctx context.Context, args map[string]any) (string, bool, error) {
+			path := getStringArg(args, "path")
+			if path == "" {
+				return "", true, fmt.Errorf("missing required argument 'path'")
+			}
+			content := getStringArg(args, "content")
+			dir := filepath.Dir(path)
+			if dir != "" && dir != "." {
+				if err := os.MkdirAll(dir, 0755); err != nil {
+					return "", true, fmt.Errorf("failed to create directory: %w", err)
+				}
+			}
+			if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+				return "", true, fmt.Errorf("failed to write file: %w", err)
+			}
+			return fmt.Sprintf("File written successfully: %s (%d bytes)", path, len(content)), false, nil
+		},
+	})
+
+	// Register replace_file tool
+	server.RegisterTool(mcp.Tool{
+		Name:        "replace_file",
+		Description: "Replaces an exact, unique target block of text within an existing file with replacement text.",
+		InputSchema: mcp.ToolInputSchema{
+			Type: "object",
+			Properties: map[string]mcp.PropertyDoc{
+				"path": {
+					Type:        "string",
+					Description: "Path to the file to edit",
+				},
+				"target": {
+					Type:        "string",
+					Description: "Exact lines or block of text in the file to replace",
+				},
+				"replacement": {
+					Type:        "string",
+					Description: "New replacement text",
+				},
+			},
+			Required: []string{"path", "target", "replacement"},
+		},
+		Handler: func(ctx context.Context, args map[string]any) (string, bool, error) {
+			path := getStringArg(args, "path")
+			if path == "" {
+				return "", true, fmt.Errorf("missing required argument 'path'")
+			}
+			target := getStringArg(args, "target")
+			if target == "" {
+				return "", true, fmt.Errorf("missing required argument 'target'")
+			}
+			replacement := getStringArg(args, "replacement")
+
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return "", true, fmt.Errorf("failed to read file: %w", err)
+			}
+			content := string(data)
+			count := strings.Count(content, target)
+			if count == 0 {
+				return "", true, fmt.Errorf("target text not found in %s", path)
+			}
+			if count > 1 {
+				return "", true, fmt.Errorf("target text occurs %d times in %s; target must be unique", count, path)
+			}
+			updated := strings.Replace(content, target, replacement, 1)
+			if err := os.WriteFile(path, []byte(updated), 0644); err != nil {
+				return "", true, fmt.Errorf("failed to write updated file: %w", err)
+			}
+			return fmt.Sprintf("File updated successfully: %s", path), false, nil
 		},
 	})
 

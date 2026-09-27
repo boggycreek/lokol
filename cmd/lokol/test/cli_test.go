@@ -68,3 +68,35 @@ func TestLokolCLI_ProbeSimulation(t *testing.T) {
 		t.Errorf("expected Target Tier in probe output, got: %s", output)
 	}
 }
+
+func TestLokolCLI_ProbeWithMode(t *testing.T) {
+	cmd := exec.Command("go", "run", "../main.go", "probe", "--simulate-vram-gib=8.0", "-m", "coding")
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	if err != nil {
+		t.Fatalf("lokol probe with mode failed: %v, stderr: %s", err, stderr.String())
+	}
+	output := stdout.String()
+	if !strings.Contains(output, "Target Mode    : coding") {
+		t.Errorf("expected Target Mode : coding, got: %s", output)
+	}
+	if !strings.Contains(output, "Qwen 2.5 Coder") {
+		t.Errorf("expected Qwen 2.5 Coder in coding recommendation, got: %s", output)
+	}
+}
+
+func TestLokolCLI_ExecMissingPrompt(t *testing.T) {
+	cmd := exec.Command("go", "run", "../main.go", "exec")
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	if err == nil {
+		t.Fatalf("expected error for exec without prompt, got nil")
+	}
+	if !strings.Contains(stderr.String(), "prompt required") {
+		t.Errorf("expected 'prompt required' error message, got: %s", stderr.String())
+	}
+}
