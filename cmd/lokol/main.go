@@ -27,6 +27,8 @@ func main() {
 	// Top-level flags
 	promptFlag := flag.String("prompt", "", "Run prompt directly in headless mode (alias: -p)")
 	flag.StringVar(promptFlag, "p", "", "Run prompt directly in headless mode (shorthand)")
+	topMode := flag.String("mode", "general", "Operational mode: general (default), coding, or moe (alias: -m)")
+	flag.StringVar(topMode, "m", "general", "Operational mode (shorthand)")
 	topEngine := flag.String("engine", "http://127.0.0.1:8080", "URL of local llama-server engine")
 	topMaxTurns := flag.Int("max-turns", 15, "Max turns for agent loop in headless mode")
 	topVerbose := flag.Bool("verbose", false, "Display internal reasoning tokens and verbose tool activity")
@@ -38,9 +40,13 @@ func main() {
 	// Subcommands
 	probeCmd := flag.NewFlagSet("probe", flag.ExitOnError)
 	simVRAM := probeCmd.Float64("simulate-vram-gib", 0, "Simulate a specific VRAM amount in GiB (e.g. 4.0 for GTX 1650)")
+	probeMode := probeCmd.String("mode", "general", "Operational mode: general (default), coding, or moe (alias: -m)")
+	probeCmd.StringVar(probeMode, "m", "general", "Operational mode (shorthand)")
 
 	execCmd := flag.NewFlagSet("exec", flag.ExitOnError)
 	execEngine := execCmd.String("engine", "http://127.0.0.1:8080", "URL of local llama-server engine")
+	execMode := execCmd.String("mode", "coding", "Operational mode: coding (default for exec), general, or moe (alias: -m)")
+	execCmd.StringVar(execMode, "m", "coding", "Operational mode (shorthand)")
 	execMaxTurns := execCmd.Int("max-turns", 15, "Max turns for agent loop")
 	execVerbose := execCmd.Bool("verbose", false, "Display internal reasoning tokens and verbose tool activity")
 	execCmd.BoolVar(execVerbose, "v", false, "Display internal reasoning tokens (shorthand)")
@@ -65,7 +71,8 @@ func main() {
 	if strings.HasPrefix(os.Args[1], "-") {
 		_ = flag.CommandLine.Parse(os.Args[1:])
 		if *promptFlag != "" {
-			runExec(*topEngine, *topMaxTurns, *promptFlag, *topVerbose)
+			m, _ := agent.ParseMode(*topMode)
+			runExec(*topEngine, *topMaxTurns, *promptFlag, *topVerbose, m)
 			return
 		}
 		// If remaining arguments exist after parsing flags
@@ -77,7 +84,8 @@ func main() {
 				return
 			case "probe":
 				_ = probeCmd.Parse(flag.Args()[1:])
-				runProbe(*simVRAM)
+				m, _ := agent.ParseMode(*probeMode)
+				runProbe(*simVRAM, m)
 				return
 			case "exec":
 				_ = execCmd.Parse(flag.Args()[1:])
@@ -86,7 +94,8 @@ func main() {
 					fmt.Fprintln(os.Stderr, "Error: prompt required for exec")
 					os.Exit(1)
 				}
-				runExec(*execEngine, *execMaxTurns, prompt, *execVerbose || *topVerbose)
+				m, _ := agent.ParseMode(*execMode)
+				runExec(*execEngine, *execMaxTurns, prompt, *execVerbose || *topVerbose, m)
 				return
 			case "update":
 				_ = updateCmd.Parse(flag.Args()[1:])
@@ -107,7 +116,8 @@ func main() {
 		runSetup(*setupDownload, *setupSimVRAM, *setupInstallLlama)
 	case "probe":
 		_ = probeCmd.Parse(os.Args[2:])
-		runProbe(*simVRAM)
+		m, _ := agent.ParseMode(*probeMode)
+		runProbe(*simVRAM, m)
 	case "exec":
 		_ = execCmd.Parse(os.Args[2:])
 		prompt := strings.Join(execCmd.Args(), " ")
@@ -115,7 +125,8 @@ func main() {
 			fmt.Fprintln(os.Stderr, "Error: prompt required for exec")
 			os.Exit(1)
 		}
-		runExec(*execEngine, *execMaxTurns, prompt, *execVerbose)
+		m, _ := agent.ParseMode(*execMode)
+		runExec(*execEngine, *execMaxTurns, prompt, *execVerbose, m)
 	case "update":
 		_ = updateCmd.Parse(os.Args[2:])
 		runUpdate(*updatePre, *updateTargetVer, *updateList)
@@ -131,14 +142,16 @@ func printUsage() {
 	fmt.Println("lokol - Local-first autonomous AI agent for consumer GPUs")
 	fmt.Println()
 	fmt.Println("Usage:")
-	fmt.Println("  lk           [--engine=...] [--yolo] [-v]         Start interactive Bubble Tea TUI agent session")
-	fmt.Println("  lokol exec   [--engine=...] [-v] <prompt>         Run autonomous agent in headless mode")
-	fmt.Println("  lokol setup  [--download-model] [--install-llama] Bootstrap environment, probe hardware & check dependencies")
-	fmt.Println("  lokol probe  [--simulate-vram-gib=X]              Probe host capabilities and compute optimal model tier")
-	fmt.Println("  lokol update [--pre] [--version=vX]               Update to latest release from GitHub (or specific version)")
-	fmt.Println("  lokol update --list                               List all published releases available on GitHub")
-	fmt.Println("  lokol [-p | --prompt] \"<prompt>\" [-v]            Run agent in headless mode directly")
-	fmt.Println("  lokol version                                    Display version")
+	fmt.Println("  lokol exec   [--engine=...] [-m general|coding|moe] [-v] <prompt>  Run autonomous agent in headless mode")
+	fmt.Println("  lokol setup  [--download-model] [--install-llama]                  Bootstrap environment, probe hardware & check dependencies")
+	fmt.Println("  lokol probe  [--simulate-vram-gib=X] [-m general|coding|moe]       Probe host capabilities and compute optimal model tier")
+	fmt.Println("  lokol update [--pre] [--version=vX]                                Update to latest release from GitHub (or specific version)")
+	fmt.Println("  lokol update --list                                                List all published releases available on GitHub")
+	fmt.Println("  lokol [-p | --prompt] \"<prompt>\" [-m mode] [-v]                     Run agent in headless mode directly")
+	fmt.Println("  lokol version                                                     Display version")
+	fmt.Println()
+	fmt.Println("Interactive TUI:")
+	fmt.Println("  lk           [--engine=...] [-m general|coding|moe] [--yolo] [-v]  Launch interactive Bubble Tea TUI agent")
 }
 
 func runUpdate(allowPre bool, targetVersion string, listOnly bool) {
@@ -165,7 +178,7 @@ func runSetup(downloadModel bool, simVRAM float64, installLlama bool) {
 	}
 }
 
-func runExec(engineURL string, maxTurns int, prompt string, verbose bool) {
+func runExec(engineURL string, maxTurns int, prompt string, verbose bool, mode agent.Mode) {
 	workDir, _ := os.Getwd()
 	client := agent.NewClient(engineURL)
 	stepCount := 0
@@ -176,6 +189,7 @@ func runExec(engineURL string, maxTurns int, prompt string, verbose bool) {
 		MaxTurns: maxTurns,
 		YOLO:     true,
 		WorkDir:  workDir,
+		Mode:     mode,
 		OnOutput: func(role, content string) {
 			if verbose {
 				switch role {
@@ -269,7 +283,7 @@ func runExec(engineURL string, maxTurns int, prompt string, verbose bool) {
 	}
 }
 
-func runProbe(simVRAM float64) {
+func runProbe(simVRAM float64, mode agent.Mode) {
 	fmt.Println("==================================================")
 	fmt.Println("   lokol System Hardware Capability Probe")
 	fmt.Println("==================================================")
@@ -299,7 +313,8 @@ func runProbe(simVRAM float64) {
 	}
 	fmt.Println("--------------------------------------------------")
 
-	rec := model.SelectOptimalModel(hw)
+	rec := model.SelectOptimalModelForMode(hw, model.Mode(mode))
+	fmt.Printf("Target Mode    : %s\n", mode)
 	fmt.Printf("Target Tier    : %s\n", rec.Tier)
 	fmt.Printf("Optimal Model  : %s\n", rec.ModelName)
 	fmt.Printf("HuggingFace    : %s / %s\n", rec.HFRepo, rec.HFFile)

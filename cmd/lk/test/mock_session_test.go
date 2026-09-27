@@ -23,6 +23,9 @@ type MockSession struct {
 	GetSlotStatusFunc func(ctx context.Context) (*agent.SlotStatus, error)
 	ResetFunc         func()
 
+	// Mode tracking
+	CurrentMode       agent.Mode
+
 	// Recorded interactions for test assertions
 	UserMessages      []string
 	AssistantMessages []string
@@ -116,3 +119,19 @@ func (m *MockSession) Reset() {
 		m.ResetFunc()
 	}
 }
+
+func (m *MockSession) GetMode() agent.Mode {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.CurrentMode == "" {
+		return agent.ModeGeneral
+	}
+	return m.CurrentMode
+}
+
+func (m *MockSession) SetMode(mode agent.Mode) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.CurrentMode = mode
+}
+

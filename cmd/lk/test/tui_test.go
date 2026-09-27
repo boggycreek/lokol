@@ -402,3 +402,55 @@ func TestTUIInterruptionAndSlotRelease(t *testing.T) {
 	}
 }
 
+func TestTUI_Presentation_ModeSwitching(t *testing.T) {
+	mock := NewMockSession()
+	mock.CurrentMode = agent.ModeGeneral
+
+	m := tui.NewModel(mock, false, false)
+
+	// Check default mode in View
+	view := m.View()
+	if !strings.Contains(view, "[Mode: general]") {
+		t.Fatalf("expected view to contain '[Mode: general]', got: %s", view)
+	}
+
+	// Switch to coding mode via slash command
+	m = m.WithInitialPrompt("/mode coding")
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd != nil {
+		t.Errorf("expected nil cmd from slash command, got: %v", cmd)
+	}
+	m = updated.(tui.Model)
+
+	if mock.CurrentMode != agent.ModeCoding {
+		t.Errorf("expected mock session mode to be 'coding', got: %s", mock.CurrentMode)
+	}
+
+	view = m.View()
+	if !strings.Contains(view, "[Mode: coding]") {
+		t.Errorf("expected view to contain '[Mode: coding]' after switch, got: %s", view)
+	}
+	if !strings.Contains(m.ViewportContent(), "Active persona is now: coding") {
+		t.Errorf("expected log to announce mode switch, got: %s", m.ViewportContent())
+	}
+
+	// Switch to moe mode via slash command
+	m = m.WithInitialPrompt("/mode moe")
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(tui.Model)
+
+	if mock.CurrentMode != agent.ModeMoE {
+		t.Errorf("expected mock session mode to be 'moe', got: %s", mock.CurrentMode)
+	}
+
+	// Invalid mode handling
+	m = m.WithInitialPrompt("/mode invalid_mode")
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(tui.Model)
+
+	if !strings.Contains(m.ViewportContent(), "Invalid Mode") {
+		t.Errorf("expected invalid mode warning in viewport, got: %s", m.ViewportContent())
+	}
+}
+
+

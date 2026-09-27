@@ -22,4 +22,5 @@ This directory contains the Architecture Decision Records for the `lokol` projec
 | [ADR-0016](0016-containerized-test-sandboxing-via-podman.md) | Containerized Test Sandboxing for Host Memory and State Isolation | Accepted | 2026-09-27 |
 | [ADR-0017](0017-decoupled-core-agent-engine-from-presentation.md) | Decoupled Core Agent Engine from Presentation Layers | Accepted | 2026-09-27 |
 | [ADR-0018](0018-monorepo-workspace-architecture-with-subproject-isolation.md) | Monorepo Workspace Architecture with Subproject Isolation | Accepted | 2026-09-27 |
+| [ADR-0019](0019-non-autoregressive-runtime-guardrails-and-filesystem-permissions.md) | Non-Autoregressive Runtime Guardrails and Filesystem Permissions | Accepted | 2026-09-27 |
 

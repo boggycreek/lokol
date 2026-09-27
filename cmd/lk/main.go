@@ -22,6 +22,8 @@ import (
 
 func main() {
 	engineFlag := flag.String("engine", "http://127.0.0.1:8080", "URL of local llama-server engine")
+	modeFlag := flag.String("mode", "general", "Operational mode: general (default), coding, or moe (alias: -m)")
+	flag.StringVar(modeFlag, "m", "general", "Operational mode (shorthand)")
 	yoloFlag := flag.Bool("yolo", false, "Engage YOLO mode: autonomous action execution without approval prompts")
 	verboseFlag := flag.Bool("verbose", false, "Display internal reasoning tokens and tool activity")
 	flag.BoolVar(verboseFlag, "v", false, "Display internal reasoning (shorthand)")
@@ -31,7 +33,7 @@ func main() {
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: lk [options] [prompt]\n\n")
-		fmt.Fprintf(os.Stderr, "lk is the high-velocity interactive terminal coding agent for lokol.\n\n")
+		fmt.Fprintf(os.Stderr, "lk is the high-velocity interactive terminal agent for lokol.\n\n")
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		flag.PrintDefaults()
 	}
@@ -43,6 +45,12 @@ func main() {
 		os.Exit(0)
 	}
 
+	mode, err := agent.ParseMode(*modeFlag)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
 	cwd, err := os.Getwd()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error getting current working directory: %v\n", err)
@@ -50,7 +58,7 @@ func main() {
 	}
 
 	client := agent.NewClient(*engineFlag)
-	session := agent.NewSession(client, cwd)
+	session := agent.NewSessionWithMode(client, cwd, mode)
 
 	model := tui.NewModel(session, *yoloFlag, *verboseFlag)
 

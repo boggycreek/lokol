@@ -17,6 +17,7 @@ type Runner struct {
 	MaxTurns        int
 	YOLO            bool
 	WorkDir         string // Current working directory for host environment and prompt context
+	Mode            Mode   // Operational mode (defaults to ModeCoding for autonomous execution)
 	CodebaseContext string // Optional pre-loaded codebase context
 	Session         *Session
 	OnOutput        func(role, content string)
@@ -35,7 +36,11 @@ func (r *Runner) Run(ctx context.Context, initialPrompt string) (string, error) 
 
 	session := r.Session
 	if session == nil {
-		session = NewSession(r.Client, workDir, r.CodebaseContext)
+		mode := r.Mode
+		if mode == "" {
+			mode = ModeCoding
+		}
+		session = NewSessionWithMode(r.Client, workDir, mode, r.CodebaseContext)
 	}
 	session.AppendUserMessage(initialPrompt)
 

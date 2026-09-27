@@ -18,10 +18,10 @@ We need to decide the baseline user persona and model selection strategy for `lo
 
 ## Decision
 We make **General-Purpose Mode** the default operational persona for `lokol`:
-1. **Default Mode**: When invoked without explicit flags (`lokol`, `lokol chat`, or via `install.sh`), `lokol` operates in `general` mode.
-2. **Model Selection**: In general-purpose mode, the model selector recommends conversational, general-reasoning models (such as Llama 3.1 8B Instruct or Mistral 7B Instruct Q4_K_M) rather than code-specialized weights.
-3. **Clean Context**: The system prompt in `general` mode excludes software engineering tool definitions (such as `replace_file` or `run_test`), devoting 100% of the attention window to conversational reasoning.
-4. **Explicit Mode Specialization**: Specialized personas (such as `coding` and `moe`) must be explicitly requested via `--mode=coding` or configured in `$XDG_CONFIG_HOME/lokol/config.toml`.
+1. **Default Mode**: When invoked without explicit flags (`lk`, headless `lokol`, or via `install.sh`), the agent operates in `general` mode. Headless autonomous runs via `lokol exec` default to `coding` mode.
+2. **Model Selection**: In general-purpose mode, the model selector recommends conversational, general-reasoning models (such as Llama 3.1 8B Instruct or Llama 3.2 3B Instruct) rather than code-specialized weights.
+3. **Workspace Grounding & Artifact Creation**: The system prompt in `general` mode retains host environment grounding (`<environment>`) and document inspection / artifact tools (`write_file`, `replace_file`, `read_window`, `find_files`, `exec_bash`) so the agent can inspect local documents and generate artifacts. It strictly excludes software engineering gate tools (`run_test`, `read_outline`) and repository issue tracking / coding conventions (`AGENTS.md`), preserving attention window for conversational and analytical reasoning.
+4. **Explicit Mode Specialization**: Specialized personas (such as `coding` and `moe`) can be explicitly selected via `--mode=coding|moe` (or `-m`), or dynamically switched in `lk` using the `/mode <name>` command.
 
 ## Consequences
 

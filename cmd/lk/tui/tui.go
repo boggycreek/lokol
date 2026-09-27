@@ -148,7 +148,7 @@ func (m Model) WithInitialPrompt(prompt string) Model {
 // NewWithSession creates and initializes the TUI model with an existing agent SessionCore.
 func NewWithSession(session agent.SessionCore, hw *probe.HardwareProfile, yoloMode bool) Model {
 	ta := textarea.New()
-	ta.Placeholder = "Ask lokol to inspect code, run tests, or refactor files..."
+	ta.Placeholder = "Ask lokol to inspect files, write reports, or type /mode..."
 	ta.Focus()
 	ta.Prompt = "│ "
 	ta.CharLimit = 1000
@@ -348,6 +348,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				m.textarea.Reset()
+
+				// Handle /mode slash command
+				if strings.HasPrefix(input, "/mode") {
+					parts := strings.Fields(input)
+					if len(parts) >= 2 {
+						targetMode, err := agent.ParseMode(parts[1])
+						if err != nil {
+							m.appendLog(fmt.Sprintf("⚠️ [Invalid Mode] %v\n\n", err))
+						} else if m.session != nil {
+							m.session.SetMode(targetMode)
+							m.appendLog(fmt.Sprintf("🔄 [Mode Switched] Active persona is now: %s\n\n", targetMode))
+						}
+					} else {
+						curr := "general"
+						if m.session != nil {
+							curr = string(m.session.GetMode())
+						}
+						m.appendLog(fmt.Sprintf("ℹ️ Current mode: %s. Use '/mode general', '/mode coding', or '/mode moe'.\n\n", curr))
+					}
+					return m, nil
+				}
+
 				m.appendLog(userStyle.Render("User: ") + input + "\n\n")
 				if m.session != nil {
 					m.session.AppendUserMessage(input)
@@ -559,6 +581,12 @@ func (m Model) View() string {
 
 	header := headerStyle.Render(fmt.Sprintf(" ⚡ lokol %s ", version.Version)) + "  " +
 		hudStyle.Render(fmt.Sprintf("GPU: %s", gpuInfo))
+	currentMode := "general"
+	if m.session != nil {
+		currentMode = string(m.session.GetMode())
+	}
+	modeBadge := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#8BE9FD")).Render(fmt.Sprintf(" [Mode: %s]", currentMode))
+	header += modeBadge
 	if m.yoloMode {
 		yoloBadge := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FF5555")).Render(" [YOLO ACTIVE]")
 		header += yoloBadge
@@ -595,7 +623,7 @@ func (m Model) View() string {
 	var statusLine string
 	switch m.state {
 	case StateIdle:
-		statusLine = "[Ready] Press Enter to send | [PgUp/PgDn] Scroll | [Ctrl+Y] YOLO | [Ctrl+V] Verbose | [Ctrl+C] Quit"
+		statusLine = "[Ready] Enter send | [/mode <mode>] Switch mode | [PgUp/PgDn] Scroll | [Ctrl+Y] YOLO | [Ctrl+C] Quit"
 	case StateStreaming:
 		if m.stepCount > 0 {
 			toolHint := ""

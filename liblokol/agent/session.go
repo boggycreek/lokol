@@ -26,6 +26,8 @@ type SessionCore interface {
 	Abort(ctx context.Context) error
 	GetSlotStatus(ctx context.Context) (*SlotStatus, error)
 	Reset()
+	GetMode() Mode
+	SetMode(mode Mode)
 }
 
 // Session represents a stateful conversational agent session.
@@ -34,6 +36,7 @@ type SessionCore interface {
 type Session struct {
 	Client          *Client
 	WorkDir         string
+	Mode            Mode
 	CodebaseContext string
 	History         []Message
 }
@@ -41,7 +44,14 @@ type Session struct {
 var _ SessionCore = (*Session)(nil)
 
 // NewSession creates and initializes a new agent Session for the given working directory.
+// By default, it operates in ModeGeneral unless a mode is explicitly set via SetMode
+// or created via NewSessionWithMode.
 func NewSession(client *Client, workDir string, codebaseCtxOpt ...string) *Session {
+	return NewSessionWithMode(client, workDir, ModeGeneral, codebaseCtxOpt...)
+}
+
+// NewSessionWithMode creates and initializes a new agent Session for a specified mode.
+func NewSessionWithMode(client *Client, workDir string, mode Mode, codebaseCtxOpt ...string) *Session {
 	if workDir == "" {
 		workDir, _ = os.Getwd()
 	}
@@ -51,22 +61,55 @@ func NewSession(client *Client, workDir string, codebaseCtxOpt ...string) *Sessi
 		workDir = filepath.Clean(workDir)
 	}
 
+	if mode == "" {
+		mode = ModeGeneral
+	}
+
 	var codebaseCtx string
 	if len(codebaseCtxOpt) > 0 && codebaseCtxOpt[0] != "" {
 		codebaseCtx = codebaseCtxOpt[0]
-	} else {
+	} else if mode == ModeCoding {
 		codebaseCtx = refinery.LoadCodebaseContext(workDir)
 	}
 
-	systemPrompt := BuildSystemPrompt(workDir, codebaseCtx)
+	env := DetectHostEnvironment(workDir)
+	systemPrompt := BuildSystemPromptForMode(mode, env, codebaseCtx)
 
 	return &Session{
 		Client:          client,
 		WorkDir:         workDir,
+		Mode:            mode,
 		CodebaseContext: codebaseCtx,
 		History: []Message{
 			{Role: "system", Content: systemPrompt},
 		},
+	}
+}
+
+// GetMode returns the current operational mode of the session.
+func (s *Session) GetMode() Mode {
+	if s.Mode == "" {
+		return ModeGeneral
+	}
+	return s.Mode
+}
+
+// SetMode dynamically changes the operational mode of the session and recalculates the system prompt.
+func (s *Session) SetMode(mode Mode) {
+	if mode == "" {
+		mode = ModeGeneral
+	}
+	s.Mode = mode
+	if s.Mode == ModeCoding && s.CodebaseContext == "" {
+		s.CodebaseContext = refinery.LoadCodebaseContext(s.WorkDir)
+	}
+	env := DetectHostEnvironment(s.WorkDir)
+	systemPrompt := BuildSystemPromptForMode(s.Mode, env, s.CodebaseContext)
+
+	if len(s.History) > 0 && s.History[0].Role == "system" {
+		s.History[0].Content = systemPrompt
+	} else {
+		s.History = append([]Message{{Role: "system", Content: systemPrompt}}, s.History...)
 	}
 }
 
@@ -120,9 +163,10 @@ func (s *Session) GetSlotStatus(ctx context.Context) (*SlotStatus, error) {
 	return s.Client.GetSlotStatus(ctx)
 }
 
-// Reset resets the conversation history back to the initial system prompt.
+// Reset resets the conversation history back to the initial system prompt for the active mode.
 func (s *Session) Reset() {
+	env := DetectHostEnvironment(s.WorkDir)
 	s.History = []Message{
-		{Role: "system", Content: BuildSystemPrompt(s.WorkDir, s.CodebaseContext)},
+		{Role: "system", Content: BuildSystemPromptForMode(s.GetMode(), env, s.CodebaseContext)},
 	}
 }
