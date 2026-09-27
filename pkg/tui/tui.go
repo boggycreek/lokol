@@ -59,6 +59,7 @@ type Model struct {
 	width        int
 	height       int
 	slotStatus   *agent.SlotStatus
+	workDir      string
 	err          error
 }
 
@@ -139,6 +140,7 @@ func New(client *agent.Client, hw *probe.HardwareProfile, yoloMode bool, workDir
 			{Role: "system", Content: systemContent},
 		},
 		chatLog: initialText,
+		workDir: workDir,
 	}
 	return m
 }
@@ -183,7 +185,7 @@ func startStream(ctx context.Context, client *agent.Client, history []agent.Mess
 	}
 }
 
-func executeAction(act *agent.Action) tea.Cmd {
+func executeAction(act *agent.Action, workDir string) tea.Cmd {
 	return func() tea.Msg {
 		if act == nil {
 			return actionExecutedMsg("")
@@ -193,17 +195,17 @@ func executeAction(act *agent.Action) tea.Cmd {
 
 		switch act.Name {
 		case "exec_bash":
-			out, err = agent.ExecuteBash(context.Background(), act.Command)
+			out, err = agent.ExecuteBash(context.Background(), act.Command, workDir)
 		case "replace_file":
-			out, err = agent.ExecuteReplaceFile(context.Background(), act.Command)
+			out, err = agent.ExecuteReplaceFile(context.Background(), act.Command, workDir)
 		case "write_file":
-			out, err = agent.ExecuteWriteFile(context.Background(), act.Command)
+			out, err = agent.ExecuteWriteFile(context.Background(), act.Command, workDir)
 		case "read_outline":
-			out, err = agent.ExecuteReadOutline(context.Background(), act.Command)
+			out, err = agent.ExecuteReadOutline(context.Background(), act.Command, workDir)
 		case "read_window":
-			out, err = agent.ExecuteReadWindow(context.Background(), act.Command)
+			out, err = agent.ExecuteReadWindow(context.Background(), act.Command, workDir)
 		case "run_test":
-			out, err = agent.ExecuteRunTest(context.Background(), act.Command)
+			out, err = agent.ExecuteRunTest(context.Background(), act.Command, workDir)
 		default:
 			return actionExecutedMsg(fmt.Sprintf("[Unknown action: %s]", act.Name))
 		}
@@ -297,7 +299,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Approve action
 				m.state = stateExecutingAction
 				m.appendLog(outputBoxStyle.Render("⚡ Executing command: " + m.pendingAct.Command))
-				return m, executeAction(m.pendingAct)
+				return m, executeAction(m.pendingAct, m.workDir)
 			}
 
 			if m.state == stateIdle {
@@ -338,7 +340,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "y", "Y":
 				m.state = stateExecutingAction
 				m.appendLog(outputBoxStyle.Render("⚡ Executing approved command: " + m.pendingAct.Command))
-				return m, executeAction(m.pendingAct)
+				return m, executeAction(m.pendingAct, m.workDir)
 			case "n", "N":
 				m.state = stateIdle
 				m.appendLog("[Action rejected by user]\n")
@@ -406,7 +408,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					case "run_test":
 						m.appendLog("⚡ Verifying Tests: " + strings.TrimSpace(act.Command) + "\n")
 					}
-					return m, executeAction(act)
+					return m, executeAction(act, m.workDir)
 				}
 
 				m.state = stateWaitingActionApproval

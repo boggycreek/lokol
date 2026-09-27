@@ -16,6 +16,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"time"
@@ -32,6 +33,7 @@ type HostEnvironment struct {
 	Cwd   string
 	OS    string
 	Shell string
+	Files []string
 }
 
 // DetectHostEnvironment resolves the active host environment using the given working directory.
@@ -52,10 +54,31 @@ func DetectHostEnvironment(workDir string) HostEnvironment {
 			shell = "/bin/bash"
 		}
 	}
+
+	var files []string
+	if entries, err := os.ReadDir(cwd); err == nil {
+		for _, e := range entries {
+			name := e.Name()
+			if strings.HasPrefix(name, ".") && name != ".github" {
+				continue
+			}
+			if e.IsDir() {
+				files = append(files, name+"/")
+			} else {
+				files = append(files, name)
+			}
+			if len(files) >= 50 {
+				files = append(files, "...[truncated]")
+				break
+			}
+		}
+	}
+
 	return HostEnvironment{
 		Cwd:   cwd,
 		OS:    runtime.GOOS,
 		Shell: shell,
+		Files: files,
 	}
 }
 
@@ -77,7 +100,13 @@ func (env HostEnvironment) FormatEnvironmentTag() string {
 			shell = "/bin/bash"
 		}
 	}
-	return fmt.Sprintf("<environment>\n<cwd>%s</cwd>\n<os>%s</os>\n<shell>%s</shell>\n</environment>", cwd, osName, shell)
+
+	var filesBlock string
+	if len(env.Files) > 0 {
+		filesBlock = fmt.Sprintf("\n<files>%s</files>", strings.Join(env.Files, ", "))
+	}
+
+	return fmt.Sprintf("<environment>\n<cwd>%s</cwd>\n<os>%s</os>\n<shell>%s</shell>%s\n</environment>", cwd, osName, shell, filesBlock)
 }
 
 // SystemPromptBase provides lean instructions tailored for 7B/3B models.
@@ -142,8 +171,8 @@ Rules:
 2. Only output ONE action per response.
 3. CONTEXT HYGIENE: Never use cat or head to read whole files. Use <action name="read_outline"> first, then <action name="read_window">.
 4. For tests: ALWAYS use <action name="run_test"> so output is clean and compact.
-5. For modifying code: ALWAYS prefer <action name="replace_file">. Never use git apply with fake line numbers.
-6. Verify changes with <action name="run_test">.
+5. To create new files or write whole files: ALWAYS use <action name="write_file">. To edit existing files: prefer <action name="replace_file">.
+6. When modifying code that has unit tests, verify changes with <action name="run_test">. For non-code or documentation tasks, proceed directly to <action name="task_finish">.
 7. When finished, call task_finish.
 
 Examples:
@@ -368,32 +397,26 @@ type Action struct {
 	CleanThought string // Prose explanation before the action tag
 }
 
+var actionRegex = regexp.MustCompile(`(?s)(?:` + "```" + `(?:xml)?\s*)?<action\s+name=["']?([a-zA-Z0-9_-]+)["']?\s*>(.*?)(?:</action>|` + "```" + `|$)`)
+
 // ParseAction extracts <action name="...">...</action> or fallback JSON actions from agent text.
 func ParseAction(text string) *Action {
-	startTag := "<action name=\""
-	idx := strings.Index(text, startTag)
-	if idx != -1 {
-		thought := strings.TrimSpace(text[:idx])
-		rest := text[idx+len(startTag):]
-		quoteIdx := strings.Index(rest, "\">")
-		if quoteIdx != -1 {
-			name := rest[:quoteIdx]
-			payload := rest[quoteIdx+2:]
+	loc := actionRegex.FindStringSubmatchIndex(text)
+	if loc != nil {
+		thought := strings.TrimSpace(text[:loc[0]])
+		thought = strings.TrimSuffix(thought, "```xml")
+		thought = strings.TrimSuffix(thought, "```")
+		thought = strings.TrimSpace(thought)
 
-			endTag := "</action>"
-			endIdx := strings.Index(payload, endTag)
-			var command string
-			if endIdx != -1 {
-				command = strings.TrimSpace(payload[:endIdx])
-			} else {
-				command = strings.TrimSpace(payload)
-			}
+		name := text[loc[2]:loc[3]]
+		command := strings.TrimSpace(text[loc[4]:loc[5]])
+		command = strings.TrimSuffix(command, "```")
+		command = strings.TrimSpace(command)
 
-			return &Action{
-				Name:         name,
-				Command:      command,
-				CleanThought: thought,
-			}
+		return &Action{
+			Name:         name,
+			Command:      command,
+			CleanThought: thought,
 		}
 	}
 
@@ -463,8 +486,11 @@ func ParseAction(text string) *Action {
 }
 
 // ExecuteBash runs a command locally and returns combined stdout/stderr.
-func ExecuteBash(ctx context.Context, command string) (string, error) {
+func ExecuteBash(ctx context.Context, command string, workDir ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "bash", "-c", command)
+	if len(workDir) > 0 && workDir[0] != "" {
+		cmd.Dir = workDir[0]
+	}
 	out, err := cmd.CombinedOutput()
 	outputStr := string(out)
 	if len(outputStr) > 4000 {

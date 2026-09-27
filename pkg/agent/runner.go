@@ -47,6 +47,11 @@ func (r *Runner) Run(ctx context.Context, initialPrompt string) (string, error) 
 		r.MaxTurns = 20
 	}
 
+	consecutiveNoAction := 0
+	lastSig := ""
+	repeatCount := 0
+	editFailures := make(map[string]int)
+
 	for turn := 0; turn < r.MaxTurns; turn++ {
 		tokenChan := make(chan string, 100)
 		var assistantReply strings.Builder
@@ -103,9 +108,19 @@ func (r *Runner) Run(ctx context.Context, initialPrompt string) (string, error) 
 
 		act := ParseAction(replyText)
 		if act == nil {
-			// No action proposed; conversational turn done
-			return replyText, nil
+			consecutiveNoAction++
+			if consecutiveNoAction >= 2 || turn == r.MaxTurns-1 {
+				// No action proposed twice in a row; conversational turn done
+				return replyText, nil
+			}
+			// Nudge agent to execute an action in autonomous mode
+			history = append(history, Message{
+				Role:    "user",
+				Content: "Please execute your next action using an <action name=\"...\"> tag, or call <action name=\"task_finish\"> if your task is complete.",
+			})
+			continue
 		}
+		consecutiveNoAction = 0
 
 		if act.Name == "task_finish" {
 			if r.OnOutput != nil {
@@ -114,15 +129,30 @@ func (r *Runner) Run(ctx context.Context, initialPrompt string) (string, error) 
 			return act.Command, nil
 		}
 
+		currentSig := act.Name + ":" + strings.TrimSpace(act.Command)
+		if currentSig == lastSig {
+			repeatCount++
+		} else {
+			lastSig = currentSig
+			repeatCount = 1
+		}
+
+		if repeatCount >= 4 {
+			return "", fmt.Errorf("agent aborted: loop detected (action %s repeated %d times consecutively without progress)", act.Name, repeatCount)
+		}
+
 		if act.Name == "exec_bash" {
 			if r.OnOutput != nil {
 				r.OnOutput("exec_bash", act.Command)
 			}
 
-			out, err := ExecuteBash(ctx, act.Command)
+			out, err := ExecuteBash(ctx, act.Command, workDir)
 			toolResult := fmt.Sprintf("<action_result>\n%s\n</action_result>", out)
 			if err != nil {
 				toolResult = fmt.Sprintf("<action_result>\n[Exit error: %v]\n%s\n</action_result>", err, out)
+				if repeatCount >= 2 {
+					toolResult += fmt.Sprintf("\n\n[SYSTEM INTERVENTION: Loop detected. You have executed this EXACT command %d times consecutively and it failed. DO NOT repeat the same command. Change your strategy or inspect the environment.]", repeatCount)
+				}
 			}
 
 			if r.OnOutput != nil {
@@ -144,10 +174,18 @@ func (r *Runner) Run(ctx context.Context, initialPrompt string) (string, error) 
 				r.OnOutput("replace_file", path)
 			}
 
-			out, err := ExecuteReplaceFile(ctx, act.Command)
+			out, err := ExecuteReplaceFile(ctx, act.Command, workDir)
 			toolResult := fmt.Sprintf("<action_result>\n%s\n</action_result>", out)
 			if err != nil {
+				editFailures[path]++
 				toolResult = fmt.Sprintf("<action_result>\n[Edit error: %v]\n</action_result>", err)
+				if repeatCount >= 2 {
+					toolResult += fmt.Sprintf("\n\n[SYSTEM INTERVENTION: Loop detected. You have attempted this EXACT edit %d times consecutively and it failed. The target text was not found in %s. DO NOT repeat this action. Use <action name=\"read_window\"> to inspect lines in %s, or use <action name=\"write_file\"> to rewrite %s completely with the updated content.]", repeatCount, path, path, path)
+				} else if editFailures[path] >= 2 {
+					toolResult += fmt.Sprintf("\n\n[SYSTEM HINT: Exact block replacement in %s has failed %d times. Consider using <action name=\"write_file\"> to rewrite %s with the full updated content.]", path, editFailures[path], path)
+				}
+			} else {
+				editFailures[path] = 0
 			}
 
 			if r.OnOutput != nil {
@@ -169,10 +207,12 @@ func (r *Runner) Run(ctx context.Context, initialPrompt string) (string, error) 
 				r.OnOutput("write_file", path)
 			}
 
-			out, err := ExecuteWriteFile(ctx, act.Command)
+			out, err := ExecuteWriteFile(ctx, act.Command, workDir)
 			toolResult := fmt.Sprintf("<action_result>\n%s\n</action_result>", out)
 			if err != nil {
 				toolResult = fmt.Sprintf("<action_result>\n[Write error: %v]\n</action_result>", err)
+			} else {
+				editFailures[path] = 0
 			}
 
 			if r.OnOutput != nil {
@@ -188,7 +228,7 @@ func (r *Runner) Run(ctx context.Context, initialPrompt string) (string, error) 
 			if r.OnOutput != nil {
 				r.OnOutput("read_outline", act.Command)
 			}
-			out, err := ExecuteReadOutline(ctx, act.Command)
+			out, err := ExecuteReadOutline(ctx, act.Command, workDir)
 			toolResult := fmt.Sprintf("<action_result>\n%s\n</action_result>", out)
 			if err != nil {
 				toolResult = fmt.Sprintf("<action_result>\n[Outline error: %v]\n</action_result>", err)
@@ -198,20 +238,26 @@ func (r *Runner) Run(ctx context.Context, initialPrompt string) (string, error) 
 			if r.OnOutput != nil {
 				r.OnOutput("read_window", act.Command)
 			}
-			out, err := ExecuteReadWindow(ctx, act.Command)
+			out, err := ExecuteReadWindow(ctx, act.Command, workDir)
 			toolResult := fmt.Sprintf("<action_result>\n%s\n</action_result>", out)
 			if err != nil {
 				toolResult = fmt.Sprintf("<action_result>\n[Read error: %v]\n</action_result>", err)
+			}
+			if repeatCount >= 2 {
+				toolResult += fmt.Sprintf("\n\n[SYSTEM INTERVENTION: Loop detected. You have read this exact line window %d times consecutively. You now have the contents. Take action to edit the file (<action name=\"replace_file\"> or <action name=\"write_file\">) or proceed with your next step.]", repeatCount)
 			}
 			history = append(history, Message{Role: "user", Content: toolResult})
 		} else if act.Name == "run_test" {
 			if r.OnOutput != nil {
 				r.OnOutput("run_test", act.Command)
 			}
-			out, err := ExecuteRunTest(ctx, act.Command)
+			out, err := ExecuteRunTest(ctx, act.Command, workDir)
 			toolResult := fmt.Sprintf("<action_result>\n%s\n</action_result>", out)
 			if err != nil {
 				toolResult = fmt.Sprintf("<action_result>\n[Test execution error: %v]\n</action_result>", err)
+			}
+			if repeatCount >= 2 && err != nil {
+				toolResult += fmt.Sprintf("\n\n[SYSTEM INTERVENTION: Loop detected. You have run the exact same test command %d times consecutively and tests are failing. Inspect or edit the source code with <action name=\"replace_file\"> or <action name=\"write_file\"> before re-running tests.]", repeatCount)
 			}
 			history = append(history, Message{Role: "user", Content: toolResult})
 		}

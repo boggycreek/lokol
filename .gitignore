@@ -23,9 +23,17 @@ dist/
 .DS_Store
 *.log
 
+# Python
+.venv/
+__pycache__/
+*.pyc
+
 # Beads / Dolt files (added by bd init)
 .beads/
 .dolt/
 *.db
 .beads-credential-key
 *.gate.lock*
+
+# Local developer data & test results
+data/
