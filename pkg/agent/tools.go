@@ -288,6 +288,23 @@ func ExecuteSearchCode(ctx context.Context, payload string, workDir ...string) (
 	return refinery.SearchCode(targetDir, *input)
 }
 
+// ExecuteGitDiffSummary provides structured and bounded inspection of repository working changes.
+func ExecuteGitDiffSummary(ctx context.Context, payload string, workDir ...string) (string, error) {
+	wd := ""
+	if len(workDir) > 0 && workDir[0] != "" {
+		wd = workDir[0]
+	}
+	input, err := refinery.ParseGitDiffSummaryPayload(payload)
+	if err != nil {
+		return "", err
+	}
+	targetDir := wd
+	if input.Path != "" {
+		targetDir = resolvePath(input.Path, wd)
+	}
+	return refinery.GitDiffSummary(ctx, targetDir, *input)
+}
+
 // DispatchAction executes an action against the host system or tool suite.
 // It serves as the single source of truth for tool invocation across headless,
 // TUI, and any future presentation layers.
@@ -315,6 +332,8 @@ func DispatchAction(ctx context.Context, act *Action, workDir string) (string, e
 		return ExecuteFindFiles(ctx, act.Command, workDir)
 	case "search_code":
 		return ExecuteSearchCode(ctx, act.Command, workDir)
+	case "git_diff_summary":
+		return ExecuteGitDiffSummary(ctx, act.Command, workDir)
 	case "task_finish":
 		return act.Command, nil
 	default:
@@ -358,6 +377,11 @@ func (a *Action) TargetSummary() string {
 			return input.Pattern
 		}
 		return strings.TrimSpace(a.Command)
+	case "git_diff_summary":
+		if input, _ := refinery.ParseGitDiffSummaryPayload(a.Command); input != nil && input.Path != "" {
+			return input.Path
+		}
+		return "working state"
 	case "task_finish":
 		return strings.TrimSpace(a.Command)
 	default:
@@ -389,6 +413,8 @@ func (a *Action) VerboseDescription() string {
 		return fmt.Sprintf("⚡ Finding Files: %s", a.TargetSummary())
 	case "search_code":
 		return fmt.Sprintf("⚡ Searching Code: %s", a.TargetSummary())
+	case "git_diff_summary":
+		return fmt.Sprintf("⚡ Diff Summary: %s", a.TargetSummary())
 	case "task_finish":
 		return fmt.Sprintf("⚡ Finishing Task: %s", a.TargetSummary())
 	default:

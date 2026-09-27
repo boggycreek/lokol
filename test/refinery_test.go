@@ -496,4 +496,108 @@ func TestParseSearchCodePayload(t *testing.T) {
 	}
 }
 
+func TestGitDiffSummary(t *testing.T) {
+	tmpDir := t.TempDir()
+	ctx := context.Background()
+
+	// 1. Error on non-git directory
+	_, err := refinery.GitDiffSummary(ctx, tmpDir, refinery.GitDiffSummaryInput{})
+	if err == nil || !strings.Contains(err.Error(), "not a git repository") {
+		t.Fatalf("expected not a git repository error, got: %v", err)
+	}
+
+	// 2. Init git repo
+	cmds := [][]string{
+		{"git", "init", tmpDir},
+		{"git", "-C", tmpDir, "config", "user.email", "tester@example.com"},
+		{"git", "-C", tmpDir, "config", "user.name", "Tester"},
+	}
+	for _, c := range cmds {
+		cmd := exec.Command(c[0], c[1:]...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("failed setup command %v: %v\nOutput: %s", c, err, string(out))
+		}
+	}
+
+	// 3. Initial commit
+	initialFile := filepath.Join(tmpDir, "initial.txt")
+	if err := os.WriteFile(initialFile, []byte("line 1\nline 2\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	exec.Command("git", "-C", tmpDir, "add", "initial.txt").Run()
+	exec.Command("git", "-C", tmpDir, "commit", "-m", "Initial commit").Run()
+
+	// 4. Test clean working state
+	cleanOut, err := refinery.GitDiffSummary(ctx, tmpDir, refinery.GitDiffSummaryInput{})
+	if err != nil {
+		t.Fatalf("unexpected error on clean repo: %v", err)
+	}
+	if !strings.Contains(cleanOut, "Working directory clean") {
+		t.Errorf("expected clean working directory, got:\n%s", cleanOut)
+	}
+
+	// 5. Create staged, unstaged, and untracked changes
+	stagedFile := filepath.Join(tmpDir, "staged.txt")
+	if err := os.WriteFile(stagedFile, []byte("staged content\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	exec.Command("git", "-C", tmpDir, "add", "staged.txt").Run()
+
+	// Modify initial.txt unstaged
+	if err := os.WriteFile(initialFile, []byte("line 1\nline 2 modified\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Untracked file
+	untrackedFile := filepath.Join(tmpDir, "untracked.txt")
+	if err := os.WriteFile(untrackedFile, []byte("untracked content\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 6. Test GitDiffSummary with changes
+	diffOut, err := refinery.GitDiffSummary(ctx, tmpDir, refinery.GitDiffSummaryInput{})
+	if err != nil {
+		t.Fatalf("unexpected error on dirty repo: %v", err)
+	}
+
+	if !strings.Contains(diffOut, "Staged changes") || !strings.Contains(diffOut, "staged.txt") {
+		t.Errorf("expected staged changes containing staged.txt, got:\n%s", diffOut)
+	}
+	if !strings.Contains(diffOut, "Unstaged changes") || !strings.Contains(diffOut, "initial.txt") {
+		t.Errorf("expected unstaged changes containing initial.txt, got:\n%s", diffOut)
+	}
+	if !strings.Contains(diffOut, "Untracked files") || !strings.Contains(diffOut, "untracked.txt") {
+		t.Errorf("expected untracked files containing untracked.txt, got:\n%s", diffOut)
+	}
+	if !strings.Contains(diffOut, "Diffstat:") {
+		t.Errorf("expected Diffstat section, got:\n%s", diffOut)
+	}
+	if !strings.Contains(diffOut, "Unified Diff (bounded):") {
+		t.Errorf("expected Unified Diff section, got:\n%s", diffOut)
+	}
+}
+
+func TestParseGitDiffSummaryPayload(t *testing.T) {
+	// 1. Structured XML tags
+	xml := "<path>pkg/agent</path>\n<staged>true</staged>\n<max_lines>50</max_lines>"
+	in, err := refinery.ParseGitDiffSummaryPayload(xml)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if in.Path != "pkg/agent" || !in.Staged || in.MaxLines != 50 {
+		t.Errorf("unexpected parsed input: %+v", in)
+	}
+
+	// 2. Plain text fallback
+	plain := "pkg"
+	inPlain, err := refinery.ParseGitDiffSummaryPayload(plain)
+	if err != nil {
+		t.Fatalf("unexpected error on plain: %v", err)
+	}
+	if inPlain.Path != "pkg" || inPlain.Staged || inPlain.MaxLines != 100 {
+		t.Errorf("unexpected parsed plain input: %+v", inPlain)
+	}
+}
+
+
 

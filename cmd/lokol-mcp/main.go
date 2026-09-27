@@ -268,6 +268,53 @@ func main() {
 		},
 	})
 
+	// Register git_diff_summary tool
+	server.RegisterTool(mcp.Tool{
+		Name:        "git_diff_summary",
+		Description: "Inspects working repository state: staged changes, unstaged changes, untracked files, compact diffstat, and bounded unified diff snippets.",
+		InputSchema: mcp.ToolInputSchema{
+			Type: "object",
+			Properties: map[string]mcp.PropertyDoc{
+				"path": {
+					Type:        "string",
+					Description: "Optional repository or subfolder path (defaults to current working directory)",
+				},
+				"max_lines": {
+					Type:        "integer",
+					Description: "Maximum lines of unified diff output (default: 100, maximum: 200)",
+				},
+				"staged": {
+					Type:        "boolean",
+					Description: "Whether to limit diff/diffstat to staged changes only (default: false)",
+				},
+			},
+		},
+		Handler: func(ctx context.Context, args map[string]any) (string, bool, error) {
+			path := getStringArg(args, "path")
+			maxLines := getIntArg(args, "max_lines", 100)
+			staged := getBoolArg(args, "staged", false)
+
+			cwd, err := os.Getwd()
+			if err != nil {
+				return "", true, err
+			}
+			repoDir := cwd
+			if path != "" {
+				repoDir = path
+			}
+
+			out, err := refinery.GitDiffSummary(ctx, repoDir, refinery.GitDiffSummaryInput{
+				Path:     path,
+				MaxLines: maxLines,
+				Staged:   staged,
+			})
+			if err != nil {
+				return "", true, err
+			}
+			return out, false, nil
+		},
+	})
+
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 

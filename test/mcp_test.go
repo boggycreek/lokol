@@ -222,6 +222,8 @@ func NewUser(id int, name string) *User {
 		t.Fatalf("failed to write sample file: %v", err)
 	}
 
+	exec.Command("git", "init", tmpDir).Run()
+
 	// Prepare stdin JSON-RPC requests
 	requests := []string{
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
@@ -234,6 +236,7 @@ func NewUser(id int, name string) *User {
 		fmt.Sprintf(`{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"get_environment","arguments":{"path":%q}}}`, tmpDir),
 		fmt.Sprintf(`{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"find_files","arguments":{"path":%q,"pattern":"*.go"}}}`, tmpDir),
 		fmt.Sprintf(`{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"name":"search_code","arguments":{"path":%q,"pattern":"NewUser"}}}`, tmpDir),
+		fmt.Sprintf(`{"jsonrpc":"2.0","id":10,"method":"tools/call","params":{"name":"git_diff_summary","arguments":{"path":%q}}}`, tmpDir),
 	}
 
 	inputData := strings.Join(requests, "\n") + "\n"
@@ -252,8 +255,8 @@ func NewUser(id int, name string) *User {
 	}
 
 	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
-	if len(lines) != 9 { // 10 requests minus 1 notification = 9 responses
-		t.Fatalf("expected 9 response lines, got %d:\n%s", len(lines), stdout.String())
+	if len(lines) != 10 { // 11 requests minus 1 notification = 10 responses
+		t.Fatalf("expected 10 response lines, got %d:\n%s", len(lines), stdout.String())
 	}
 
 	// Verify initialize response
@@ -287,7 +290,7 @@ func NewUser(id int, name string) *User {
 	for _, t := range listResp.Result.Tools {
 		toolNames[t.Name] = true
 	}
-	for _, expected := range []string{"read_outline", "read_window", "test_verifier", "run_test", "get_environment", "find_files", "search_code"} {
+	for _, expected := range []string{"read_outline", "read_window", "test_verifier", "run_test", "get_environment", "find_files", "search_code", "git_diff_summary"} {
 		if !toolNames[expected] {
 			t.Errorf("expected tool %q in tools/list, got: %+v", expected, toolNames)
 		}
@@ -390,6 +393,21 @@ func NewUser(id int, name string) *User {
 	searchCodeText := searchCodeResp.Result.Content[0].Text
 	if !strings.Contains(searchCodeText, "sample.go") || !strings.Contains(searchCodeText, "NewUser") {
 		t.Errorf("expected search_code output to contain sample.go and NewUser, got: %s", searchCodeText)
+	}
+
+	// Verify git_diff_summary result
+	var diffResp struct {
+		Result mcp.ToolCallResult `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(lines[9]), &diffResp); err != nil {
+		t.Fatalf("failed to parse git_diff_summary resp: %v", err)
+	}
+	if diffResp.Result.IsError || len(diffResp.Result.Content) == 0 {
+		t.Fatalf("expected successful git_diff_summary result, got: %+v", diffResp.Result)
+	}
+	diffText := diffResp.Result.Content[0].Text
+	if !strings.Contains(diffText, "Untracked files") || !strings.Contains(diffText, "sample.go") {
+		t.Errorf("expected git_diff_summary output to contain sample.go, got: %s", diffText)
 	}
 }
 
