@@ -42,6 +42,22 @@ func TestParseAction(t *testing.T) {
 			wantThought: "Done!",
 		},
 		{
+			name:        "action with single quotes and spaces",
+			input:       "Running command.\n<action name='exec_bash' >\nls -la\n</action>",
+			wantAction:  true,
+			wantName:    "exec_bash",
+			wantCommand: "ls -la",
+			wantThought: "Running command.",
+		},
+		{
+			name:        "action wrapped in markdown xml codeblock",
+			input:       "Here is the change:\n```xml\n<action name=\"write_file\">\n<path>foo.txt</path>\n<content>bar</content>\n</action>\n```",
+			wantAction:  true,
+			wantName:    "write_file",
+			wantCommand: "<path>foo.txt</path>\n<content>bar</content>",
+			wantThought: "Here is the change:",
+		},
+		{
 			name:        "no action present",
 			input:       "Here is an explanation of the problem.",
 			wantAction:  false,
@@ -80,11 +96,12 @@ func TestExecuteReplaceFile(t *testing.T) {
 	// Create a temp file
 	tmpDir := t.TempDir()
 	filePath := tmpDir + "/test.txt"
-	initialContent := "Hello world\nFoo bar baz\nEnding line"
+	initialContent := "Hello world\r\nFoo bar baz\r\nEnding line"
 	if err := os.WriteFile(filePath, []byte(initialContent), 0644); err != nil {
 		t.Fatalf("failed to write temp file: %v", err)
 	}
 
+	// Test CRLF normalization and exact match
 	payload := fmt.Sprintf("<path>%s</path>\n<target>Foo bar baz</target>\n<replacement>Quik replaced this</replacement>", filePath)
 	out, err := agent.ExecuteReplaceFile(context.Background(), payload)
 	if err != nil {
@@ -101,6 +118,17 @@ func TestExecuteReplaceFile(t *testing.T) {
 	expected := "Hello world\nQuik replaced this\nEnding line"
 	if string(updated) != expected {
 		t.Errorf("got %q, want %q", string(updated), expected)
+	}
+
+	// Test whitespace-trimmed fallback matching
+	targetWithPadding := "\n\nQuik replaced this\n\n"
+	payloadFallback := fmt.Sprintf("<path>%s</path>\n<target>%s</target>\n<replacement>Fallback matched</replacement>", filePath, targetWithPadding)
+	out2, err := agent.ExecuteReplaceFile(context.Background(), payloadFallback)
+	if err != nil {
+		t.Fatalf("fallback replacement failed: %v", err)
+	}
+	if !strings.Contains(out2, "Successfully replaced") {
+		t.Errorf("unexpected output: %s", out2)
 	}
 }
 

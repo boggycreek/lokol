@@ -126,3 +126,64 @@ bd prime                # Refresh Beads context
 
 **Architecture in one line:** issues live in a local Dolt DB; sync uses `refs/dolt/data` on your git remote; `.beads/issues.jsonl` is a passive export. See https://github.com/gastownhall/beads/blob/main/docs/core-concepts/sync-concepts.md for details and anti-patterns.
 <!-- END BEADS CODEX SETUP -->
+
+## Agent Evaluation Benchmark Suite & Semantic Testing
+
+When developing agent loop enhancements, tool execution changes, or prompt alterations, use the **10-tier integration evaluation suite** in [`test/eval_test.go`](test/eval_test.go).
+
+### Running Evaluations
+
+```bash
+# 1. Run the live 10-tier benchmark against the local engine (http://127.0.0.1:8080)
+go test -v ./test -run TestEvalSuite_LiveEngine
+
+# 2. Run the loop circuit breaker & oscillation intervention test
+go test -v ./test -run TestRunner_LoopCircuitBreaker
+
+# 3. Run the sandboxed Podman container evaluation (scoped project purpose evaluation)
+go test -v ./test -run TestPodmanSandbox_ProjectEvaluation
+
+# 4. Test Laya semantic judge health
+uv run --python .venv tools/laya/judge.py --health
+```
+
+### Evaluation Architecture & Standards
+
+1. **Progressive Tiers (Tiers 1–10)**:
+   - **Tier 1**: JSON file creation and schema adherence (`write_file`)
+   - **Tier 2**: Directory inspection and counting (`read_outline` / `exec_bash` / `write_file`)
+   - **Tier 3**: Bug fix and test verification loop (`run_test` + `replace_file`)
+   - **Tier 4**: Bounded window line inspection (`read_window`)
+   - **Tier 5**: AST outline discovery (`read_outline`)
+   - **Tier 6**: Git repository init, config, add, and commit (`exec_bash`)
+   - **Tier 7**: Directory summarization grounding (`overview.md`)
+   - **Tier 8**: Multi-turn feature addition (`read_outline` -> `read_window` -> `replace_file` -> `run_test`)
+   - **Tier 9**: Targeted window edits in large files (`replace_file`)
+   - **Tier 10**: Architectural overview with **Laya decision model** evaluation
+2. **Containerized Sandboxing via Podman ([ADR-0016](doc/adr/0016-containerized-test-sandboxing-via-podman.md))**:
+   - Tests evaluating agent autonomy on scoped test projects must run within a rootless Podman container (`test/podman_sandbox_test.go`).
+   - **Zero Host Memory Pollution**: Host `.beads/` and memories are strictly protected by setting `BEADS_DIR=/workspace/.beads` and `GIT_CEILING_DIRECTORIES` so tools cannot discover host databases.
+   - **No Root Binaries**: Never compile binaries into the repository root. Test binaries are built into `t.TempDir()` and mounted read-only.
+   - **Inference Networking**: Containers use `--network=host` to access local `llama-server` on `127.0.0.1:8080`.
+3. **Deterministic Ground-Truth Checks**:
+   - Tests execute in isolated temporary directories (`t.TempDir()`).
+   - Verifications validate physical file modifications, JSON unmarshaling, or `go test` exit codes rather than fuzzy string matching.
+4. **Semantic Scoring via Laya**:
+   - Subjective/semantic artifacts (e.g. `ARCHITECTURE.md` in Tier 10) are scored using Convai's Laya model (`tools/laya/judge.py`) bridged through `test/laya_judge_test.go`.
+   - Laya executes in ~33ms, returning calibrated probability (`noul`) and quality score (`score`).
+5. **Extending the Evaluation Suite**:
+   - To add a new tier or prompt scenario, append a `BenchmarkCase` struct to `cases` in [`test/eval_test.go`](test/eval_test.go):
+     ```go
+     BenchmarkCase{
+         Name:     "TierX_ScenarioName",
+         Prompt:   "Clear instruction to the agent, specifying tools to use, and ending with 'then finish.'",
+         MaxTurns: 10,
+         Setup:    func(t *testing.T, dir string) { /* prepare files in dir */ },
+         Verify:   func(t *testing.T, dir string) error { /* assert state */ },
+     }
+     ```
+6. **Python Dev Tooling Policy**:
+   - All Python tools must live in distinct subdirectories under `./tools/*` (e.g., `./tools/laya/`).
+   - Use `uv` with PEP 723 metadata (`uv run --python .venv tools/...`). Never run system-wide `pip install`.
+7. **Local Developer Artifacts**:
+   - Benchmark reports are automatically saved to gitignored `data/eval_results.json`.

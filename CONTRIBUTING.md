@@ -170,27 +170,69 @@ Supported options for `install-llama.sh`:
 
 ## 8. Building & Testing `lokol`
 
-Once dependencies are installed and `~/.local/bin` is in your `PATH`, verify the build:
+Once dependencies are installed and `~/.local/bin` is in your `PATH`, verify the build and test suites:
 
 ### 1. Run Unit Tests
 ```bash
 make test
 ```
-Runs all unit and integration tests under `./test/...` with race detection.
+Runs unit tests across all packages under `./pkg/...` and unit tests in `./test/...` with race detection.
 
-### 2. Build the lokol Binary
+### 2. Run the 10-Tier Live Integration Evaluation Suite
+```bash
+go test -v ./test -run TestEvalSuite_LiveEngine
+```
+Runs the graded benchmark suite across 10 progressive tiers against your local inference engine (`http://127.0.0.1:8080`). Verifies:
+- **Tier 1**: JSON file creation and schema adherence (`write_file`)
+- **Tier 2**: Environment inspection and file counting (`read_outline`, `exec_bash`)
+- **Tier 3**: Self-correction: test failure detection, code fix, test verification loop (`run_test` + `replace_file`)
+- **Tier 4**: Bounded window inspection (`read_window`)
+- **Tier 5**: AST type discovery (`read_outline`)
+- **Tier 6**: Git repository initialization, configuration, staging, and committing (`exec_bash`)
+- **Tier 7**: Directory summarization grounding without hallucination (`overview.md`)
+- **Tier 8**: Multi-turn feature addition and unit test updating
+- **Tier 9**: Targeted in-place edits in large files
+- **Tier 10**: Architectural documentation scored semantically via **Laya**
+
+Test results and performance metrics are automatically persisted to the gitignored `./data/eval_results.json` file.
+
+### 3. Run Loop Circuit Breaker & Oscillation Tests
+```bash
+go test -v ./test -run TestRunner_LoopCircuitBreaker
+```
+Verifies that the runner detects consecutive edit failures or command repetitions, injects corrective system intervention nudges, and aborts runaway loops.
+
+### 4. Sandboxed Podman Container Evaluation (`test/podman_sandbox_test.go`)
+To evaluate autonomous agent capabilities on scoped projects without risking host memory pollution:
+```bash
+go test -v ./test -run TestPodmanSandbox_ProjectEvaluation
+```
+Spawns an ephemeral rootless Podman container (`docker.io/library/golang:1.25-bookworm`), mounts an isolated scoped test project into `/workspace:rw,Z`, binds network to the local `llama-server` engine, and asserts that:
+- Host `.beads/` and memories are completely unpolluted (`BEADS_DIR=/workspace/.beads`, `GIT_CEILING_DIRECTORIES`).
+- Test binaries are compiled strictly into temporary directories (`t.TempDir()`), preventing rogue binaries in the repository root.
+- The agent internalizes intermediate inferences, delivering clean summaries to stdout and progress to stderr ([ADR-0016](doc/adr/0016-containerized-test-sandboxing-via-podman.md)).
+
+### 5. Laya Semantic Decision Model Setup (`tools/laya/`)
+Semantic evaluation in Tier 10 uses Convai's **Laya** decision model (`convaiinnovations/laya`), executed via `uv`:
+```bash
+# Verify Laya health and cached model weights
+uv run --python .venv tools/laya/judge.py --health
+```
+See [ADR-0014](doc/adr/0014-non-autoregressive-decision-model-judging.md) for details on non-autoregressive decision model scoring.
+
+### 6. Build the lokol Binary
 ```bash
 make build
 ```
 Compiles a static binary into `bin/lokol` with build date and Git commit metadata injected via `ldflags`.
 
-### 3. Run Hardware Probe
+### 7. Run Hardware Probe
 ```bash
 make probe
 ```
 Executes hardware detection to verify CPU vector extensions and GPU VRAM tiers.
 
-### 4. Clean Build Artifacts
+### 8. Clean Build Artifacts
 ```bash
 make clean
 ```
@@ -198,7 +240,7 @@ Removes `bin/` and `dist/` directories.
 
 ---
 
-## 8. Issue & Task Tracking Workflow (`bd`)
+## 9. Issue & Task Tracking Workflow (`bd`)
 
 `lokol` uses **Beads (`bd`)** for issue and task tracking. Do not create markdown TODO files or external task lists.
 
@@ -222,11 +264,14 @@ bd create --title="Feature description" --description="Why this exists and what 
 
 # Close an issue upon passing quality gates
 bd close <issue-id> --reason="Completed and verified via tests"
+
+# Push beads state to remote
+bd dolt push
 ```
 
 ---
 
-## 9. Standards & Conventions
+## 10. Standards & Conventions
 
 1. **Copyright & License Header**: Every shell and Go file must start with the Boggy Creek Software LLC MIT license header:
    ```go
@@ -236,5 +281,10 @@ bd close <issue-id> --reason="Completed and verified via tests"
    // license that can be found in the LICENSE file.
    ```
 2. **XDG Compliance**: Respect the XDG Base Directory specification ([ADR-0006](doc/adr/0006-xdg-base-directory-specification.md)). Do not create dotfiles in `$HOME`.
-3. **Non-Interactive Shell Scripts**: Always use `-f`, `-rf`, and non-interactive flags (`apt-get -y`, `HOMEBREW_NO_AUTO_UPDATE=1`, `rm -rf`, `cp -f`) to prevent scripts and agents from hanging on confirmation prompts.
-4. **Formatting**: Run `gofmt -w` on all Go source files prior to testing.
+3. **Python Developer Tooling & `uv`**:
+   - All Python utilities, evaluators, and test aids must reside in dedicated subdirectories under `./tools/*` (e.g. `./tools/laya/`).
+   - Manage dependencies using `uv` and PEP 723 inline script metadata. Never install packages to the host system with `pip install --break-system-packages` ([ADR-0015](doc/adr/0015-auxiliary-tooling-isolation-via-uv.md)).
+4. **Local Data Persistence (`./data/`)**:
+   - Store local developer test dumps, benchmark logs, and evaluation reports in `./data/`. This directory is gitignored.
+5. **Non-Interactive Shell Scripts**: Always use `-f`, `-rf`, and non-interactive flags (`apt-get -y`, `HOMEBREW_NO_AUTO_UPDATE=1`, `rm -rf`, `cp -f`) to prevent scripts and agents from hanging on confirmation prompts.
+6. **Formatting**: Run `gofmt -w` on all Go source files prior to testing.

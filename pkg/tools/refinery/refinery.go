@@ -174,8 +174,20 @@ type TestResult struct {
 
 // RunTestVerifier executes test commands and strips verbose stack traces down to
 // actionable assertion errors and line numbers.
-func RunTestVerifier(ctx context.Context, command string) (*TestResult, error) {
+func RunTestVerifier(ctx context.Context, command string, workDir ...string) (*TestResult, error) {
 	cmd := exec.CommandContext(ctx, "bash", "-c", command)
+	if len(workDir) > 0 && workDir[0] != "" {
+		cwd, err := filepath.Abs(workDir[0])
+		if err == nil {
+			cmd.Dir = cwd
+			cmd.Env = append(os.Environ(),
+				fmt.Sprintf("BEADS_DIR=%s", filepath.Join(cwd, ".beads")),
+				fmt.Sprintf("GIT_CEILING_DIRECTORIES=%s", filepath.Dir(cwd)),
+			)
+		} else {
+			cmd.Dir = workDir[0]
+		}
+	}
 	var combinedBuf bytes.Buffer
 	cmd.Stdout = &combinedBuf
 	cmd.Stderr = &combinedBuf
