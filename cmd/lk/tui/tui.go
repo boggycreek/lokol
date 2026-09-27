@@ -130,14 +130,15 @@ var (
 			Padding(0, 1)
 
 	bottomProjStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#BD93F9")).
-			Bold(true)
+			Bold(true).
+			Foreground(lipgloss.Color("#FAFAFA")).
+			Background(lipgloss.Color("#5A56E0")).
+			Padding(0, 1)
 
-	bottomEngineStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#8BE9FD"))
-
-	bottomKeyHintStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#F8F8F2"))
+	bottomKeyBarStyle = lipgloss.NewStyle().
+			Background(lipgloss.Color("#282A36")).
+			Foreground(lipgloss.Color("#F8F8F2")).
+			Padding(0, 1)
 )
 
 // SetVerbose toggles verbose display of intermediate inferences and tool payloads.
@@ -316,8 +317,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		headerHeight := 2
 		inputHeight := 5
-		spacing := 5
-		vpHeight := msg.Height - headerHeight - inputHeight - spacing
+		bottomHeight := 2
+		spacing := 4
+		vpHeight := msg.Height - headerHeight - inputHeight - bottomHeight - spacing
 		if vpHeight < 5 {
 			vpHeight = 5
 		}
@@ -706,6 +708,10 @@ func (m Model) View() string {
 	}
 	modeBadge := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#8BE9FD")).Render(fmt.Sprintf(" [Mode: %s]", currentMode))
 	header += modeBadge
+
+	engineBadge := lipgloss.NewStyle().Foreground(lipgloss.Color("#8BE9FD")).Render("  ⌘ llama.cpp")
+	header += engineBadge
+
 	if m.yoloMode {
 		yoloBadge := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FF5555")).Render(" [YOLO ACTIVE]")
 		header += yoloBadge
@@ -753,7 +759,7 @@ func (m Model) View() string {
 		framedInput = inputBoxStyle.Render(m.textarea.View())
 	}
 
-	// Dense Lower Status Bar (directly below user prompt textarea)
+	// Bottom-1 Line: Left = Project path & branch pill, Right = Right-justified Context Token HUD
 	workDir := "."
 	if m.session != nil && m.session.GetWorkDir() != "" {
 		workDir = m.session.GetWorkDir()
@@ -770,50 +776,68 @@ func (m Model) View() string {
 	if branch != "" {
 		projText = fmt.Sprintf("~ %s (%s)", projectName, branch)
 	}
+	projBadge := bottomProjStyle.Render(projText)
 
-	bottomBarParts := []string{
-		bottomProjStyle.Render(projText),
-		bottomEngineStyle.Render("⌘ llama.cpp"),
-	}
-
-	// Context Token & KV Cache HUD in Dense Lower Status Bar
+	var ctxBadge string
 	if m.slotStatus != nil && m.slotStatus.NCtx > 0 {
 		ctxUsed := m.slotStatus.NPromptTokens
 		ctxMax := m.slotStatus.NCtx
 		pct := (float64(ctxUsed) / float64(ctxMax)) * 100
 
 		engineStatus := "Pure VRAM"
+		ctxBg := lipgloss.Color("#2E5E4E")
+		ctxFg := lipgloss.Color("#50FA7B")
+		if pct > 75.0 {
+			ctxBg = lipgloss.Color("#7A5510")
+			ctxFg = lipgloss.Color("#FFB86C")
+		}
 		if pct > 90.0 {
 			engineStatus = "High Pressure"
-		}
-
-		hudCtxStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#50FA7B")).Bold(true)
-		if pct > 75.0 {
-			hudCtxStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFB86C")).Bold(true)
-		}
-		if pct > 90.0 {
-			hudCtxStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF5555")).Bold(true)
+			ctxBg = lipgloss.Color("#821D2D")
+			ctxFg = lipgloss.Color("#FF5555")
 		}
 
 		ctxStr := fmt.Sprintf("◎ Context: %d/%d (%.1f%%) [%s]", ctxUsed, ctxMax, pct, engineStatus)
-		bottomBarParts = append(bottomBarParts, hudCtxStyle.Render(ctxStr))
+		hudCtxStyle := lipgloss.NewStyle().
+			Bold(true).
+			Foreground(ctxFg).
+			Background(ctxBg).
+			Padding(0, 1)
+		ctxBadge = hudCtxStyle.Render(ctxStr)
 	}
 
-	// Keybindings / State hints in Dense Lower Status Bar
+	w := m.width
+	if w <= 0 {
+		w = 80
+	}
+	var line1 string
+	if ctxBadge != "" {
+		leftWidth := ansi.StringWidth(projBadge)
+		rightWidth := ansi.StringWidth(ctxBadge)
+		gap := w - leftWidth - rightWidth
+		if gap < 1 {
+			gap = 1
+		}
+		line1 = projBadge + strings.Repeat(" ", gap) + ctxBadge
+	} else {
+		line1 = projBadge
+	}
+
+	// Bottom Line: Hotkey options and active state hints with background treatment
 	var hints string
 	switch m.state {
 	case StateIdle:
-		hints = "[Ready] Enter send · [/mode] Switch · [Ctrl+Y] YOLO"
+		hints = "[Ready] Enter send · [/mode] Switch · [PgUp/PgDn] Scroll · [Ctrl+Y] YOLO · [Ctrl+C] Quit"
 	case StateStreaming:
-		hints = "[Thinking] Local engine · [Esc] Stop"
+		hints = "[Thinking] Generating response from local engine... · [Esc] Stop"
 	case StateWaitingActionApproval:
-		hints = "[Approval Needed] [Y] Approve · [N] Deny · [Ctrl+Y] Auto"
+		hints = "[Approval Needed] [Y] Approve · [N] Deny · [Ctrl+Y] Auto-approve all"
 	case StateExecutingAction:
 		hints = "[Executing] Local runner active · [Esc] Stop"
 	}
-	bottomBarParts = append(bottomBarParts, bottomKeyHintStyle.Render("· "+hints))
+	line2 := bottomKeyBarStyle.Render(hints)
 
-	bottomBar := strings.Join(bottomBarParts, " ")
+	bottomBars := fmt.Sprintf("%s\n%s", line1, line2)
 
 	if spinnerLine != "" {
 		return fmt.Sprintf("%s\n\n%s\n\n%s\n%s\n%s",
@@ -821,7 +845,7 @@ func (m Model) View() string {
 			m.viewport.View(),
 			spinnerLine,
 			framedInput,
-			bottomBar,
+			bottomBars,
 		)
 	}
 
@@ -829,7 +853,7 @@ func (m Model) View() string {
 		header,
 		m.viewport.View(),
 		framedInput,
-		bottomBar,
+		bottomBars,
 	)
 }
 
