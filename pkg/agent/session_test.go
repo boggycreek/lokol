@@ -120,7 +120,20 @@ func TestDispatchAction_Execution(t *testing.T) {
 		t.Errorf("expected hello.txt in find_files output, got: %s", out)
 	}
 
-	// 5. task_finish via DispatchAction
+	// 5. search_code via DispatchAction
+	searchAct := &Action{
+		Name:    "search_code",
+		Command: "<pattern>Lokol</pattern>",
+	}
+	out, err = DispatchAction(ctx, searchAct, tmpDir)
+	if err != nil {
+		t.Fatalf("search_code failed: %v", err)
+	}
+	if !strings.Contains(out, "hello.txt") || !strings.Contains(out, "Hello Lokol") {
+		t.Errorf("expected hello.txt with Hello Lokol in search_code output, got: %s", out)
+	}
+
+	// 6. task_finish via DispatchAction
 	finishAct := &Action{
 		Name:    "task_finish",
 		Command: "Work complete.",
@@ -219,6 +232,14 @@ func TestAction_PresentationHelpers(t *testing.T) {
 			},
 			wantTarget:  "*.go",
 			wantVerbose: "⚡ Finding Files: *.go",
+		},
+		{
+			act: &Action{
+				Name:    "search_code",
+				Command: "<pattern>NewUser</pattern>",
+			},
+			wantTarget:  "NewUser",
+			wantVerbose: "⚡ Searching Code: NewUser",
 		},
 		{
 			act: &Action{

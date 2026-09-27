@@ -215,6 +215,59 @@ func main() {
 		},
 	})
 
+	// Register search_code tool
+	server.RegisterTool(mcp.Tool{
+		Name:        "search_code",
+		Description: "Performs a fast, bounded regex or literal search across workspace source files respecting .gitignore, returning matching lines with path and line numbers capped at 30 results.",
+		InputSchema: mcp.ToolInputSchema{
+			Type: "object",
+			Properties: map[string]mcp.PropertyDoc{
+				"pattern": {
+					Type:        "string",
+					Description: "Literal text or regular expression to search for across files",
+				},
+				"path": {
+					Type:        "string",
+					Description: "Optional subdirectory or file to search (defaults to current working directory)",
+				},
+				"is_regex": {
+					Type:        "boolean",
+					Description: "Whether to treat pattern as a regular expression (default: false for case-insensitive literal search)",
+				},
+				"max_results": {
+					Type:        "integer",
+					Description: "Maximum number of matching lines to return (default: 30, maximum: 50)",
+				},
+			},
+			Required: []string{"pattern"},
+		},
+		Handler: func(ctx context.Context, args map[string]any) (string, bool, error) {
+			pattern := getStringArg(args, "pattern")
+			if pattern == "" {
+				return "", true, fmt.Errorf("missing required argument 'pattern'")
+			}
+			path := getStringArg(args, "path")
+			isRegex := getBoolArg(args, "is_regex", false)
+			maxResults := getIntArg(args, "max_results", 30)
+
+			cwd, err := os.Getwd()
+			if err != nil {
+				return "", true, err
+			}
+
+			out, err := refinery.SearchCode(cwd, refinery.SearchCodeInput{
+				Pattern:    pattern,
+				Path:       path,
+				IsRegex:    isRegex,
+				MaxResults: maxResults,
+			})
+			if err != nil {
+				return "", true, err
+			}
+			return out, false, nil
+		},
+	})
+
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
@@ -233,6 +286,20 @@ func getStringArg(args map[string]any, key string) string {
 		return strings.TrimSpace(s)
 	}
 	return fmt.Sprintf("%v", val)
+}
+
+func getBoolArg(args map[string]any, key string, defaultVal bool) bool {
+	val, ok := args[key]
+	if !ok || val == nil {
+		return defaultVal
+	}
+	switch v := val.(type) {
+	case bool:
+		return v
+	case string:
+		return strings.EqualFold(v, "true") || v == "1"
+	}
+	return defaultVal
 }
 
 func getIntArg(args map[string]any, key string, defaultVal int) int {

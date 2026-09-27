@@ -302,3 +302,198 @@ func TestParseFindFilesPayload(t *testing.T) {
 	}
 }
 
+func TestSearchCode(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Setup directory structure
+	// tmpDir/
+	//   main.go
+	//   calc.go
+	//   sub/
+	//     helper.go
+	//   .gitignore
+	//   ignored.go
+	//   node_modules/
+	//     vendor.go
+
+	mainContent := `package main
+
+import "fmt"
+
+func main() {
+	fmt.Println("Starting application...")
+	Calculate(10, 20)
+}
+`
+	calcContent := `package main
+
+func Calculate(a, b int) int {
+	// Simple addition
+	return a + b
+}
+
+func calculateDouble(x int) int {
+	return x * 2
+}
+`
+	subDir := filepath.Join(tmpDir, "sub")
+	if err := os.MkdirAll(subDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	helperContent := `package sub
+
+func HelperFunc() string {
+	return "help"
+}
+`
+	nodeDir := filepath.Join(tmpDir, "node_modules")
+	if err := os.MkdirAll(nodeDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	vendorContent := `// Calculate inside node_modules`
+
+	gitIgnoreContent := "ignored.go\n*.log\n"
+
+	ignoredContent := `func CalculateInIgnored() {}`
+
+	if err := os.WriteFile(filepath.Join(tmpDir, "main.go"), []byte(mainContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "calc.go"), []byte(calcContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(subDir, "helper.go"), []byte(helperContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, ".gitignore"), []byte(gitIgnoreContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "ignored.go"), []byte(ignoredContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nodeDir, "vendor.go"), []byte(vendorContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("Literal case-insensitive search", func(t *testing.T) {
+		out, err := refinery.SearchCode(tmpDir, refinery.SearchCodeInput{
+			Pattern: "calculate",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !strings.Contains(out, "main.go:7: Calculate(10, 20)") {
+			t.Errorf("expected match in main.go, got:\n%s", out)
+		}
+		if !strings.Contains(out, "calc.go:3: func Calculate(a, b int) int {") {
+			t.Errorf("expected match in calc.go, got:\n%s", out)
+		}
+		if !strings.Contains(out, "calc.go:8: func calculateDouble(x int) int {") {
+			t.Errorf("expected match in calc.go line 8, got:\n%s", out)
+		}
+	})
+
+	t.Run("Regex search", func(t *testing.T) {
+		out, err := refinery.SearchCode(tmpDir, refinery.SearchCodeInput{
+			Pattern: `func [A-Z][a-zA-Z0-9]+\(`,
+			IsRegex: true,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !strings.Contains(out, "calc.go:3: func Calculate(a, b int) int {") {
+			t.Errorf("expected Calculate match, got:\n%s", out)
+		}
+		if !strings.Contains(out, "sub/helper.go:3: func HelperFunc() string {") {
+			t.Errorf("expected HelperFunc match, got:\n%s", out)
+		}
+		if strings.Contains(out, "calculateDouble") {
+			t.Errorf("did not expect lowercase calculateDouble to match regex, got:\n%s", out)
+		}
+	})
+
+	t.Run("Path scoped search", func(t *testing.T) {
+		out, err := refinery.SearchCode(tmpDir, refinery.SearchCodeInput{
+			Pattern: "func",
+			Path:    "sub",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !strings.Contains(out, "sub/helper.go") {
+			t.Errorf("expected helper.go match, got:\n%s", out)
+		}
+		if strings.Contains(out, "calc.go") || strings.Contains(out, "main.go") {
+			t.Errorf("expected only sub directory files, got:\n%s", out)
+		}
+	})
+
+	t.Run("Excludes default noisy dirs and gitignore", func(t *testing.T) {
+		out, err := refinery.SearchCode(tmpDir, refinery.SearchCodeInput{
+			Pattern: "Calculate",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if strings.Contains(out, "node_modules") {
+			t.Errorf("expected node_modules to be excluded, got:\n%s", out)
+		}
+		if strings.Contains(out, "ignored.go") {
+			t.Errorf("expected ignored.go to be excluded by .gitignore, got:\n%s", out)
+		}
+	})
+
+	t.Run("Bounding max results", func(t *testing.T) {
+		out, err := refinery.SearchCode(tmpDir, refinery.SearchCodeInput{
+			Pattern:    "func",
+			MaxResults: 2,
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		lines := strings.Split(strings.TrimSpace(out), "\n")
+		// 2 match lines + 1 truncation note line = 3 lines
+		if len(lines) != 3 {
+			t.Errorf("expected 3 lines (2 matches + note), got %d:\n%s", len(lines), out)
+		}
+		if !strings.Contains(out, "[... truncated at 2 matches") {
+			t.Errorf("expected truncation note, got:\n%s", out)
+		}
+	})
+
+	t.Run("Zero matches", func(t *testing.T) {
+		out, err := refinery.SearchCode(tmpDir, refinery.SearchCodeInput{
+			Pattern: "nonexistent_symbol_xyz",
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !strings.Contains(out, "No matches found for \"nonexistent_symbol_xyz\"") {
+			t.Errorf("expected 'No matches found', got: %s", out)
+		}
+	})
+}
+
+func TestParseSearchCodePayload(t *testing.T) {
+	// 1. Structured XML tags
+	xml := "<pattern>func Execute</pattern>\n<path>pkg/agent</path>\n<regex>true</regex>\n<max_results>15</max_results>"
+	in, err := refinery.ParseSearchCodePayload(xml)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if in.Pattern != "func Execute" || in.Path != "pkg/agent" || !in.IsRegex || in.MaxResults != 15 {
+		t.Errorf("unexpected parsed input: %+v", in)
+	}
+
+	// 2. Plain text fallback
+	plain := "myFunction"
+	inPlain, err := refinery.ParseSearchCodePayload(plain)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if inPlain.Pattern != "myFunction" || inPlain.IsRegex || inPlain.MaxResults != 30 {
+		t.Errorf("unexpected parsed plain input: %+v", inPlain)
+	}
+}
+
+
