@@ -21,9 +21,9 @@ import (
 	"github.com/boggycreek/lokol/pkg/agent"
 )
 
-// TestEvalSuite_LoopBreaker verifies that the runner halts runaway loops
+// TestRunner_LoopCircuitBreaker verifies that the runner halts runaway loops
 // when the agent executes the exact same failed action repeatedly.
-func TestEvalSuite_LoopBreaker(t *testing.T) {
+func TestRunner_LoopCircuitBreaker(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	turnsExecuted := 0
@@ -86,21 +86,27 @@ func TestEvalSuite_LoopBreaker(t *testing.T) {
 	defer cancel()
 
 	_, err := runner.Run(ctx, "Fix the missing file")
-	if err == nil {
-		t.Fatal("expected runner to abort on loop, got nil error")
-	}
 
-	if !strings.Contains(err.Error(), "loop detected") {
-		t.Fatalf("expected loop detected error, got: %v", err)
-	}
+	t.Run("TripBreakerWithError", func(t *testing.T) {
+		if err == nil {
+			t.Fatal("expected runner to trip circuit breaker on loop, got nil error")
+		}
+		if !strings.Contains(err.Error(), "loop detected") {
+			t.Fatalf("expected loop detected error, got: %v", err)
+		}
+	})
 
-	if !receivedIntervention {
-		t.Errorf("expected runner to inject SYSTEM INTERVENTION before aborting")
-	}
+	t.Run("InjectInterventionNudge", func(t *testing.T) {
+		if !receivedIntervention {
+			t.Errorf("expected runner to inject SYSTEM INTERVENTION before tripping circuit breaker")
+		}
+	})
 
-	if turnsExecuted > 5 {
-		t.Errorf("runner executed %d turns; expected loop breaker to halt by turn 4", turnsExecuted)
-	}
+	t.Run("HaltBeforeMaxTurns", func(t *testing.T) {
+		if turnsExecuted > 5 {
+			t.Errorf("runner executed %d turns; expected circuit breaker to trip by turn 4", turnsExecuted)
+		}
+	})
 }
 
 // BenchmarkCase defines an evaluation test case with deterministic ground-truth verification.

@@ -196,9 +196,9 @@ Runs the graded benchmark suite across 10 progressive tiers against your local i
 
 Test results and performance metrics are automatically persisted to the gitignored `./data/eval_results.json` file.
 
-### 3. Run Loop Breaker & Oscillation Tests
+### 3. Run Loop Circuit Breaker & Oscillation Tests
 ```bash
-go test -v ./test -run TestEvalSuite_LoopBreaker
+go test -v ./test -run TestRunner_LoopCircuitBreaker
 ```
 Verifies that the runner detects consecutive edit failures or command repetitions, injects corrective system intervention nudges, and aborts runaway loops.
 

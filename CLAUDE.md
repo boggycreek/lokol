@@ -70,8 +70,8 @@ make test
 # Run the 10-tier graded live evaluation suite (requires llama-server at http://127.0.0.1:8080)
 go test -v ./test -run TestEvalSuite_LiveEngine
 
-# Run loop breaker and repetition intervention tests
-go test -v ./test -run TestEvalSuite_LoopBreaker
+# Run loop circuit breaker and repetition intervention tests
+go test -v ./test -run TestRunner_LoopCircuitBreaker
 
 # Check Laya semantic evaluator health
 uv run --python .venv tools/laya/judge.py --health

@@ -62,7 +62,7 @@ The evaluation cases are organized into discrete tiers:
 Every evaluation case runs in a clean, dedicated `t.TempDir()`. Tools operate strictly within this directory (`WorkDir`), preventing side effects or contamination across test cases.
 
 ### 3. Loop Breaking & Resilient Intervention
-The evaluation harness exercises the runner's oscillation and loop detection mechanisms (`TestEvalSuite_LoopBreaker`):
+The evaluation harness exercises the runner's oscillation and loop detection mechanisms (`TestRunner_LoopCircuitBreaker`):
 - Repetition tracking halts identical action loops after 4 consecutive failures.
 - System intervention nudges (`[SYSTEM INTERVENTION: Loop detected]`) are automatically injected into the message stream when duplicate errors occur.
 

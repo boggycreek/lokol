@@ -137,8 +137,8 @@ When developing agent loop enhancements, tool execution changes, or prompt alter
 # 1. Run the live 10-tier benchmark against the local engine (http://127.0.0.1:8080)
 go test -v ./test -run TestEvalSuite_LiveEngine
 
-# 2. Run the loop breaker & oscillation intervention test
-go test -v ./test -run TestEvalSuite_LoopBreaker
+# 2. Run the loop circuit breaker & oscillation intervention test
+go test -v ./test -run TestRunner_LoopCircuitBreaker
 
 # 3. Test Laya semantic judge health
 uv run --python .venv tools/laya/judge.py --health
