@@ -62,10 +62,6 @@ func SearchCode(baseDir string, input SearchCodeInput) (string, error) {
 	if input.Path != "" {
 		cleanSub := filepath.Clean(input.Path)
 		if filepath.IsAbs(cleanSub) {
-			rel, err := filepath.Rel(baseDir, cleanSub)
-			if err != nil || strings.HasPrefix(rel, "..") {
-				return "", fmt.Errorf("path %q is outside workspace directory", input.Path)
-			}
 			searchRoot = cleanSub
 		} else {
 			searchRoot = filepath.Join(baseDir, cleanSub)
@@ -80,7 +76,11 @@ func SearchCode(baseDir string, input SearchCodeInput) (string, error) {
 		return "", err
 	}
 
-	gi := loadGitIgnore(baseDir)
+	giRoot := baseDir
+	if input.Path != "" && filepath.IsAbs(input.Path) {
+		giRoot = searchRoot
+	}
+	gi := loadGitIgnore(giRoot)
 
 	var matches []string
 	truncated := false
@@ -88,8 +88,8 @@ func SearchCode(baseDir string, input SearchCodeInput) (string, error) {
 	// If searchRoot is a single file:
 	if !info.IsDir() {
 		relPath, err := filepath.Rel(baseDir, searchRoot)
-		if err != nil {
-			relPath = searchRoot
+		if err != nil || strings.HasPrefix(relPath, "..") {
+			relPath = filepath.Base(searchRoot)
 		}
 		fileMatches, err := searchFile(searchRoot, relPath, input.IsRegex, regex, lowerPattern, maxResults)
 		if err != nil {
@@ -107,8 +107,11 @@ func SearchCode(baseDir string, input SearchCodeInput) (string, error) {
 		}
 
 		relPath, err := filepath.Rel(baseDir, path)
-		if err != nil {
-			relPath = path
+		if err != nil || strings.HasPrefix(relPath, "..") {
+			relPath, _ = filepath.Rel(searchRoot, path)
+			if relPath == "" {
+				relPath = path
+			}
 		}
 
 		name := d.Name()

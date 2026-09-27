@@ -182,7 +182,11 @@ go test -v ./...
 command here
 </action>
 
-10. When your task is complete:
+10. To inspect host execution environment (working directory, OS, git status, and development toolchains):
+<action name="get_environment">
+</action>
+
+11. When your task is complete:
 <action name="task_finish">
 summary of completed task
 </action>
