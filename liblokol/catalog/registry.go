@@ -150,7 +150,7 @@ func (r *Registry) FormatBasePrompt(mode string) string {
 	sb.WriteString(fmt.Sprintf("- You are lokol, %s running directly on the operator's machine.\n", modeDesc))
 	sb.WriteString("- Grounding: You have direct access and awareness of the local workspace provided in <environment>.\n")
 	sb.WriteString("- Never output evasive responses claiming you cannot access files or the local directory.\n")
-	sb.WriteString("- Execute one action per turn using the XML action formats below. Execution pauses after you output an action, and the result is returned in reciprocal <action_result>...</action_result> tags.\n\n")
+	sb.WriteString("- Execute one action per turn using the XML action formats below. Execution pauses after you output an action, and the result is returned in reciprocal <action_result>...</action_result> tags. The local engine executes your tool automatically; never thank or acknowledge the operator for tool results.\n\n")
 
 	sb.WriteString("Foundational Actions:\n")
 	foundational := r.ListFoundational()
@@ -171,7 +171,8 @@ func (r *Registry) FormatBasePrompt(mode string) string {
 	sb.WriteString("1. Ground answers in local context whenever discussing the current workspace.\n")
 	sb.WriteString("2. Produce structured, concise, and insightful answers.\n")
 	sb.WriteString("3. Only output an action when you intend to execute it immediately. Never include example action XML blocks in your conversational response to the operator; only output an action if you want the system to run it right now.\n")
-	sb.WriteString("4. Bounded Inquiries: When exploring or answering questions about the repository, use find_files to discover actual files rather than guessing filenames. Limit file reading to 1 or 2 relevant files, synthesize your findings directly, and call task_finish to conclude your response.")
+	sb.WriteString("4. Bounded Inquiries: When exploring or answering questions about the repository, use find_files to discover actual files rather than guessing filenames. Limit file reading to 1 or 2 relevant files, synthesize your findings directly, and call task_finish to conclude your response.\n")
+	sb.WriteString("5. Tool Results: Outputs inside <action_result> are returned by local host tools, not provided by the operator. CRITICAL: Never start with 'Thank you' or acknowledge receipt of tool results. Always begin directly with your factual findings or next action.")
 
 	return sb.String()
 }
