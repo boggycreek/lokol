@@ -3,7 +3,7 @@
 // Use of this source code is governed by an MIT-style
 // license that can be found in the LICENSE file.
 
-package guardrail_test
+package regulator_test
 
 import (
 	"context"
@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/boggycreek/lokol/liblokol/guardrail"
+	"github.com/boggycreek/lokol/liblokol/regulator"
 )
 
 func TestCheckPathWithinBounds(t *testing.T) {
@@ -27,7 +27,7 @@ func TestCheckPathWithinBounds(t *testing.T) {
 	}
 
 	for _, p := range validPaths {
-		resolved, err := guardrail.CheckPathWithinBounds(workDir, p)
+		resolved, err := regulator.CheckPathWithinBounds(workDir, p)
 		if err != nil {
 			t.Errorf("expected valid path %q within %q, got err: %v", p, workDir, err)
 		}
@@ -47,7 +47,7 @@ func TestCheckPathWithinBounds(t *testing.T) {
 	}
 
 	for _, p := range invalidPaths {
-		_, err := guardrail.CheckPathWithinBounds(workDir, p)
+		_, err := regulator.CheckPathWithinBounds(workDir, p)
 		if err == nil {
 			t.Errorf("expected path %q to fail boundary check, but succeeded", p)
 		}
@@ -58,27 +58,27 @@ func TestValidateFilesystemBounds(t *testing.T) {
 	workDir := t.TempDir()
 
 	// Safe action inside workspace
-	if err := guardrail.ValidateFilesystemBounds(workDir, "write_file", "pkg/module.go", ""); err != nil {
+	if err := regulator.ValidateFilesystemBounds(workDir, "write_file", "pkg/module.go", ""); err != nil {
 		t.Errorf("expected safe write_file to pass, got: %v", err)
 	}
 
 	// Safe action via command XML
-	if err := guardrail.ValidateFilesystemBounds(workDir, "write_file", "", "<path>pkg/module.go</path>"); err != nil {
+	if err := regulator.ValidateFilesystemBounds(workDir, "write_file", "", "<path>pkg/module.go</path>"); err != nil {
 		t.Errorf("expected safe write_file with command XML to pass, got: %v", err)
 	}
 
 	// Critical: XML <path> takes precedence over placeholder targetPath
-	if err := guardrail.ValidateFilesystemBounds(workDir, "write_file", "file", "<path>../../etc/shadow</path>"); err == nil {
+	if err := regulator.ValidateFilesystemBounds(workDir, "write_file", "file", "<path>../../etc/shadow</path>"); err == nil {
 		t.Errorf("expected malicious XML <path> to take precedence over placeholder targetPath, but succeeded")
 	}
 
 	// Out of bounds action
-	if err := guardrail.ValidateFilesystemBounds(workDir, "replace_file", "../../etc/shadow", ""); err == nil {
+	if err := regulator.ValidateFilesystemBounds(workDir, "replace_file", "../../etc/shadow", ""); err == nil {
 		t.Errorf("expected out of bounds replace_file to fail, got nil")
 	}
 
 	// Missing path parameter
-	if err := guardrail.ValidateFilesystemBounds(workDir, "read_window", "", ""); err == nil {
+	if err := regulator.ValidateFilesystemBounds(workDir, "read_window", "", ""); err == nil {
 		t.Errorf("expected missing path parameter to fail, got nil")
 	}
 
@@ -86,15 +86,15 @@ func TestValidateFilesystemBounds(t *testing.T) {
 	inspectionTools := []string{"find_files", "search_code", "git_diff_summary", "get_environment"}
 	for _, tool := range inspectionTools {
 		// Valid path inside workspace
-		if err := guardrail.ValidateFilesystemBounds(workDir, tool, "", "<path>pkg/sub</path>"); err != nil {
+		if err := regulator.ValidateFilesystemBounds(workDir, tool, "", "<path>pkg/sub</path>"); err != nil {
 			t.Errorf("expected valid path for %s to pass, got: %v", tool, err)
 		}
 		// Invalid traversal path outside workspace
-		if err := guardrail.ValidateFilesystemBounds(workDir, tool, "", "<path>../../outside</path>"); err == nil {
+		if err := regulator.ValidateFilesystemBounds(workDir, tool, "", "<path>../../outside</path>"); err == nil {
 			t.Errorf("expected out of bounds %s to fail, got nil", tool)
 		}
 		// Empty path allows defaulting to workspace root
-		if err := guardrail.ValidateFilesystemBounds(workDir, tool, "", ""); err != nil {
+		if err := regulator.ValidateFilesystemBounds(workDir, tool, "", ""); err != nil {
 			t.Errorf("expected empty path for %s to allow workspace root, got: %v", tool, err)
 		}
 	}
@@ -111,8 +111,8 @@ func TestInspectShellRisk(t *testing.T) {
 		"echo 'hello world'",
 	}
 	for _, cmd := range safeCmds {
-		risk := guardrail.InspectShellRisk(workDir, cmd)
-		if risk.Level != guardrail.RiskLevelNone {
+		risk := regulator.InspectShellRisk(workDir, cmd)
+		if risk.Level != regulator.RiskLevelNone {
 			t.Errorf("expected command %q to be safe, got risk level %s (%s)", cmd, risk.Level, risk.Reason)
 		}
 	}
@@ -128,8 +128,8 @@ func TestInspectShellRisk(t *testing.T) {
 		":(){ :|:& };:",
 	}
 	for _, cmd := range criticalCmds {
-		risk := guardrail.InspectShellRisk(workDir, cmd)
-		if risk.Level != guardrail.RiskLevelCritical {
+		risk := regulator.InspectShellRisk(workDir, cmd)
+		if risk.Level != regulator.RiskLevelCritical {
 			t.Errorf("expected command %q to be critical risk, got: %s", cmd, risk.Level)
 		}
 	}
@@ -144,60 +144,60 @@ func TestInspectShellRisk(t *testing.T) {
 		"cat /etc/shadow",
 	}
 	for _, cmd := range highRiskCmds {
-		risk := guardrail.InspectShellRisk(workDir, cmd)
-		if risk.Level != guardrail.RiskLevelHigh {
+		risk := regulator.InspectShellRisk(workDir, cmd)
+		if risk.Level != regulator.RiskLevelHigh {
 			t.Errorf("expected command %q to be high risk, got: %s", cmd, risk.Level)
 		}
 	}
 }
 
-func TestGuardrail_CheckPermission(t *testing.T) {
+func TestRegulator_CheckPermission(t *testing.T) {
 	workDir := t.TempDir()
-	g := guardrail.New(workDir)
+	g := regulator.New(workDir)
 	ctx := context.Background()
 
 	// 1. Safe file action
-	safeAction := guardrail.ActionCandidate{
+	safeAction := regulator.ActionCandidate{
 		Name: "write_file",
 		Path: "safe.txt",
 	}
 	res := g.CheckPermission(ctx, safeAction)
-	if res.Status != guardrail.StatusAllowed {
+	if res.Status != regulator.StatusAllowed {
 		t.Errorf("expected safe write_file to be allowed, got: %s (%s)", res.Status, res.Reason)
 	}
 
 	// 2. Out of bounds file action
-	oobAction := guardrail.ActionCandidate{
+	oobAction := regulator.ActionCandidate{
 		Name: "replace_file",
 		Path: "/etc/hosts",
 	}
 	res = g.CheckPermission(ctx, oobAction)
-	if res.Status != guardrail.StatusBlocked || !res.OutOfBounds {
+	if res.Status != regulator.StatusBlocked || !res.OutOfBounds {
 		t.Errorf("expected out of bounds action to be blocked, got: %s (outOfBounds=%v)", res.Status, res.OutOfBounds)
 	}
 
 	// 3. Dangerous root removal
-	critAction := guardrail.ActionCandidate{
+	critAction := regulator.ActionCandidate{
 		Name:    "exec_bash",
 		Command: "rm -rf /",
 	}
 	res = g.CheckPermission(ctx, critAction)
-	if res.Status != guardrail.StatusBlocked || res.RiskLevel != guardrail.RiskLevelCritical {
+	if res.Status != regulator.StatusBlocked || res.RiskLevel != regulator.RiskLevelCritical {
 		t.Errorf("expected rm -rf / to be blocked as critical risk, got: %s (level=%s)", res.Status, res.RiskLevel)
 	}
 
 	// 4. Privilege escalation warning
-	warnAction := guardrail.ActionCandidate{
+	warnAction := regulator.ActionCandidate{
 		Name:    "exec_bash",
 		Command: "sudo apt-get install -y git",
 	}
 	res = g.CheckPermission(ctx, warnAction)
-	if res.Status != guardrail.StatusWarning || res.RiskLevel != guardrail.RiskLevelHigh {
+	if res.Status != regulator.StatusWarning || res.RiskLevel != regulator.RiskLevelHigh {
 		t.Errorf("expected sudo command to be flagged as warning, got: %s (level=%s)", res.Status, res.RiskLevel)
 	}
 }
 
-func TestGuardrail_SymlinkEscapes(t *testing.T) {
+func TestRegulator_SymlinkEscapes(t *testing.T) {
 	parentDir := t.TempDir()
 	workDir := filepath.Join(parentDir, "workspace")
 	if err := os.Mkdir(workDir, 0755); err != nil {
@@ -216,22 +216,22 @@ func TestGuardrail_SymlinkEscapes(t *testing.T) {
 	}
 
 	// Verify that accessing the symlink fails boundary checks
-	_, err := guardrail.CheckPathWithinBounds(workDir, "leak_secret.lnk")
+	_, err := regulator.CheckPathWithinBounds(workDir, "leak_secret.lnk")
 	if err == nil {
 		t.Fatalf("expected symlink escape to fail boundary check, but succeeded")
 	}
 
-	g := guardrail.New(workDir)
-	res := g.CheckPermission(context.Background(), guardrail.ActionCandidate{
+	g := regulator.New(workDir)
+	res := g.CheckPermission(context.Background(), regulator.ActionCandidate{
 		Name: "replace_file",
 		Path: "leak_secret.lnk",
 	})
-	if res.Status != guardrail.StatusBlocked || !res.OutOfBounds {
-		t.Fatalf("expected guardrail to block symlink escape, got %s (outOfBounds=%v)", res.Status, res.OutOfBounds)
+	if res.Status != regulator.StatusBlocked || !res.OutOfBounds {
+		t.Fatalf("expected regulator to block symlink escape, got %s (outOfBounds=%v)", res.Status, res.OutOfBounds)
 	}
 }
 
-func TestGuardrail_MalformedAndEncodedPaths(t *testing.T) {
+func TestRegulator_MalformedAndEncodedPaths(t *testing.T) {
 	workDir := t.TempDir()
 
 	maliciousInputs := []string{
@@ -243,14 +243,14 @@ func TestGuardrail_MalformedAndEncodedPaths(t *testing.T) {
 	}
 
 	for _, input := range maliciousInputs {
-		_, err := guardrail.CheckPathWithinBounds(workDir, input)
+		_, err := regulator.CheckPathWithinBounds(workDir, input)
 		if err == nil {
 			t.Errorf("expected malicious/malformed input %q to fail boundary check, but succeeded", input)
 		}
 	}
 }
 
-func TestGuardrail_ObfuscatedShellAttacks(t *testing.T) {
+func TestRegulator_ObfuscatedShellAttacks(t *testing.T) {
 	workDir := t.TempDir()
 
 	obfuscatedAttacks := []string{
@@ -267,33 +267,33 @@ func TestGuardrail_ObfuscatedShellAttacks(t *testing.T) {
 	}
 
 	for _, cmd := range obfuscatedAttacks {
-		risk := guardrail.InspectShellRisk(workDir, cmd)
-		if risk.Level == guardrail.RiskLevelNone {
-			t.Errorf("expected command %q to be flagged by guardrail, but was allowed", cmd)
+		risk := regulator.InspectShellRisk(workDir, cmd)
+		if risk.Level == regulator.RiskLevelNone {
+			t.Errorf("expected command %q to be flagged by regulator, but was allowed", cmd)
 		}
 	}
 }
 
 type erroringEvaluator struct{}
 
-func (e *erroringEvaluator) Evaluate(ctx context.Context, action guardrail.ActionCandidate, workDir string) (guardrail.PermissionResult, error) {
-	return guardrail.PermissionResult{}, os.ErrNotExist
+func (e *erroringEvaluator) Evaluate(ctx context.Context, action regulator.ActionCandidate, workDir string) (regulator.PermissionResult, error) {
+	return regulator.PermissionResult{}, os.ErrNotExist
 }
 
-func TestGuardrail_SemanticEvaluatorErrorFailsSafely(t *testing.T) {
+func TestRegulator_SemanticEvaluatorErrorFailsSafely(t *testing.T) {
 	workDir := t.TempDir()
-	g := guardrail.New(workDir)
+	g := regulator.New(workDir)
 	g.SemanticEvaluator = &erroringEvaluator{}
 
-	res := g.CheckPermission(context.Background(), guardrail.ActionCandidate{
+	res := g.CheckPermission(context.Background(), regulator.ActionCandidate{
 		Name:    "exec_bash",
 		Command: "echo 'hello'",
 	})
 
-	if res.Status != guardrail.StatusWarning {
+	if res.Status != regulator.StatusWarning {
 		t.Fatalf("expected StatusWarning when evaluator errors, got: %s (reason: %s)", res.Status, res.Reason)
 	}
-	if !strings.Contains(res.Reason, "Semantic guardrail evaluator unavailable") {
+	if !strings.Contains(res.Reason, "Semantic regulator evaluator unavailable") {
 		t.Errorf("expected reason to mention evaluator unavailable, got: %s", res.Reason)
 	}
 }

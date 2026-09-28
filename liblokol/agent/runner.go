@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/boggycreek/lokol/liblokol/guardrail"
+	"github.com/boggycreek/lokol/liblokol/regulator"
 )
 
 // Runner manages an autonomous execution loop (e.g. for batch execution or self-improvement).
@@ -146,16 +146,16 @@ func (r *Runner) Run(ctx context.Context, initialPrompt string) (string, error) 
 			r.OnOutput(act.Name, targetSummary)
 		}
 
-		// Enforce guardrail permissions
-		guard := guardrail.New(workDir)
-		perm := guard.CheckPermission(ctx, guardrail.ActionCandidate{
+		// Enforce regulator permissions
+		reg := regulator.New(workDir)
+		perm := reg.CheckPermission(ctx, regulator.ActionCandidate{
 			Name:    act.Name,
 			Command: act.Command,
 			Path:    targetSummary,
 		})
-		if perm.Status == guardrail.StatusBlocked {
+		if perm.Status == regulator.StatusBlocked {
 			if r.OnOutput != nil {
-				r.OnOutput("guardrail", fmt.Sprintf("[PERMISSION DENIED] %s", perm.Reason))
+				r.OnOutput("regulator", fmt.Sprintf("[PERMISSION DENIED] %s", perm.Reason))
 			}
 			msg := fmt.Sprintf("[PERMISSION DENIED]: %s", perm.Reason)
 			if perm.Remediation != "" {

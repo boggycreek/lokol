@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"github.com/boggycreek/lokol/liblokol/agent"
-	"github.com/boggycreek/lokol/liblokol/guardrail"
+	"github.com/boggycreek/lokol/liblokol/regulator"
 	"github.com/boggycreek/lokol/liblokol/model"
 	"github.com/boggycreek/lokol/liblokol/probe"
 	"github.com/boggycreek/lokol/liblokol/version"
@@ -678,16 +678,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.session != nil && m.session.GetWorkDir() != "" {
 					workDir = m.session.GetWorkDir()
 				}
-				guard := guardrail.New(workDir)
-				perm := guard.CheckPermission(context.Background(), guardrail.ActionCandidate{
+				reg := regulator.New(workDir)
+				perm := reg.CheckPermission(context.Background(), regulator.ActionCandidate{
 					Name:    act.Name,
 					Command: act.Command,
 					Path:    act.TargetSummary(),
 				})
 
-				if perm.Status != guardrail.StatusAllowed && m.yoloMode {
+				if perm.Status != regulator.StatusAllowed && m.yoloMode {
 					// Disengage automatic execution in YOLO mode when a security boundary is tripped
-					m.appendLog(fmt.Sprintf("⚠️  [GUARDRAIL INTERCEPT] Autonomous execution paused: %s\n", perm.Reason))
+					m.appendLog(fmt.Sprintf("⚠️  [REGULATOR INTERCEPT] Autonomous execution paused: %s\n", perm.Reason))
 				} else if m.yoloMode {
 					// YOLO Mode: execute immediately without waiting for user approval
 					m.state = StateExecutingAction
@@ -704,7 +704,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.lastBadge = ""
 				m.state = StateWaitingActionApproval
 				warningBadge := ""
-				if perm.Status != guardrail.StatusAllowed {
+				if perm.Status != regulator.StatusAllowed {
 					warningBadge = fmt.Sprintf("⚠️  SECURITY WARNING: %s\n\n", perm.Reason)
 				}
 				box := actionBoxStyle.Render(fmt.Sprintf(

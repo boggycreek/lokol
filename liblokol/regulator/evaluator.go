@@ -3,7 +3,7 @@
 // Use of this source code is governed by an MIT-style
 // license that can be found in the LICENSE file.
 
-package guardrail
+package regulator
 
 import (
 	"bytes"
@@ -86,7 +86,7 @@ func (e *SubprocessLayaEvaluator) Evaluate(ctx context.Context, action ActionCan
 	if !res.Passed {
 		return PermissionResult{
 			Status:    StatusWarning,
-			Reason:    fmt.Sprintf("Semantic guardrail flagged action (safety confidence: %.2f)", res.Probability),
+			Reason:    fmt.Sprintf("Semantic regulator flagged action (safety confidence: %.2f)", res.Probability),
 			RiskLevel: RiskLevelHigh,
 			Target:    strings.TrimSpace(action.Command),
 		}, nil

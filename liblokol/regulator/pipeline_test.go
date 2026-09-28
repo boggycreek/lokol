@@ -3,27 +3,27 @@
 // Use of this source code is governed by an MIT-style
 // license that can be found in the LICENSE file.
 
-package guardrail_test
+package regulator_test
 
 import (
 	"context"
 	"strings"
 	"testing"
 
-	"github.com/boggycreek/lokol/liblokol/guardrail"
+	"github.com/boggycreek/lokol/liblokol/regulator"
 )
 
 type mockSemanticEvaluator struct {
-	evaluateFunc func(ctx context.Context, action guardrail.ActionCandidate, workDir string) (guardrail.PermissionResult, error)
+	evaluateFunc func(ctx context.Context, action regulator.ActionCandidate, workDir string) (regulator.PermissionResult, error)
 	called       bool
 }
 
-func (m *mockSemanticEvaluator) Evaluate(ctx context.Context, action guardrail.ActionCandidate, workDir string) (guardrail.PermissionResult, error) {
+func (m *mockSemanticEvaluator) Evaluate(ctx context.Context, action regulator.ActionCandidate, workDir string) (regulator.PermissionResult, error) {
 	m.called = true
 	if m.evaluateFunc != nil {
 		return m.evaluateFunc(ctx, action, workDir)
 	}
-	return guardrail.PermissionResult{Status: guardrail.StatusAllowed}, nil
+	return regulator.PermissionResult{Status: regulator.StatusAllowed}, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -37,22 +37,22 @@ func TestPipeline_CostOrderedShortCircuit_StructuralStage(t *testing.T) {
 	shellExecuted := false
 	mockSem := &mockSemanticEvaluator{}
 
-	p := guardrail.NewPipeline(
+	p := regulator.NewPipeline(
 		workDir,
-		guardrail.NewStructuralStage(),
-		guardrail.NewNamedStage("mock_boundary", func(ctx context.Context, action guardrail.ActionCandidate, workDir string) guardrail.PermissionResult {
+		regulator.NewStructuralStage(),
+		regulator.NewNamedStage("mock_boundary", func(ctx context.Context, action regulator.ActionCandidate, workDir string) regulator.PermissionResult {
 			boundaryExecuted = true
-			return guardrail.PermissionResult{Status: guardrail.StatusAllowed}
+			return regulator.PermissionResult{Status: regulator.StatusAllowed}
 		}),
-		guardrail.NewNamedStage("mock_shell", func(ctx context.Context, action guardrail.ActionCandidate, workDir string) guardrail.PermissionResult {
+		regulator.NewNamedStage("mock_shell", func(ctx context.Context, action regulator.ActionCandidate, workDir string) regulator.PermissionResult {
 			shellExecuted = true
-			return guardrail.PermissionResult{Status: guardrail.StatusAllowed}
+			return regulator.PermissionResult{Status: regulator.StatusAllowed}
 		}),
-		guardrail.NewSemanticStage(mockSem),
+		regulator.NewSemanticStage(mockSem),
 	)
 
 	// Action with null byte fails at Stage 1 (structural)
-	action := guardrail.ActionCandidate{
+	action := regulator.ActionCandidate{
 		Name:    "write_file",
 		Path:    "pkg/\x00malicious.go",
 		Command: "<content>test</content>",
@@ -60,7 +60,7 @@ func TestPipeline_CostOrderedShortCircuit_StructuralStage(t *testing.T) {
 
 	res := p.Regulate(context.Background(), action)
 
-	if res.Status != guardrail.StatusBlocked {
+	if res.Status != regulator.StatusBlocked {
 		t.Fatalf("expected StatusBlocked from structural stage, got: %s", res.Status)
 	}
 	if res.Stage != "structural" {
@@ -91,19 +91,19 @@ func TestPipeline_CostOrderedShortCircuit_BoundaryStage(t *testing.T) {
 	shellExecuted := false
 	mockSem := &mockSemanticEvaluator{}
 
-	p := guardrail.NewPipeline(
+	p := regulator.NewPipeline(
 		workDir,
-		guardrail.NewStructuralStage(),
-		guardrail.NewBoundaryStage(),
-		guardrail.NewNamedStage("mock_shell", func(ctx context.Context, action guardrail.ActionCandidate, workDir string) guardrail.PermissionResult {
+		regulator.NewStructuralStage(),
+		regulator.NewBoundaryStage(),
+		regulator.NewNamedStage("mock_shell", func(ctx context.Context, action regulator.ActionCandidate, workDir string) regulator.PermissionResult {
 			shellExecuted = true
-			return guardrail.PermissionResult{Status: guardrail.StatusAllowed}
+			return regulator.PermissionResult{Status: regulator.StatusAllowed}
 		}),
-		guardrail.NewSemanticStage(mockSem),
+		regulator.NewSemanticStage(mockSem),
 	)
 
 	// Action escaping boundary fails at Stage 2 (boundary)
-	action := guardrail.ActionCandidate{
+	action := regulator.ActionCandidate{
 		Name:    "write_file",
 		Path:    "../../etc/passwd",
 		Command: "<path>../../etc/passwd</path><content>evil</content>",
@@ -111,7 +111,7 @@ func TestPipeline_CostOrderedShortCircuit_BoundaryStage(t *testing.T) {
 
 	res := p.Regulate(context.Background(), action)
 
-	if res.Status != guardrail.StatusBlocked {
+	if res.Status != regulator.StatusBlocked {
 		t.Fatalf("expected StatusBlocked from boundary stage, got: %s", res.Status)
 	}
 	if res.Stage != "boundary" {
@@ -137,23 +137,23 @@ func TestPipeline_CostOrderedShortCircuit_StaticShellStage(t *testing.T) {
 	workDir := t.TempDir()
 	mockSem := &mockSemanticEvaluator{}
 
-	p := guardrail.DefaultPipeline(workDir, mockSem)
+	p := regulator.DefaultPipeline(workDir, mockSem)
 
 	// Critical shell command (rm -rf /) fails at Stage 3 (static_shell)
-	action := guardrail.ActionCandidate{
+	action := regulator.ActionCandidate{
 		Name:    "exec_bash",
 		Command: "rm -rf /",
 	}
 
 	res := p.Regulate(context.Background(), action)
 
-	if res.Status != guardrail.StatusBlocked {
+	if res.Status != regulator.StatusBlocked {
 		t.Fatalf("expected StatusBlocked for critical shell command, got: %s", res.Status)
 	}
 	if res.Stage != "static_shell" {
 		t.Errorf("expected Stage 'static_shell', got: %s", res.Stage)
 	}
-	if res.RiskLevel != guardrail.RiskLevelCritical {
+	if res.RiskLevel != regulator.RiskLevelCritical {
 		t.Errorf("expected RiskLevelCritical, got: %s", res.RiskLevel)
 	}
 	if !strings.Contains(res.Remediation, "critical destructive signature") {
@@ -173,23 +173,23 @@ func TestPipeline_CostOrderedShortCircuit_StaticShellStage(t *testing.T) {
 func TestPipeline_WarningPropagation(t *testing.T) {
 	workDir := t.TempDir()
 
-	p := guardrail.DefaultPipeline(workDir)
+	p := regulator.DefaultPipeline(workDir)
 
 	// High risk command (sudo) produces StatusWarning
-	action := guardrail.ActionCandidate{
+	action := regulator.ActionCandidate{
 		Name:    "exec_bash",
 		Command: "sudo apt-get update",
 	}
 
 	res := p.Regulate(context.Background(), action)
 
-	if res.Status != guardrail.StatusWarning {
+	if res.Status != regulator.StatusWarning {
 		t.Fatalf("expected StatusWarning for destructive git reset, got: %s", res.Status)
 	}
 	if res.Stage != "static_shell" {
 		t.Errorf("expected Stage 'static_shell', got: %s", res.Stage)
 	}
-	if res.RiskLevel != guardrail.RiskLevelHigh {
+	if res.RiskLevel != regulator.RiskLevelHigh {
 		t.Errorf("expected RiskLevelHigh, got: %s", res.RiskLevel)
 	}
 }
@@ -198,28 +198,28 @@ func TestPipeline_BlockPreemptsPriorWarning(t *testing.T) {
 	workDir := t.TempDir()
 
 	// Pipeline where Stage 1 warns, but Stage 2 blocks
-	p := guardrail.NewPipeline(
+	p := regulator.NewPipeline(
 		workDir,
-		guardrail.NewNamedStage("stage_warn", func(ctx context.Context, action guardrail.ActionCandidate, workDir string) guardrail.PermissionResult {
-			return guardrail.PermissionResult{
-				Status:    guardrail.StatusWarning,
+		regulator.NewNamedStage("stage_warn", func(ctx context.Context, action regulator.ActionCandidate, workDir string) regulator.PermissionResult {
+			return regulator.PermissionResult{
+				Status:    regulator.StatusWarning,
 				Reason:    "Early warning",
-				RiskLevel: guardrail.RiskLevelMedium,
+				RiskLevel: regulator.RiskLevelMedium,
 			}
 		}),
-		guardrail.NewNamedStage("stage_block", func(ctx context.Context, action guardrail.ActionCandidate, workDir string) guardrail.PermissionResult {
-			return guardrail.PermissionResult{
-				Status:      guardrail.StatusBlocked,
+		regulator.NewNamedStage("stage_block", func(ctx context.Context, action regulator.ActionCandidate, workDir string) regulator.PermissionResult {
+			return regulator.PermissionResult{
+				Status:      regulator.StatusBlocked,
 				Reason:      "Hard block",
-				RiskLevel:   guardrail.RiskLevelHigh,
+				RiskLevel:   regulator.RiskLevelHigh,
 				Remediation: "Do not execute",
 			}
 		}),
 	)
 
-	res := p.Regulate(context.Background(), guardrail.ActionCandidate{Name: "test"})
+	res := p.Regulate(context.Background(), regulator.ActionCandidate{Name: "test"})
 
-	if res.Status != guardrail.StatusBlocked {
+	if res.Status != regulator.StatusBlocked {
 		t.Fatalf("expected StatusBlocked to take precedence over warning, got: %s", res.Status)
 	}
 	if res.Stage != "stage_block" {
@@ -235,20 +235,20 @@ func TestPipeline_SemanticStage_EvaluatesWhenDeterministicPass(t *testing.T) {
 	workDir := t.TempDir()
 
 	mockSem := &mockSemanticEvaluator{
-		evaluateFunc: func(ctx context.Context, action guardrail.ActionCandidate, workDir string) (guardrail.PermissionResult, error) {
-			return guardrail.PermissionResult{
-				Status:    guardrail.StatusWarning,
+		evaluateFunc: func(ctx context.Context, action regulator.ActionCandidate, workDir string) (regulator.PermissionResult, error) {
+			return regulator.PermissionResult{
+				Status:    regulator.StatusWarning,
 				Reason:    "Semantic model flagged potential side-effect",
-				RiskLevel: guardrail.RiskLevelHigh,
+				RiskLevel: regulator.RiskLevelHigh,
 				Target:    action.Command,
 			}, nil
 		},
 	}
 
-	p := guardrail.DefaultPipeline(workDir, mockSem)
+	p := regulator.DefaultPipeline(workDir, mockSem)
 
 	// Safe deterministic command that reaches semantic model
-	action := guardrail.ActionCandidate{
+	action := regulator.ActionCandidate{
 		Name:    "exec_bash",
 		Command: "cat sensitive_config.yml",
 	}
@@ -258,7 +258,7 @@ func TestPipeline_SemanticStage_EvaluatesWhenDeterministicPass(t *testing.T) {
 	if !mockSem.called {
 		t.Fatalf("expected semantic evaluator to be called")
 	}
-	if res.Status != guardrail.StatusWarning {
+	if res.Status != regulator.StatusWarning {
 		t.Errorf("expected StatusWarning from semantic stage, got: %s", res.Status)
 	}
 	if res.Stage != "semantic" {
@@ -277,22 +277,22 @@ func TestPipeline_CustomStageExtensibility(t *testing.T) {
 	workDir := t.TempDir()
 
 	// Add a custom organizational policy stage (e.g. forbid editing .github/workflows)
-	customStage := guardrail.NewNamedStage("ci_policy", func(ctx context.Context, action guardrail.ActionCandidate, workDir string) guardrail.PermissionResult {
+	customStage := regulator.NewNamedStage("ci_policy", func(ctx context.Context, action regulator.ActionCandidate, workDir string) regulator.PermissionResult {
 		if strings.Contains(action.Path, ".github/workflows") {
-			return guardrail.PermissionResult{
-				Status:      guardrail.StatusBlocked,
+			return regulator.PermissionResult{
+				Status:      regulator.StatusBlocked,
 				Reason:      "Modification of CI workflow files is forbidden by policy",
-				RiskLevel:   guardrail.RiskLevelHigh,
+				RiskLevel:   regulator.RiskLevelHigh,
 				Target:      action.Path,
 				Remediation: "Workflow updates require manual administrator pull requests.",
 			}
 		}
-		return guardrail.PermissionResult{Status: guardrail.StatusAllowed}
+		return regulator.PermissionResult{Status: regulator.StatusAllowed}
 	})
 
-	p := guardrail.DefaultPipeline(workDir).AddStage(customStage)
+	p := regulator.DefaultPipeline(workDir).AddStage(customStage)
 
-	action := guardrail.ActionCandidate{
+	action := regulator.ActionCandidate{
 		Name:    "write_file",
 		Path:    ".github/workflows/ci.yml",
 		Command: "<content>malicious</content>",
@@ -300,7 +300,7 @@ func TestPipeline_CustomStageExtensibility(t *testing.T) {
 
 	res := p.Regulate(context.Background(), action)
 
-	if res.Status != guardrail.StatusBlocked {
+	if res.Status != regulator.StatusBlocked {
 		t.Fatalf("expected StatusBlocked by custom CI policy stage, got: %s", res.Status)
 	}
 	if res.Stage != "ci_policy" {

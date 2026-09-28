@@ -471,7 +471,7 @@ func TestTUI_Presentation_ModeSwitching(t *testing.T) {
 	}
 }
 
-func TestTUI_Presentation_GuardrailSecurityWarning(t *testing.T) {
+func TestTUI_Presentation_RegulatorSecurityWarning(t *testing.T) {
 	mock := NewMockSession()
 	m := tui.NewWithSession(mock, nil, false) // Safe mode
 
@@ -499,7 +499,7 @@ func TestTUI_Presentation_GuardrailSecurityWarning(t *testing.T) {
 	}
 }
 
-func TestTUI_Presentation_GuardrailYOLOIntercept(t *testing.T) {
+func TestTUI_Presentation_RegulatorYOLOIntercept(t *testing.T) {
 	mock := NewMockSession()
 	m := tui.NewWithSession(mock, nil, true) // YOLO mode engaged
 
@@ -520,8 +520,8 @@ func TestTUI_Presentation_GuardrailYOLOIntercept(t *testing.T) {
 	}
 
 	content := m.ViewportContent()
-	if !strings.Contains(content, "GUARDRAIL INTERCEPT") {
-		t.Fatalf("expected GUARDRAIL INTERCEPT in viewport log, got: %s", content)
+	if !strings.Contains(content, "REGULATOR INTERCEPT") {
+		t.Fatalf("expected REGULATOR INTERCEPT in viewport log, got: %s", content)
 	}
 	if !strings.Contains(content, "SECURITY WARNING") {
 		t.Fatalf("expected SECURITY WARNING in viewport approval box, got: %s", content)

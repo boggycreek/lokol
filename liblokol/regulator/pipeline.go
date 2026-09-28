@@ -3,7 +3,7 @@
 // Use of this source code is governed by an MIT-style
 // license that can be found in the LICENSE file.
 
-package guardrail
+package regulator
 
 import (
 	"context"
@@ -238,7 +238,7 @@ func NewSemanticStage(evaluator SemanticEvaluator) Stage {
 		if err != nil {
 			return PermissionResult{
 				Status:      StatusWarning,
-				Reason:      fmt.Sprintf("Semantic guardrail evaluator unavailable: %v", err),
+				Reason:      fmt.Sprintf("Semantic regulator evaluator unavailable: %v", err),
 				RiskLevel:   RiskLevelMedium,
 				Target:      action.Path,
 				Remediation: "Semantic judge was unreachable; review the action manually before approval.",
