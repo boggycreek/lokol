@@ -5,10 +5,13 @@
 
 from .harness import ProbeHarness, ScenarioResult
 from .scenarios import SCENARIOS, Scenario, get_scenario
+from .session import ProbeSession, ProbeTurn
 from .watchdog import HardwareWatchdog, TelemetrySample, WatchdogViolation
 
 __all__ = [
     "ProbeHarness",
+    "ProbeSession",
+    "ProbeTurn",
     "ScenarioResult",
     "Scenario",
     "SCENARIOS",

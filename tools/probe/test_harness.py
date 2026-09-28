@@ -22,6 +22,7 @@ if str(tools_dir) not in sys.path:
 
 from probe.harness import ProbeHarness, ScenarioResult
 from probe.scenarios import SCENARIOS, Scenario, get_scenario
+from probe.session import ProbeSession, ProbeTurn
 from probe.watchdog import HardwareWatchdog, TelemetrySample
 
 
@@ -148,6 +149,67 @@ class TestHarnessMockExecution(unittest.TestCase):
 
         self.assertTrue(result.passed)
         self.assertEqual(len(result.failure_reasons), 0)
+
+
+class TestProbeSession(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.mock_bin = Path(self.temp_dir.name) / "mock_lokol"
+
+        script_content = (
+            "#!/bin/bash\n"
+            "PROMPT=\"\"\n"
+            "while [[ $# -gt 0 ]]; do\n"
+            "  case $1 in\n"
+            "    -p) PROMPT=\"$2\"; shift 2 ;;\n"
+            "    *) shift ;;\n"
+            "  esac\n"
+            "done\n"
+            "if [[ \"$PROMPT\" == *\"trigger_hang\"* ]]; then\n"
+            "  sleep 10\n"
+            "  exit 0\n"
+            "else\n"
+            "  echo \"Mock response to: $PROMPT\"\n"
+            "  exit 0\n"
+            "fi\n"
+        )
+        self.mock_bin.write_text(script_content)
+        self.mock_bin.chmod(self.mock_bin.stat().st_mode | stat.S_IEXEC)
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def test_session_multi_turn_and_history(self):
+        with ProbeSession(binary_path=str(self.mock_bin)) as session:
+            turn1 = session.send("Hello agent")
+            self.assertEqual(turn1.turn_index, 1)
+            self.assertIn("Mock response to: Hello agent", turn1.response)
+            self.assertFalse(turn1.watchdog_tripped)
+
+            turn2 = session.send("What is your status?")
+            self.assertEqual(turn2.turn_index, 2)
+            self.assertIn("Mock response to: What is your status?", turn2.response)
+            self.assertEqual(len(session.history), 2)
+
+    def test_session_watchdog_termination(self):
+        with ProbeSession(binary_path=str(self.mock_bin), timeout_sec=0.4) as session:
+            turn = session.send("trigger_hang")
+            self.assertTrue(turn.watchdog_tripped)
+            self.assertIsNotNone(turn.violation)
+            self.assertIn("Wall-clock timeout", turn.violation.reason)
+
+    def test_distill_scenario(self):
+        session = ProbeSession(binary_path=str(self.mock_bin), mode="coding")
+        sc = session.distill_scenario(
+            scenario_id="probe_distilled_test",
+            name="Distilled Scenario Test",
+            prompt="Test prompt",
+            forbidden_substrings=["forbidden"],
+            append_to_file=False,
+        )
+        self.assertEqual(sc.id, "probe_distilled_test")
+        self.assertEqual(sc.mode, "coding")
+        self.assertIn("forbidden", sc.forbidden_substrings)
 
 
 if __name__ == "__main__":

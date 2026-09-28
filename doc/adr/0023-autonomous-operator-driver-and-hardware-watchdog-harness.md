@@ -67,6 +67,18 @@ When a scenario fails or triggers the runaway watchdog:
 - The harness compiles a structured markdown diagnostic bundle including prompt, token transcript, GPU utilization timeline, Laya score, and stack trace.
 - Invokes `bd create` with label `agent-probe` and priority `P2` to register the defect directly into the repository's local Dolt issue tracker.
 
+### 5. Dynamic Interactive Agent Driving via `ProbeSession`
+In addition to static scripted scenarios (which act as regression gates in CI), the harness provides a programmatic Python API (`ProbeSession`) for dynamic, adversarial probing by an external agent:
+- **Interactive Multi-Turn Stepping**: Enables a driving agent to converse turn-by-turn with `lokol`, inspecting intermediate responses, tool payloads, and real-time GPU compute profiles to dynamically formulate follow-up prompts.
+- **Per-Turn Telemetry & Watchdog Supervison**: Every `session.send(...)` call activates the parallel telemetry watchdog, ensuring runaway generation or GPU compute pegging is halted turn-by-turn.
+- **Scenario Distillation Flywheel**: When an interactive exploration exposes a previously unknown bug or hallucination, the session can distill the reproduction trace into a permanent scripted `Scenario` entry in `scenarios.py`.
+- **Closed-Loop Self-Improvement**:
+  1. *Dynamic Driving Agent explores & discovers failure mode*
+  2. *Watchdog halts runaway & captures telemetry*
+  3. *Harness files issue in Beads (`bd create`)*
+  4. *Session distills reproduction into `scenarios.py`*
+  5. *Developer or agent implements patch; `make test-probe` verifies fix permanently*
+
 ## Consequences
 
 ### Positive
@@ -74,6 +86,7 @@ When a scenario fails or triggers the runaway watchdog:
 - **Hardware-Aware Testing**: Correlates model output directly with GPU load and KV cache pressure.
 - **Zero Host Freeze**: Watchdog prevents long-running unconstrained generation loops from locking up developer machines.
 - **Autonomous Feedback Loop**: Automatically translates agent behavioral bugs into actionable Beads issues.
+- **Dynamic Flywheel**: Expands test coverage beyond human-anticipated test cases through agentic multi-turn interrogation and scenario distillation.
 
 ### Negative / Trade-offs
 - Requires Python 3.12+ and `uv` in developer environments (`uv run --python .venv tools/probe/...`).

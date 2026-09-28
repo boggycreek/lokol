@@ -198,16 +198,25 @@ class HardwareWatchdog:
         # 1. Immediately abort active inference slots in llama-server
         self.abort_engine_slot()
 
-        # 2. Terminate the subprocess
+        # 2. Terminate the subprocess and its process tree
         if self._target_pid:
             try:
-                os.kill(self._target_pid, signal.SIGTERM)
-                time.sleep(0.3)
-                os.kill(self._target_pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
+                pgid = os.getpgid(self._target_pid)
+                if pgid != os.getpgrp():
+                    os.killpg(pgid, signal.SIGTERM)
+                    time.sleep(0.1)
+                    os.killpg(pgid, signal.SIGKILL)
+                else:
+                    os.kill(self._target_pid, signal.SIGTERM)
+                    time.sleep(0.1)
+                    os.kill(self._target_pid, signal.SIGKILL)
             except Exception:
-                pass
+                try:
+                    os.kill(self._target_pid, signal.SIGTERM)
+                    time.sleep(0.1)
+                    os.kill(self._target_pid, signal.SIGKILL)
+                except Exception:
+                    pass
 
         with self._lock:
             max_gpu = max((s.gpu_util_pct for s in self._samples), default=0.0)

@@ -110,6 +110,7 @@ class ProbeHarness:
             stderr=subprocess.PIPE,
             text=True,
             bufsize=1,
+            start_new_session=True,
         )
 
         watchdog.start(proc.pid)
