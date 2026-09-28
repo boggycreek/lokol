@@ -74,6 +74,10 @@ func ExecuteReplaceFile(ctx context.Context, payload string, workDir ...string) 
 		return "", fmt.Errorf("boundary check failed for %s: %w", input.Path, err)
 	}
 
+	if fi, statErr := os.Stat(targetPath); statErr == nil && fi.IsDir() {
+		return "", fmt.Errorf("%q is a directory, not a file: cannot replace text in a directory. Use <action name=\"find_files\"><pattern>*</pattern></action> to discover files", input.Path)
+	}
+
 	data, err := os.ReadFile(targetPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to read file %s: %w", input.Path, err)
@@ -155,6 +159,10 @@ func ExecuteWriteFile(ctx context.Context, payload string, workDir ...string) (s
 	targetPath, err := resolveSafePath(input.Path, workDir...)
 	if err != nil {
 		return "", fmt.Errorf("boundary check failed for %s: %w", input.Path, err)
+	}
+
+	if fi, statErr := os.Stat(targetPath); statErr == nil && fi.IsDir() {
+		return "", fmt.Errorf("%q is an existing directory, not a file. Cannot overwrite a directory with write_file", input.Path)
 	}
 
 	dir := filepath.Dir(targetPath)
