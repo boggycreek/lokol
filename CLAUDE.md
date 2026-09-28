@@ -134,5 +134,8 @@ uv run --python .venv tools/laya/judge.py --health
 9. **Bead Workflow: Filing vs. Implementation Authorization**:
    - Distinguish between submitting a bead for future work and receiving permission to proceed with implementation.
    - Creating/filing a bead (`bd create`) records requirements in the backlog. Do **NOT** claim (`bd update --claim`) or immediately begin implementing. Wait for explicit instructions to proceed.
+10. **Test Suites vs. Diagnostic Drivers (`tools/*_driver`)**:
+    - **Subproject E2E Tests**: Pure automated, non-interactive end-to-end integration tests validating a specific subproject belong in that subproject's `test/` directory (e.g., `cmd/lokol/test/`, `cmd/lk/test/`, `liblokol/test/`) and run in CI via `make integration-test`.
+    - **Operator Diagnostic Drivers**: Standalone interactive or parameter-driven diagnostic harnesses for developers and autonomous evaluation live under `tools/` and follow the `*_driver` naming pattern (e.g., `tools/core_driver/`, `tools/cli_driver/`, `tools/tui_driver/`).
 
 

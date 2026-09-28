@@ -34,24 +34,28 @@ We establish a clear hierarchy separating **colocated unit tests** from **dedica
   - Internal package unit testing (`package <pkg>`) is permitted when verifying unexported state transitions or algorithm internals.
 - **Hermetic Guarantee**: Colocated unit tests must be hermetic, fast (sub-second execution), and completely free of external runtime dependencies (no network, no live inference server, no container daemon).
 
-### 2. Dedicated Integration & Sandbox Hierarchy (`test/` Subdirectories)
-- Dedicated `test/` subdirectories (`liblokol/test/`, `cmd/lokol/test/`) are reserved **exclusively** for high-level integration, evaluation benchmarks, and sandboxed test environments:
-  - `liblokol/test/integration_test.go`: Live inference loops communicating with local `llama-server` endpoints.
-  - `liblokol/test/eval_test.go`: 10-tier autonomous benchmark evaluation suite.
-  - `liblokol/test/laya_judge_test.go`: Semantic scoring using Convai's Laya decision model.
-  - `cmd/lokol/test/podman_sandbox_test.go`: Sandboxed container evaluations per ADR-0016.
+### 2. Subproject Integration & E2E Suites (`**/test/` Subdirectories)
+- Dedicated `test/` subdirectories (`liblokol/test/`, `cmd/lokol/test/`, `cmd/lk/test/`) are reserved **exclusively** for automated, non-interactive integration benchmarks and end-to-end test suites scoped to that subproject:
+  - Subproject-specific end-to-end assertions (such as container sandboxes, live server communication, or compiled CLI/TUI pass/fail regression suites) must reside within the respective subproject's `test/` directory.
+  - Pure automated E2E verification suites must not reside in the general developer tooling directory if their purpose is deterministic pass/fail quality gating of a specific subproject.
 - **Build Tag Enforcement**: Any test in a `test/` directory requiring external infrastructure, local inference engines, or container runtimes must include `//go:build integration`.
-- Subprojects containing only unit and CLI tests (such as `cmd/lk` and `cmd/lokol-mcp`) must not maintain empty or redundant `test/` directories.
 
-### 3. Build & CI Target Separation
+### 3. Operator Diagnostic & Probing Drivers (`tools/*_driver/`)
+- Standalone diagnostic, probing, and interactive testing harnesses are segregated under the dedicated tooling directory and follow the `*_driver` naming pattern (e.g., `core_driver`, `cli_driver`, `tui_driver`):
+  - **Operational & Interactive Role**: Unlike automated test suites in `**/test/` that execute assertions and terminate, `*_driver` utilities are active operational tools providing interactive REPLs, repetition loops for determinism evaluation, configurable telemetry monitoring, and semantic model judge integrations.
+  - **Cross-Cutting Evaluation**: Drivers may orchestrate cross-boundary evaluations, ingest version-controlled capability scenario datasets, or bridge external evaluation models to stress-test agent behavior.
+
+### 4. Build & CI Target Separation
 - Standard testing (`make test` or `go test ./...`) traverses the package tree and executes all colocated unit tests hermetically and concurrently in CI.
-- Integration testing (`make integration-test` or `go test -tags integration ./liblokol/test`) is invoked explicitly when target inference environments are provisioned.
+- Integration testing (`make integration-test`) executes automated E2E and integration suites within `**/test/` directories when target inference environments are provisioned.
+- Diagnostic drivers are invoked explicitly on demand by operators or autonomous benchmark workflows (`make test-core-driver`, `go run ./tools/core_driver`, etc.).
 
 ## Consequences
 
 ### Positive
 - **Idiomatic Go Alignment**: Conforms to standard Go conventions and tooling expectations (`go test ./<subpackage>/...`).
 - **Enhanced Developer Ergonomics**: Unit tests are immediately discoverable and maintainable side-by-side with package code.
+- **Clear Architectural Taxonomy**: Subproject E2E tests have a distinct home (`**/test/`) separate from interactive developer/operator driver tools (`tools/*_driver`).
 - **Clean Architectural Separation**: Dedicated `test/` directories are no longer catch-alls; they represent explicit, heavy integration and evaluation boundaries.
 - **Deterministic CI Execution**: Fast unit test suites across all monorepo modules run reliably without external service dependencies.
 

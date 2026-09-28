@@ -20,7 +20,7 @@ We need a clear architectural policy for managing auxiliary developer tooling, s
 We establish a standard architectural policy for all auxiliary developer tooling and test artifacts:
 
 ### 1. Segregation Under Dedicated Tool Subdirectories
-All non-Go developer tools, evaluators, and maintenance scripts must live in distinct subdirectories under a dedicated tooling directory. No auxiliary scripts or virtual environments are allowed in the repository root or Go package source directories.
+All non-Go developer tools, evaluators, maintenance scripts, and cross-cutting diagnostic harnesses must live in distinct subdirectories under a dedicated tooling directory. Diagnostic and operator probing utilities follow the `*_driver` naming pattern (e.g., `core_driver`, `cli_driver`, `tui_driver`). No auxiliary scripts or virtual environments are allowed in the repository root or Go package source directories.
 
 ### 2. Isolated Virtual Environment Management
 All auxiliary tooling dependencies must be managed through isolated, ephemeral virtual environments:

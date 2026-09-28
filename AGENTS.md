@@ -208,6 +208,9 @@ uv run --python .venv tools/laya/judge.py --health
 8. **Code/Data Separation & Scenario Repeatability**:
    - Evaluation scenarios, capability probes, and regression test cases must be maintained as data files (e.g. JSONL in `tools/probe/scenarios.jsonl`), separated from harness execution logic.
    - Negative findings discovered during live exploration or agent sessions must be distilled into immutable, version-controlled records in the scenario dataset for repeatable CI regression tracking.
+9. **Test Suites vs. Diagnostic Drivers (`tools/*_driver`)**:
+   - **Subproject E2E Tests**: Pure automated, non-interactive end-to-end integration tests validating a specific subproject belong in that subproject's `test/` directory (e.g., `cmd/lokol/test/`, `cmd/lk/test/`, `liblokol/test/`) and run in CI via `make integration-test`.
+   - **Operator Diagnostic Drivers**: Standalone interactive or parameter-driven diagnostic harnesses for developers and autonomous evaluation live under `tools/` and follow the `*_driver` naming pattern (e.g., `tools/core_driver/`, `tools/cli_driver/`, `tools/tui_driver/`).
 
 ## Architecture Decision Records (ADR) Standards
 

@@ -1,4 +1,4 @@
-.PHONY: all build test integration-test clean lint sbom probe run
+.PHONY: all build test integration-test clean lint sbom probe run test-probe test-core-driver
 
 SUBPROJECTS = liblokol cmd/lk cmd/lokol cmd/lokol-mcp
 BIN_DIR = bin
@@ -28,6 +28,9 @@ test:
 
 test-probe:
 	uv run --python .venv python -m unittest tools/probe/test_harness.py -v
+
+test-core-driver:
+	$(MAKE) -C tools/core_driver test
 
 integration-test:
 	@for p in $(SUBPROJECTS); do \
