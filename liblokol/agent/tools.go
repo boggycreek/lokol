@@ -13,7 +13,7 @@ import (
 	"strings"
 
 	"github.com/boggycreek/lokol/liblokol/catalog"
-	"github.com/boggycreek/lokol/liblokol/guardrail"
+	"github.com/boggycreek/lokol/liblokol/regulator"
 	"github.com/boggycreek/lokol/liblokol/refinery"
 )
 
@@ -53,7 +53,7 @@ func resolveSafePath(path string, workDir ...string) (string, error) {
 	if len(workDir) > 0 && workDir[0] != "" {
 		wd = workDir[0]
 	}
-	return guardrail.CheckPathWithinBounds(wd, path)
+	return regulator.CheckPathWithinBounds(wd, path)
 }
 
 // ExecuteReplaceFile performs an exact in-place string replacement in the specified file.
@@ -179,7 +179,7 @@ func ExecuteWriteFile(ctx context.Context, payload string, workDir ...string) (s
 		if len(workDir) > 0 && workDir[0] != "" {
 			wd = workDir[0]
 		}
-		if _, err := guardrail.CheckPathWithinBounds(wd, targetPath); err != nil {
+		if _, err := regulator.CheckPathWithinBounds(wd, targetPath); err != nil {
 			return "", fmt.Errorf("symlink target escapes workspace bounds: %w", err)
 		}
 	}

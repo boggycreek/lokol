@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/boggycreek/lokol/liblokol/guardrail"
+	"github.com/boggycreek/lokol/liblokol/regulator"
 )
 
 // Runner manages an autonomous execution loop (e.g. for batch execution or self-improvement).
@@ -22,6 +22,7 @@ type Runner struct {
 	Mode            Mode   // Operational mode (defaults to ModeCoding for autonomous execution)
 	CodebaseContext string // Optional pre-loaded codebase context
 	Session         *Session
+	Regulator       *regulator.Regulator // Persistent regulator instance across turns (lokol-gml.9)
 	OnOutput        func(role, content string)
 }
 
@@ -34,6 +35,10 @@ func (r *Runner) Run(ctx context.Context, initialPrompt string) (string, error) 
 	workDir := r.WorkDir
 	if workDir == "" {
 		workDir = "."
+	}
+
+	if r.Regulator == nil {
+		r.Regulator = regulator.New(workDir)
 	}
 
 	session := r.Session
@@ -146,18 +151,28 @@ func (r *Runner) Run(ctx context.Context, initialPrompt string) (string, error) 
 			r.OnOutput(act.Name, targetSummary)
 		}
 
-		// Enforce guardrail permissions
-		guard := guardrail.New(workDir)
-		perm := guard.CheckPermission(ctx, guardrail.ActionCandidate{
+		// Enforce regulator permissions using persistent regulator instance (lokol-gml.9)
+		actionPath := targetSummary
+		if act.Name == "find_files" || act.Name == "search_code" {
+			actionPath = regulator.ExtractTagContent(act.Command, "path")
+		}
+
+		perm := r.Regulator.CheckPermission(ctx, regulator.ActionCandidate{
 			Name:    act.Name,
 			Command: act.Command,
-			Path:    targetSummary,
+			Path:    actionPath,
 		})
-		if perm.Status == guardrail.StatusBlocked {
+
+		// Security: In autonomous mode, block both StatusBlocked and RiskLevelHigh warnings (lokol-gml.1)
+		if perm.Status == regulator.StatusBlocked || (r.YOLO && perm.RiskLevel == regulator.RiskLevelHigh) {
 			if r.OnOutput != nil {
-				r.OnOutput("guardrail", fmt.Sprintf("[PERMISSION DENIED] %s", perm.Reason))
+				r.OnOutput("regulator", fmt.Sprintf("[PERMISSION DENIED] %s", perm.Reason))
 			}
-			toolResult := fmt.Sprintf("<action_result>\n[PERMISSION DENIED]: %s\n</action_result>", perm.Reason)
+			msg := fmt.Sprintf("[PERMISSION DENIED]: %s", perm.Reason)
+			if perm.Remediation != "" {
+				msg += fmt.Sprintf("\n[REMEDIATION]: %s", perm.Remediation)
+			}
+			toolResult := fmt.Sprintf("<action_result>\n%s\n</action_result>", msg)
 			session.AppendUserMessage(toolResult)
 			continue
 		}

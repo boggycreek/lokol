@@ -26,7 +26,7 @@ Accepted
 During initial project bootstrapping, test files were centralized in dedicated `test/` subdirectories within each subproject (such as `liblokol/test/`, `cmd/lk/test/`, `cmd/lokol/test/`, and `cmd/lokol-mcp/test/`). While this approach kept package source directories free of test files, it created several engineering and architectural challenges:
 
 1. **Divergence from Go Idioms**: The standard and widely accepted custom in Go is to place unit test files (`*_test.go`) directly alongside the source files they test within the same package directory.
-2. **Obscured Test Coverage & Friction**: Colocated unit tests provide immediate visibility into test coverage and behavioral assertions during feature development and refactoring. Storing unit tests in a remote directory discouraged continuous localized testing (e.g., `go test ./liblokol/guardrail/...`).
+2. **Obscured Test Coverage & Friction**: Colocated unit tests provide immediate visibility into test coverage and behavioral assertions during feature development and refactoring. Storing unit tests in a remote directory discouraged continuous localized testing (e.g., `go test ./liblokol/regulator/...`).
 3. **Blurred Boundary Between Unit and Integration Tests**: Mixing fast, hermetic unit tests with heavy integration benchmarks (such as the 10-tier evaluation suite, live inference tests, and Podman sandboxes) inside the same `test/` folder created ambiguity around test dependencies, execution time, and build tagging.
 
 ## Decision
@@ -36,7 +36,7 @@ We establish a clear hierarchy separating **colocated unit tests** from **dedica
 ### 1. Colocated Unit Tests (`*_test.go` Alongside Source)
 - All hermetic unit tests must reside directly in the directory of the package they test:
   - `liblokol/agent/*_test.go` alongside `liblokol/agent/*.go`
-  - `liblokol/guardrail/*_test.go` alongside `liblokol/guardrail/*.go`
+  - `liblokol/regulator/*_test.go` alongside `liblokol/regulator/*.go`
   - `liblokol/mcp/*_test.go` alongside `liblokol/mcp/*.go`
   - `liblokol/refinery/*_test.go` alongside `liblokol/refinery/*.go`
   - `liblokol/setup/*_test.go` alongside `liblokol/setup/*.go`

@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/boggycreek/lokol/liblokol/guardrail"
+	"github.com/boggycreek/lokol/liblokol/regulator"
 	"github.com/boggycreek/lokol/liblokol/refinery"
 )
 
@@ -180,7 +180,7 @@ func resolveSafePath(path string, workDir ...string) (string, error) {
 	if len(workDir) > 0 && workDir[0] != "" {
 		wd = workDir[0]
 	}
-	return guardrail.CheckPathWithinBounds(wd, path)
+	return regulator.CheckPathWithinBounds(wd, path)
 }
 
 func extractTagContent(xml, tag string) string {
@@ -370,10 +370,10 @@ func builtinExecBash(ctx context.Context, command string, workDir ...string) (st
 		wd = workDir[0]
 	}
 
-	// Static guardrail safety check
-	risk := guardrail.InspectShellRisk(wd, command)
-	if risk.Level == guardrail.RiskLevelHigh || risk.Level == guardrail.RiskLevelCritical {
-		return "", fmt.Errorf("guardrail blocked execution: %s (reason: %s)", command, risk.Reason)
+	// Static regulator safety check
+	risk := regulator.InspectShellRisk(wd, command)
+	if risk.Level == regulator.RiskLevelHigh || risk.Level == regulator.RiskLevelCritical {
+		return "", fmt.Errorf("regulator blocked execution: %s (reason: %s)", command, risk.Reason)
 	}
 
 	cmdCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
