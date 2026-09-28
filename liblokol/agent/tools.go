@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/boggycreek/lokol/liblokol/catalog"
 	"github.com/boggycreek/lokol/liblokol/guardrail"
 	"github.com/boggycreek/lokol/liblokol/refinery"
 )
@@ -354,40 +355,20 @@ func ExecuteGitDiffSummary(ctx context.Context, payload string, workDir ...strin
 	return refinery.GitDiffSummary(ctx, targetDir, *input)
 }
 
-// DispatchAction executes an action against the host system or tool suite.
+// DispatchAction executes an action against the host system or tool suite using the central tool catalog.
 // It serves as the single source of truth for tool invocation across headless,
-// TUI, and any future presentation layers.
+// TUI, and any future presentation layers adhering to ADR-0024.
 func DispatchAction(ctx context.Context, act *Action, workDir string) (string, error) {
 	if act == nil {
 		return "", fmt.Errorf("action is nil")
 	}
 
-	switch act.Name {
-	case "exec_bash":
-		return ExecuteBash(ctx, act.Command, workDir)
-	case "replace_file":
-		return ExecuteReplaceFile(ctx, act.Command, workDir)
-	case "write_file":
-		return ExecuteWriteFile(ctx, act.Command, workDir)
-	case "read_outline":
-		return ExecuteReadOutline(ctx, act.Command, workDir)
-	case "read_window":
-		return ExecuteReadWindow(ctx, act.Command, workDir)
-	case "run_test":
-		return ExecuteRunTest(ctx, act.Command, workDir)
-	case "get_environment":
-		return ExecuteGetEnvironment(ctx, act.Command, workDir)
-	case "find_files":
-		return ExecuteFindFiles(ctx, act.Command, workDir)
-	case "search_code":
-		return ExecuteSearchCode(ctx, act.Command, workDir)
-	case "git_diff_summary":
-		return ExecuteGitDiffSummary(ctx, act.Command, workDir)
-	case "task_finish":
-		return act.Command, nil
-	default:
-		return "", fmt.Errorf("unknown action: %s", act.Name)
+	tool, exists := catalog.DefaultRegistry.Get(act.Name)
+	if !exists {
+		return "", fmt.Errorf("unknown action: %s. Use <action name=\"tool_help\"><tool>all</tool></action> to see available tools", act.Name)
 	}
+
+	return tool.Execute(ctx, act.Command, workDir)
 }
 
 // TargetSummary returns a concise description or target path for the action.
@@ -396,6 +377,11 @@ func (a *Action) TargetSummary() string {
 		return ""
 	}
 	switch a.Name {
+	case "tool_help":
+		if t := extractTagContent(a.Command, "tool"); t != "" {
+			return t
+		}
+		return strings.TrimSpace(a.Command)
 	case "replace_file":
 		if input, _ := ParseReplaceFileInput(a.Command); input != nil {
 			return input.Path

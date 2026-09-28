@@ -205,14 +205,17 @@ func TestBuildSystemPrompt(t *testing.T) {
 
 	t.Run("action formats and protocol included", func(t *testing.T) {
 		prompt := agent.BuildSystemPrompt("/tmp")
-		if !strings.Contains(prompt, "<action name=\"get_environment\">") {
-			t.Error("expected prompt to document get_environment action format")
-		}
-		if !strings.Contains(prompt, "<action name=\"exec_bash\">") {
-			t.Error("expected prompt to document exec_bash action format")
-		}
 		if !strings.Contains(prompt, "<action name=\"task_finish\">") {
 			t.Error("expected prompt to document task_finish action format")
+		}
+		if !strings.Contains(prompt, "<action name=\"find_files\">") {
+			t.Error("expected prompt to document find_files action format")
+		}
+		if !strings.Contains(prompt, "<action name=\"tool_help\">") {
+			t.Error("expected prompt to document tool_help action format")
+		}
+		if !strings.Contains(prompt, "get_environment:") || !strings.Contains(prompt, "exec_bash:") {
+			t.Error("expected prompt to list specialized tools get_environment and exec_bash")
 		}
 	})
 

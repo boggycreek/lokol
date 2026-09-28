@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/boggycreek/lokol/liblokol/catalog"
 	"github.com/boggycreek/lokol/liblokol/refinery"
 )
 
@@ -40,6 +41,7 @@ type Session struct {
 	Mode            Mode
 	CodebaseContext string
 	History         []Message
+	consecutiveReads int
 }
 
 var _ SessionCore = (*Session)(nil)
@@ -114,9 +116,15 @@ func (s *Session) SetMode(mode Mode) {
 	}
 }
 
-// AppendUserMessage appends a user message to the session's conversation history.
+// AppendUserMessage appends a user message to the session's conversation history,
+// dynamically injecting specialized tools matching the user's intent per ADR-0024.
 func (s *Session) AppendUserMessage(content string) {
-	s.History = append(s.History, Message{Role: "user", Content: content})
+	injected := catalog.DefaultRouter.RouteIntent(context.Background(), content)
+	fullContent := content
+	if len(injected) > 0 {
+		fullContent = content + catalog.DefaultRouter.FormatInjectedTools(injected)
+	}
+	s.History = append(s.History, Message{Role: "user", Content: fullContent})
 }
 
 // AppendAssistantMessage appends an assistant message to the session's conversation history.
@@ -137,7 +145,17 @@ func (s *Session) AppendActionResult(output string, err error) {
 
 // ExecuteAction executes a parsed Action using the centralized DispatchAction.
 func (s *Session) ExecuteAction(ctx context.Context, act *Action) (string, error) {
-	return DispatchAction(ctx, act, s.WorkDir)
+	if act != nil && (act.Name == "read_window" || act.Name == "read_outline") {
+		s.consecutiveReads++
+	} else {
+		s.consecutiveReads = 0
+	}
+
+	out, err := DispatchAction(ctx, act, s.WorkDir)
+	if err == nil && s.consecutiveReads >= 2 {
+		out += "\n\n[Guidance: You have inspected multiple files. Please synthesize your findings now and conclude your response, or call task_finish.]"
+	}
+	return out, err
 }
 
 // StreamTurn initiates a model streaming response using the session's history.

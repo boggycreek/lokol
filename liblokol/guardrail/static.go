@@ -93,9 +93,14 @@ var defaultDangerPatterns = []dangerPattern{
 		reason: "Attempt to access host authentication credentials or private keys",
 	},
 	{
-		regex:  regexp.MustCompile(`(?i)\b(?:cat|head|tail|less|more|cp|mv)\s+.*\/etc\/(?:shadow|sudoers|master\.passwd)`),
+		regex:  regexp.MustCompile(`(?i)\b(?:cat|head|tail|less|more|cp|mv|grep|awk|sed)\s+.*\/etc\/(?:shadow|sudoers|master\.passwd|passwd)\b`),
 		level:  RiskLevelHigh,
 		reason: "Attempt to access sensitive host security and password databases",
+	},
+	{
+		regex:  regexp.MustCompile(`(?i)\bgetent\s+(?:passwd|shadow)\b`),
+		level:  RiskLevelHigh,
+		reason: "Attempt to dump host user and authentication databases",
 	},
 
 	// Medium: Modifying global system directories or service configs

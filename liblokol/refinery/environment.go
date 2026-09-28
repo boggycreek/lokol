@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"os/user"
@@ -16,7 +17,17 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/boggycreek/lokol/liblokol/probe"
 )
+
+// HardwareInfo captures host compute and GPU accelerator metrics.
+type HardwareInfo struct {
+	CPU  string `json:"cpu,omitempty"`
+	RAM  string `json:"ram,omitempty"`
+	GPU  string `json:"gpu,omitempty"`
+	VRAM string `json:"vram,omitempty"`
+}
 
 // GitInfo represents the detected git repository state for a workspace.
 type GitInfo struct {
@@ -34,6 +45,7 @@ type EnvironmentInfo struct {
 	Arch             string            `json:"arch"`
 	Shell            string            `json:"shell"`
 	User             string            `json:"user"`
+	Hardware         *HardwareInfo     `json:"hardware,omitempty"`
 	Git              GitInfo           `json:"git"`
 	Toolchains       map[string]string `json:"toolchains"`
 	Files            []string          `json:"files"`
@@ -96,12 +108,24 @@ func GetEnvironment(workDir string) (*EnvironmentInfo, error) {
 		}
 	}
 
+	// Hardware profile detection
+	var hwInfo *HardwareInfo
+	if hw, err := probe.Detect(); err == nil && hw != nil {
+		hwInfo = &HardwareInfo{
+			CPU:  fmt.Sprintf("%d cores", hw.CPUCores),
+			RAM:  hw.HumanRAM(),
+			GPU:  hw.GPUName,
+			VRAM: hw.HumanVRAM(),
+		}
+	}
+
 	return &EnvironmentInfo{
 		WorkingDirectory: workDir,
 		OS:               runtime.GOOS,
 		Arch:             runtime.GOARCH,
 		Shell:            shell,
 		User:             username,
+		Hardware:         hwInfo,
 		Git:              gitInfo,
 		Toolchains:       toolchains,
 		Files:            files,
