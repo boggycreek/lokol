@@ -766,5 +766,57 @@ func TestTUI_Presentation_LoopCircuitBreakerAndFailureBadges(t *testing.T) {
 	}
 }
 
+func TestTUI_Presentation_SlashCommands_YoloAndClear(t *testing.T) {
+	mock := NewMockSession()
+	m := tui.NewWithSession(mock, nil, false)
+	newM, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = newM.(tui.Model)
+
+	// 1. Test /yolo toggle ON
+	m = m.WithInitialPrompt("/yolo")
+	updated, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd != nil {
+		t.Errorf("expected nil cmd from slash command, got: %v", cmd)
+	}
+	m = updated.(tui.Model)
+
+	if !strings.Contains(m.ViewportContent(), "YOLO MODE ENGAGED") {
+		t.Errorf("expected YOLO MODE ENGAGED in viewport, got: %s", m.ViewportContent())
+	}
+	if !strings.Contains(m.View(), "[YOLO]") {
+		t.Errorf("expected [YOLO] active indicator in view, got: %s", m.View())
+	}
+
+	// 2. Test /yolo toggle OFF
+	m = m.WithInitialPrompt("/yolo")
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(tui.Model)
+
+	if !strings.Contains(m.ViewportContent(), "SAFE MODE ENGAGED") {
+		t.Errorf("expected SAFE MODE ENGAGED in viewport, got: %s", m.ViewportContent())
+	}
+
+	// 3. Test /clear command
+	mock.AppendUserMessage("User message before clear")
+	mock.AppendAssistantMessage("Assistant message before clear")
+	if len(mock.UserMessages) != 1 {
+		t.Fatalf("expected 1 user message in mock before clear")
+	}
+
+	m = m.WithInitialPrompt("/clear")
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(tui.Model)
+
+	if len(mock.UserMessages) != 0 {
+		t.Errorf("expected mock user messages to be cleared, got: %v", mock.UserMessages)
+	}
+	if !strings.Contains(m.ViewportContent(), "Session Cleared") {
+		t.Errorf("expected Session Cleared message in viewport, got: %s", m.ViewportContent())
+	}
+	if strings.Contains(m.ViewportContent(), "User message before clear") {
+		t.Errorf("expected old log to be purged from viewport after /clear")
+	}
+}
+
 
 
