@@ -1,3 +1,20 @@
+---
+adr: "0013"
+title: "Graded Multi-Tier Integration Benchmark Suite"
+topic: "Evaluations & Verification"
+theme: "THEME-QUALITY"
+status: "accepted"
+version: "v0.1.0-alpha"
+as_built: true
+tags:
+  - benchmarks
+  - eval-suite
+  - grading
+  - regression-testing
+  - agent-loop
+executive_summary: "Establishes a 10-tier graded integration benchmark suite testing agent loop mechanics, tool recovery, bounded editing, and full-project autonomy against live inference engines."
+---
+
 # ADR 0013: Graded Multi-Tier Integration Benchmark Suite
 
 ## Status

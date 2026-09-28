@@ -1,3 +1,20 @@
+---
+adr: "0010"
+title: "Persistent Memory Storage Architecture in XDG State and Data Directories"
+topic: "Memory & Retrieval"
+theme: "THEME-MEMORY"
+status: "accepted"
+version: "v0.1.0-alpha"
+as_built: true
+tags:
+  - memory
+  - persistence
+  - xdg
+  - storage
+  - knowledge
+executive_summary: "Stores long-term agent memories and learned preferences across sessions using structured persistence in standard XDG state and data directories."
+---
+
 # ADR 0010: Persistent Memory Storage Architecture in XDG State and Data Directories
 
 ## Status

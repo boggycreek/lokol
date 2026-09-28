@@ -1,3 +1,20 @@
+---
+adr: "0008"
+title: "Dynamic Mixture of Experts (MoE) Routing for Constrained VRAM"
+topic: "Hardware & Inference"
+theme: "THEME-INFERENCE"
+status: "accepted"
+version: "v0.1.0-alpha"
+as_built: true
+tags:
+  - moe
+  - sparse-activation
+  - vram
+  - inference
+  - memory-offload
+executive_summary: "Establishes a sparse MoE operational strategy that prioritizes attention layers and active experts in GPU VRAM while paging non-active experts in system RAM via mmap."
+---
+
 # ADR 0008: Dynamic Mixture of Experts (MoE) Routing for Constrained VRAM
 
 ## Status

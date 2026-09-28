@@ -1,3 +1,20 @@
+---
+adr: "0011"
+title: "Local Vector Database Adoption for Memory and Source Code Indexing"
+topic: "Memory & Retrieval"
+theme: "THEME-MEMORY"
+status: "accepted"
+version: "v0.1.0-alpha"
+as_built: true
+tags:
+  - vector-db
+  - embeddings
+  - semantic-search
+  - indexing
+  - memory
+executive_summary: "Adopts an embedded, pure Go local vector database for semantic memory retrieval and code symbol indexing without external service dependencies."
+---
+
 # ADR 0011: Local Vector Database Adoption for Memory and Source Code Indexing
 
 ## Status

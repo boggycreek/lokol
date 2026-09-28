@@ -1,3 +1,20 @@
+---
+adr: "0004"
+title: "Terminal Interface Strategy (Bubble Tea TUI vs Headless CLI)"
+topic: "Developer Experience & Interfaces"
+theme: "THEME-QUALITY"
+status: "accepted"
+version: "v0.1.0-alpha"
+as_built: true
+tags:
+  - tui
+  - cli
+  - bubbletea
+  - ergonomics
+  - terminal
+executive_summary: "Splits terminal presentation into an interactive Bubble Tea TUI (cmd/lk) for live operator feedback and a headless non-interactive CLI (cmd/lokol) for scripted automation and CI."
+---
+
 # ADR 0004: Terminal Interface Strategy (Headless CLI vs Interactive TUI)
 
 ## Status

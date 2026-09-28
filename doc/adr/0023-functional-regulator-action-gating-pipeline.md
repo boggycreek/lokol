@@ -1,3 +1,20 @@
+---
+adr: "0023"
+title: "Functional Regulator Action-Gating Pipeline"
+topic: "Protocols & Catalog"
+theme: "THEME-AGENT"
+status: "accepted"
+version: "v0.1.0-alpha"
+as_built: true
+tags:
+  - regulator
+  - action-gating
+  - security
+  - telemetry
+  - safety-pipeline
+executive_summary: "Defines a composable functional regulator pipeline that intercepts, inspects, and validates proposed agent actions through layered static, dynamic, and human-in-the-loop gates."
+---
+
 # ADR 0023: Functional Regulator Action-Gating Pipeline
 
 ## Status

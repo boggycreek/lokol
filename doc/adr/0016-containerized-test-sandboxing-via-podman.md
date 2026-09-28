@@ -1,3 +1,20 @@
+---
+adr: "0016"
+title: "Containerized Test Sandboxing for Host Memory and State Isolation"
+topic: "Security & Isolation"
+theme: "THEME-SECURITY"
+status: "accepted"
+version: "v0.1.0-alpha"
+as_built: true
+tags:
+  - podman
+  - sandboxing
+  - isolation
+  - security
+  - test-harness
+executive_summary: "Executes agent autonomy evaluations inside unprivileged, rootless Podman containers with isolated volumes to strictly protect host task tracking (.beads) and file state."
+---
+
 # ADR 0016: Containerized Test Sandboxing for Host Memory and State Isolation
 
 ## Status

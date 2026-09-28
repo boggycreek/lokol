@@ -1,3 +1,19 @@
+---
+adr: "0009"
+title: "Ingestion of Repository AGENTS.md in Agentic Coding Mode"
+topic: "Protocols & Catalog"
+theme: "THEME-AGENT"
+status: "accepted"
+version: "v0.1.0-alpha"
+as_built: true
+tags:
+  - agents-md
+  - prompt-engineering
+  - repo-grounding
+  - context
+executive_summary: "Ingests repository AGENTS.md instructions directly into the agent context in coding mode to ensure strict adherence to workspace conventions, quality gates, and tool rules."
+---
+
 # ADR 0009: Ingestion of Repository AGENTS.md in Agentic Coding Mode
 
 ## Status

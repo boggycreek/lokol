@@ -1,3 +1,19 @@
+---
+adr: "0012"
+title: "In-Repo MCP Servers as Architectural Facades for Deterministic Tool Call Invocations"
+topic: "Protocols & Catalog"
+theme: "THEME-AGENT"
+status: "accepted"
+version: "v0.1.0-alpha"
+as_built: true
+tags:
+  - mcp
+  - model-context-protocol
+  - tool-facade
+  - json-rpc
+executive_summary: "Provides an in-repo Model Context Protocol (MCP) server facade (cmd/lokol-mcp) exposing refinery operations over stdio JSON-RPC for external tools and agents."
+---
+
 # ADR 0012: In-Repo MCP Servers as Architectural Facades for Deterministic Tool Call Invocations
 
 ## Status

@@ -1,3 +1,20 @@
+---
+adr: "0015"
+title: "Auxiliary Developer Tooling Isolation via Virtual Environments"
+topic: "Evaluations & Verification"
+theme: "THEME-QUALITY"
+status: "accepted"
+version: "v0.1.0-alpha"
+as_built: true
+tags:
+  - developer-tooling
+  - uv
+  - python
+  - isolation
+  - virtualenv
+executive_summary: "Isolates auxiliary developer tooling and evaluation bridges in project-local virtual environments managed strictly via uv and PEP 723 metadata without polluting system environments."
+---
+
 # ADR 0015: Auxiliary Developer Tooling Isolation via Virtual Environments
 
 ## Status

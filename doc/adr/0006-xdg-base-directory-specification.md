@@ -1,3 +1,20 @@
+---
+adr: "0006"
+title: "XDG Base Directory Standard Adoption"
+topic: "Foundations & Architecture"
+theme: "THEME-CORE"
+status: "accepted"
+version: "v0.1.0-alpha"
+as_built: true
+tags:
+  - xdg
+  - filesystem
+  - configuration
+  - cache
+  - storage
+executive_summary: "Adopts the XDG Base Directory specification for all configuration, cache, state, and persistent data paths across lokol and lk."
+---
+
 # ADR 0006: XDG Base Directory Standard Adoption
 
 ## Status

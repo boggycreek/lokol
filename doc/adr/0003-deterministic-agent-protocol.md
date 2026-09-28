@@ -1,3 +1,20 @@
+---
+adr: "0003"
+title: "Deterministic Agent Protocol vs JSON Schema Tool Calling"
+topic: "Protocols & Catalog"
+theme: "THEME-AGENT"
+status: "accepted"
+version: "v0.1.0-alpha"
+as_built: true
+tags:
+  - agent-protocol
+  - xml
+  - tool-calling
+  - json-schema
+  - reliability
+executive_summary: "Adopts a strict XML action-tag protocol over JSON Schema tool calling to ensure reliable tool invocations and eliminate schema hallucination across small local models (3B–8B)."
+---
+
 # ADR 0003: Deterministic Agent Protocol vs JSON Schema Tool Calling
 
 ## Status

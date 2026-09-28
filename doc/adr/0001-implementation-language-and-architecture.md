@@ -1,3 +1,20 @@
+---
+adr: "0001"
+title: "Use Go with Managed llama-server Process Isolation"
+topic: "Foundations & Architecture"
+theme: "THEME-CORE"
+status: "accepted"
+version: "v0.1.0-alpha"
+as_built: true
+tags:
+  - architecture
+  - go
+  - llama-server
+  - runtime
+  - static-binary
+executive_summary: "Lokol implements its core runtime and tools in pure Go, communicating with a managed llama-server subprocess over HTTP for deterministic process isolation and native binary execution."
+---
+
 # ADR 0001: Implementation Language and Engine Architecture
 
 ## Status

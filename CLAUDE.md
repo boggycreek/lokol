@@ -124,10 +124,12 @@ uv run --python .venv tools/laya/judge.py --health
    - Must live in dedicated subdirectories under `./tools/*` (e.g. `./tools/laya/`).
    - Managed strictly via `uv` with PEP 723 inline script metadata. Never install to global Python.
 6. **Non-Interactive Commands**: Always use non-interactive flags (`cp -f`, `rm -rf`, `apt-get -y`, `HOMEBREW_NO_AUTO_UPDATE=1`) to prevent hangs.
-7. **Architecture Decision Records (ADR) Standards**:
+7. **Architecture Decision Records (ADR) Standards & AI Discovery**:
+   - **Inspect via `doc/ai/` and Front Matter**: Before reading full ADRs, inspect [`doc/ai/`](doc/ai/) for synthesized domain guides (`architecture.md`, `inference-and-hardware.md`, `tool-catalog-and-protocols.md`, `testing-and-evals.md`, `dev-workflow.md`) or review [`doc/adr/README.md`](doc/adr/README.md) for thematic summaries in <400 tokens. Read the first 15 lines of any ADR for its machine-readable YAML front matter (`executive_summary`, `theme`, `tags`).
    - **Single-Topic ONLY**: Each ADR addresses exactly one decision; avoid compound topics or "and" titles.
-   - **Audit Existing ADRs First**: Do not draft ADRs for tooling or components that are merely implementations of already accepted ADRs (e.g. ADR-0013, ADR-0014, ADR-0015).
+   - **Audit Existing ADRs First**: Check `doc/ai/` and `doc/adr/README.md` first. Do not draft ADRs for tooling or components that are merely implementations of already accepted ADRs (e.g. ADR-0013, ADR-0014, ADR-0015).
    - **What and Why, No How**: Strictly omit perishable implementation details (no code snippets, type definitions, package paths, transient timings, tool schemas, or CLI flag names).
+   - **Standard Front Matter**: All new ADRs must include the standard YAML front matter block matching `doc/adr/` schema.
 8. **Code/Data Separation for Evaluation Scenarios**:
    - Test and capability probe scenarios are stored in JSONL datasets (`tools/scenarios/scenarios.jsonl`), keeping scenario datasets strictly separated from test harness execution logic.
    - Edge cases and negative findings from live sessions must be persisted to the JSONL dataset for repeatable regression tracking.

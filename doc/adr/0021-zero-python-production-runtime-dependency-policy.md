@@ -1,3 +1,20 @@
+---
+adr: "0021"
+title: "Zero-Python Production Runtime Dependency Policy"
+topic: "Foundations & Architecture"
+theme: "THEME-CORE"
+status: "accepted"
+version: "v0.1.0-alpha"
+as_built: true
+tags:
+  - zero-python
+  - pure-go
+  - packaging
+  - dependencies
+  - production-runtime
+executive_summary: "Mandates that all production runtime components (liblokol, cmd/lk, cmd/lokol, cmd/lokol-mcp) are written in 100% pure Go with zero runtime Python or dynamic interpreter dependencies."
+---
+
 # ADR 0021: Zero-Python Production Runtime Dependency Policy
 
 ## Status

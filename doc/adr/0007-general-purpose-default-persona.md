@@ -1,3 +1,19 @@
+---
+adr: "0007"
+title: "General-Purpose Assistant as Default Operational Persona"
+topic: "Hardware & Inference"
+theme: "THEME-INFERENCE"
+status: "accepted"
+version: "v0.1.0-alpha"
+as_built: true
+tags:
+  - persona
+  - general-purpose
+  - coding-mode
+  - defaults
+executive_summary: "Designates general-purpose assistant as the baseline operational persona, recommending conversational instruct models by default while offering specialized coding and architect modes via explicit flags."
+---
+
 # ADR 0007: General-Purpose Assistant as Default Operational Persona
 
 ## Status
