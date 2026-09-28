@@ -26,6 +26,9 @@ func TestParseMode(t *testing.T) {
 		{"moe", agent.ModeMoE, false},
 		{"GENERAL", agent.ModeGeneral, false},
 		{"Coding", agent.ModeCoding, false},
+		{"chat", agent.ModeGeneral, false},
+		{"code", agent.ModeCoding, false},
+		{"expert", agent.ModeMoE, false},
 		{"", agent.ModeGeneral, false},
 		{"unknown", agent.Mode(""), true},
 	}
