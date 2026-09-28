@@ -2,9 +2,6 @@
 
 This directory serves as the centralized, version-controlled repository for evaluation scenarios, capability probes, and regression test suites across the `lokol` project.
 
-Per [ADR-0013](../../doc/adr/0013-graded-multi-tier-agent-evaluations.md), [ADR-0015](../../doc/adr/0015-auxiliary-tooling-isolation-via-uv.md), and [ADR-0022](../../doc/adr/0022-colocated-unit-testing-and-integration-hierarchy.md), **scenario data is strictly separated from test harness execution logic**. Execution engines (`tools/core_driver`, `tools/probe`, future `tools/cli_driver`, and subproject tests) read these datasets to execute deterministic assertions, hardware telemetry supervisory loops, and semantic Laya evaluations.
-
-Unlike developer run-logs and benchmark reports (which are gitignored in local `*/data/` directories), scenario datasets are **tracked in git as authoritative ground truth**.
 
 ---
 
