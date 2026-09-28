@@ -53,7 +53,7 @@ uv run --python .venv tools/probe/run.py --file-beads
 
 ## Code/Data Separation & JSONL Scenario Persistence
 
-Capability probing scenarios are decoupled from the test driver logic and persisted in [`tools/probe/scenarios.jsonl`](scenarios.jsonl):
+Capability probing scenarios are decoupled from the test driver logic and persisted in [`tools/scenarios/scenarios.jsonl`](../scenarios/scenarios.jsonl):
 
 1. **Code vs. Data Separation**:
    - Test harness execution logic lives in Python (`harness.py`, `watchdog.py`, `session.py`).

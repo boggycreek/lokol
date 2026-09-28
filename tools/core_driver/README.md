@@ -8,7 +8,7 @@ Unlike black-box test harnesses (`tools/cli_harness` or `cmd/lk`), `core_driver`
 
 1. **Direct In-Process Execution**: Instantiates [`agent.Session`](../../liblokol/agent/session.go) directly in-process, streaming turn tokens directly into Go channels.
 2. **Structured Event Assertions**: Directly parses and executes [`agent.Action`](../../liblokol/agent/client.go) structs with microsecond latency.
-3. **Repeatable Scenario Probing**: Reads version-controlled JSONL scenarios (`tools/probe/scenarios.jsonl`) and executes them with configurable repetition counts (`-r N`) to evaluate determinism and inference cache behavior.
+3. **Repeatable Scenario Probing**: Reads version-controlled JSONL scenarios (`tools/scenarios/scenarios.jsonl`) and executes them with configurable repetition counts (`-r N`) to evaluate determinism and inference cache behavior.
 4. **Semantic Scoring**: Automatically bridges to Convai's Laya decision model (`tools/laya/judge.py`) for semantic evaluation and scoring.
 5. **Interactive REPL Prompting**: Provides an interactive developer prompt loop directly into the core engine with real-time slot telemetry and mode switching.
 
