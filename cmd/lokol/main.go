@@ -33,6 +33,7 @@ func main() {
 	topMaxTurns := flag.Int("max-turns", 15, "Max turns for agent loop in headless mode")
 	topVerbose := flag.Bool("verbose", false, "Display internal reasoning tokens and verbose tool activity")
 	flag.BoolVar(topVerbose, "v", false, "Display internal reasoning tokens (shorthand)")
+	topVersion := flag.Bool("version", false, "Display version and exit")
 
 	// Custom usage func
 	flag.Usage = printUsage
@@ -67,9 +68,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Check if top-level flags like -p, --prompt, -h, --help were passed
+	// Check if top-level flags like -p, --prompt, -h, --help, --version were passed
 	if strings.HasPrefix(os.Args[1], "-") {
 		_ = flag.CommandLine.Parse(os.Args[1:])
+		if *topVersion {
+			fmt.Printf("lokol %s (commit: %s, built: %s)\n", version.Version, version.GitCommit, version.BuildDate)
+			return
+		}
 		if *promptFlag != "" {
 			m, _ := agent.ParseMode(*topMode)
 			runExec(*topEngine, *topMaxTurns, *promptFlag, *topVerbose, m)
