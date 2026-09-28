@@ -40,6 +40,17 @@ func ReadWindow(path string, startLine, endLine int) (string, error) {
 		endLine = startLine + 120
 	}
 
+	fi, err := os.Stat(path)
+	if err != nil {
+		return "", fmt.Errorf("failed to open file %s: %w", path, err)
+	}
+	if fi.IsDir() {
+		if path == "." || path == "./" {
+			return "", fmt.Errorf("current directory %q is a directory, not a file. To discover files in this workspace, use <action name=\"find_files\"><pattern>*</pattern></action>. To inspect a file, provide a file path", path)
+		}
+		return "", fmt.Errorf("%q is a directory, not a file. To discover files in this directory, use <action name=\"find_files\"><path>%s</path><pattern>*</pattern></action>. To inspect a file, provide a file path", path, path)
+	}
+
 	file, err := os.Open(path)
 	if err != nil {
 		return "", fmt.Errorf("failed to open file %s: %w", path, err)
@@ -79,6 +90,17 @@ type OutlineItem struct {
 // ReadOutline extracts high-level structural declarations (types, interfaces, function signatures)
 // without dumping the inner function bodies.
 func ReadOutline(path string) (string, error) {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return "", fmt.Errorf("failed to stat file %s: %w", path, err)
+	}
+	if fi.IsDir() {
+		if path == "." || path == "./" {
+			return "", fmt.Errorf("current directory %q is a directory, not a file. To discover files in this workspace, use <action name=\"find_files\"><pattern>*</pattern></action>", path)
+		}
+		return "", fmt.Errorf("%q is a directory, not a file. To discover files in this directory, use <action name=\"find_files\"><path>%s</path><pattern>*</pattern></action>", path, path)
+	}
+
 	ext := filepath.Ext(path)
 	if ext == ".go" {
 		return outlineGoFile(path)

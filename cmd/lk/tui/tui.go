@@ -71,6 +71,10 @@ type Model struct {
 	lastTool            string
 	consecutiveCommands int
 	lastBadge           string
+
+	// Loop circuit breaker tracking
+	lastSig     string
+	repeatCount int
 }
 
 var (
@@ -435,7 +439,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.state == StateWaitingActionApproval {
 				// Approve action
 				m.state = StateExecutingAction
-				m.appendLog(outputBoxStyle.Render("⚡ Executing command: " + m.pendingAct.Command))
+				if m.verbose && m.pendingAct != nil {
+					m.appendLog(m.pendingAct.VerboseDescription() + "\n\n")
+				}
 				return m, tea.Batch(
 					executeAction(m.session, m.pendingAct),
 					m.spinner.Tick,
@@ -482,6 +488,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.lastTool = ""
 				m.consecutiveCommands = 0
 				m.lastBadge = ""
+				m.lastSig = ""
+				m.repeatCount = 0
 				m.currentResp = ""
 				m.tokenChan = make(chan string, 100)
 
@@ -510,7 +518,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch msg.String() {
 			case "y", "Y":
 				m.state = StateExecutingAction
-				m.appendLog(outputBoxStyle.Render("⚡ Executing approved command: " + m.pendingAct.Command))
+				if m.verbose && m.pendingAct != nil {
+					m.appendLog(m.pendingAct.VerboseDescription() + "\n\n")
+				}
 				return m, tea.Batch(
 					executeAction(m.session, m.pendingAct),
 					m.spinner.Tick,
@@ -519,7 +529,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.state = StateIdle
 				m.consecutiveCommands = 0
 				m.lastBadge = ""
-				m.appendLog("[Action rejected by user]\n")
+				m.lastSig = ""
+				m.repeatCount = 0
+				m.appendLog("[Action rejected by user]\n\n")
 				if m.session != nil {
 					m.session.AppendUserMessage("User rejected the action proposal. Please decide on an alternative or ask for clarification.")
 				}
@@ -564,6 +576,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.lastThought = act.CleanThought
 				m.lastTool = act.Name
 
+				currentSig := act.Name + ":" + strings.TrimSpace(act.Command)
+				if currentSig == m.lastSig {
+					m.repeatCount++
+				} else {
+					m.lastSig = currentSig
+					m.repeatCount = 1
+				}
+
+				if m.repeatCount >= 4 {
+					m.state = StateIdle
+					m.consecutiveCommands = 0
+					m.lastBadge = ""
+					m.pendingAct = nil
+					m.lastSig = ""
+					m.repeatCount = 0
+					m.appendLog(fmt.Sprintf("⚠️  [Loop Circuit Breaker] Action %s repeated %d times consecutively without progress. Halting loop to protect KV cache.\n\n", act.Name, 4))
+					return m, nil
+				}
+
 				if m.verbose && act.CleanThought != "" {
 					m.appendLog(agentStyle.Render("lokol: ") + act.CleanThought + "\n")
 				}
@@ -586,7 +617,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// YOLO Mode: execute immediately without waiting for user approval
 					m.state = StateExecutingAction
 					if m.verbose {
-						m.appendLog(act.VerboseDescription() + "\n")
+						m.appendLog(act.VerboseDescription() + "\n\n")
 					}
 					return m, tea.Batch(
 						executeAction(m.session, act),
@@ -594,6 +625,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					)
 				}
 
+				m.consecutiveCommands = 0
+				m.lastBadge = ""
 				m.state = StateWaitingActionApproval
 				warningBadge := ""
 				if perm.Status != guardrail.StatusAllowed {
@@ -608,6 +641,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.state = StateIdle
 				m.consecutiveCommands = 0
 				m.lastBadge = ""
+				m.lastSig = ""
+				m.repeatCount = 0
 				finalText := strings.TrimSpace(act.Command)
 				if act.CleanThought != "" {
 					if finalText != "" && !strings.Contains(act.CleanThought, finalText) {
@@ -638,6 +673,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.state = StateIdle
 				m.consecutiveCommands = 0
 				m.lastBadge = ""
+				m.lastSig = ""
+				m.repeatCount = 0
 				m.appendLog(agentStyle.Render("lokol: ") + strings.TrimSpace(response) + "\n\n")
 				m.stepCount = 0
 				m.lastThought = ""
@@ -648,37 +685,77 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case ActionExecutedMsg:
 		output := string(msg)
+		isError := strings.HasPrefix(output, "[Error: ")
+
 		if m.verbose {
-			m.appendLog("✓ Executed successfully\n")
+			if isError {
+				m.appendLog("✗ Execution failed\n\n")
+			} else {
+				m.appendLog("✓ Executed successfully\n\n")
+			}
 		} else if m.pendingAct != nil {
-			m.consecutiveCommands++
-			if m.consecutiveCommands == 1 {
-				badge := formatCompactAction(m.pendingAct)
+			if isError {
+				errSummary := output
+				if idx := strings.Index(errSummary, "\n"); idx != -1 {
+					errSummary = errSummary[:idx]
+				}
+				errSummary = strings.TrimPrefix(errSummary, "[Error: ")
+				errSummary = strings.TrimSuffix(errSummary, "]")
+				if len(errSummary) > 60 {
+					errSummary = errSummary[:57] + "..."
+				}
+				badge := fmt.Sprintf("Failed %s (%s) ✗", m.pendingAct.Name, errSummary)
 				badgeStr := toolBadgeStyle.Render(badge) + "\n\n"
 				m.lastBadge = badgeStr
 				m.appendLog(badgeStr)
 			} else {
-				newBadge := fmt.Sprintf("Ran %d commands ▸", m.consecutiveCommands)
-				newBadgeStr := toolBadgeStyle.Render(newBadge) + "\n\n"
-				if m.lastBadge != "" && strings.HasSuffix(m.chatLog, m.lastBadge) {
-					m.chatLog = strings.TrimSuffix(m.chatLog, m.lastBadge) + newBadgeStr
-					m.lastBadge = newBadgeStr
-					w := m.viewport.Width
-					if w <= 0 {
-						w = 76
-					}
-					m.viewport.SetContent(wrapContent(m.chatLog, w))
-					m.viewport.GotoBottom()
+				m.consecutiveCommands++
+				if m.consecutiveCommands == 1 {
+					badge := formatCompactAction(m.pendingAct)
+					badgeStr := toolBadgeStyle.Render(badge) + "\n\n"
+					m.lastBadge = badgeStr
+					m.appendLog(badgeStr)
 				} else {
-					m.lastBadge = newBadgeStr
-					m.appendLog(newBadgeStr)
+					newBadge := fmt.Sprintf("Ran %d commands ▸", m.consecutiveCommands)
+					newBadgeStr := toolBadgeStyle.Render(newBadge) + "\n\n"
+					if m.lastBadge != "" && strings.HasSuffix(m.chatLog, m.lastBadge) {
+						m.chatLog = strings.TrimSuffix(m.chatLog, m.lastBadge) + newBadgeStr
+						m.lastBadge = newBadgeStr
+						w := m.viewport.Width
+						if w <= 0 {
+							w = 76
+						}
+						m.viewport.SetContent(wrapContent(m.chatLog, w))
+						m.viewport.GotoBottom()
+					} else {
+						m.lastBadge = newBadgeStr
+						m.appendLog(newBadgeStr)
+					}
+				}
+			}
+		}
+
+		// Inject system intervention if repeating action loop detected
+		sessionOutput := output
+		if m.repeatCount >= 2 && m.pendingAct != nil {
+			if isError {
+				if m.pendingAct.Name == "read_window" {
+					sessionOutput += fmt.Sprintf("\n\n[SYSTEM INTERVENTION: Loop detected. You have attempted this exact read %d times consecutively and it failed. DO NOT repeat this action. If you are trying to inspect a directory, use <action name=\"find_files\"><pattern>*</pattern></action> instead.]", m.repeatCount)
+				} else if m.pendingAct.Name == "replace_file" {
+					sessionOutput += fmt.Sprintf("\n\n[SYSTEM INTERVENTION: Loop detected. You have attempted this EXACT edit %d times consecutively and it failed. DO NOT repeat this action. Use <action name=\"read_window\"> to inspect lines, or use <action name=\"write_file\"> to rewrite completely.]", m.repeatCount)
+				} else {
+					sessionOutput += fmt.Sprintf("\n\n[SYSTEM INTERVENTION: Loop detected. You have attempted this EXACT action %d times consecutively and it failed. DO NOT repeat this action. Change your strategy or call <action name=\"task_finish\">.]", m.repeatCount)
+				}
+			} else {
+				if m.pendingAct.Name == "read_window" {
+					sessionOutput += fmt.Sprintf("\n\n[SYSTEM INTERVENTION: Loop detected. You have read this exact line window %d times consecutively. You now have the contents. Take action to edit the file or proceed with your next step.]", m.repeatCount)
 				}
 			}
 		}
 
 		// Feed tool output back to agent session
 		if m.session != nil {
-			m.session.AppendActionResult(output, nil)
+			m.session.AppendActionResult(sessionOutput, nil)
 		}
 
 		// Trigger next agent iteration

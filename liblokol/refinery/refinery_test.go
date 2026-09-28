@@ -41,6 +41,15 @@ func TestReadWindow(t *testing.T) {
 	if strings.Contains(out, "line 1") || strings.Contains(out, "line 5") {
 		t.Errorf("did not expect line 1 or line 5, got: %s", out)
 	}
+
+	// Verify directory rejection
+	_, dirErr := refinery.ReadWindow(tmpDir, 1, 10)
+	if dirErr == nil {
+		t.Fatalf("expected ReadWindow on directory to fail, got nil")
+	}
+	if !strings.Contains(dirErr.Error(), "is a directory, not a file") {
+		t.Errorf("expected directory rejection guidance, got: %v", dirErr)
+	}
 }
 
 func TestReadOutline(t *testing.T) {
@@ -81,6 +90,15 @@ func (s *Service) Login(user, pass string) (string, error) {
 	// Verify implementation bodies are omitted
 	if strings.Contains(outline, "return \"token\"") {
 		t.Errorf("outline should omit function bodies, but found return token")
+	}
+
+	// Verify directory rejection
+	_, dirErr := refinery.ReadOutline(tmpDir)
+	if dirErr == nil {
+		t.Fatalf("expected ReadOutline on directory to fail, got nil")
+	}
+	if !strings.Contains(dirErr.Error(), "is a directory, not a file") {
+		t.Errorf("expected directory rejection guidance, got: %v", dirErr)
 	}
 }
 

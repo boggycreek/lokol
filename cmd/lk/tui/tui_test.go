@@ -665,5 +665,85 @@ func TestTUI_Presentation_FullWindowHeightUtilization(t *testing.T) {
 	}
 }
 
+// TestTUI_Presentation_LoopCircuitBreakerAndFailureBadges verifies that the TUI halts repeating action loops
+// and presents informative failure badges and system interventions.
+func TestTUI_Presentation_LoopCircuitBreakerAndFailureBadges(t *testing.T) {
+	mock := NewMockSession()
+	m := tui.NewWithSession(mock, nil, false)
+	newModel, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = newModel.(tui.Model)
+
+	// User submits initial prompt
+	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("inspect workspace")})
+	m = newM.(tui.Model)
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = newM.(tui.Model)
+
+	repeatActionXML := "I will inspect the workspace.\n<action name=\"read_window\">\n<path>.</path>\n<start>1</start>\n<end>50</end>\n</action>"
+
+	// Turn 1: Propose read_window on directory .
+	newM, _ = m.Update(tui.StreamDoneMsg(repeatActionXML))
+	m = newM.(tui.Model)
+
+	// User approves (or executes)
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	m = newM.(tui.Model)
+
+	// Action returns directory error
+	newM, _ = m.Update(tui.ActionExecutedMsg("[Error: current directory \".\" is a directory, not a file. To discover files in this workspace, use <action name=\"find_files\"><pattern>*</pattern></action>.]\n"))
+	m = newM.(tui.Model)
+
+	content := m.ViewportContent()
+	if !strings.Contains(content, "Failed read_window") {
+		t.Errorf("expected failure badge 'Failed read_window', got: %s", content)
+	}
+	if !strings.Contains(content, "✗") {
+		t.Errorf("expected failure badge marker ✗, got: %s", content)
+	}
+
+	// Turn 2: Repeat exact same action
+	newM, _ = m.Update(tui.StreamDoneMsg(repeatActionXML))
+	m = newM.(tui.Model)
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	m = newM.(tui.Model)
+	newM, _ = m.Update(tui.ActionExecutedMsg("[Error: current directory \".\" is a directory, not a file.]\n"))
+	m = newM.(tui.Model)
+
+	// Verify mock session received loop intervention
+	var receivedIntervention bool
+	for _, res := range mock.ActionResults {
+		if strings.Contains(res, "SYSTEM INTERVENTION: Loop detected") {
+			receivedIntervention = true
+			break
+		}
+	}
+	if !receivedIntervention {
+		t.Errorf("expected system intervention to be fed to session ActionResults on turn 2 loop, got: %v", mock.ActionResults)
+	}
+
+	// Turn 3: Repeat exact same action
+	newM, _ = m.Update(tui.StreamDoneMsg(repeatActionXML))
+	m = newM.(tui.Model)
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	m = newM.(tui.Model)
+	newM, _ = m.Update(tui.ActionExecutedMsg("[Error: current directory \".\" is a directory, not a file.]\n"))
+	m = newM.(tui.Model)
+
+	// Turn 4: Repeat 4th time -> Circuit breaker should trip immediately and halt
+	newM, _ = m.Update(tui.StreamDoneMsg(repeatActionXML))
+	m = newM.(tui.Model)
+
+	if m.State() != tui.StateIdle {
+		t.Errorf("expected model state to halt and be StateIdle, got %v", m.State())
+	}
+	circuitBreakerContent := m.ViewportContent()
+	if !strings.Contains(circuitBreakerContent, "Loop Circuit Breaker") {
+		t.Errorf("expected circuit breaker alert in viewport, got: %s", circuitBreakerContent)
+	}
+	if !strings.Contains(circuitBreakerContent, "repeated 4 times") {
+		t.Errorf("expected 4 times repeat explanation in viewport, got: %s", circuitBreakerContent)
+	}
+}
+
 
 
