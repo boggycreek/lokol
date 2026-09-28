@@ -16,6 +16,7 @@ import (
 
 	"github.com/boggycreek/lokol/liblokol/agent"
 	"github.com/boggycreek/lokol/liblokol/guardrail"
+	"github.com/boggycreek/lokol/liblokol/model"
 	"github.com/boggycreek/lokol/liblokol/probe"
 	"github.com/boggycreek/lokol/liblokol/version"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -152,6 +153,25 @@ var (
 			Background(lipgloss.Color("#282A36")).
 			Foreground(lipgloss.Color("#F8F8F2")).
 			Padding(0, 1)
+
+	dashLightYOLOActiveStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#FF5555"))
+
+	dashLightYOLOInactiveStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#6272A4"))
+
+	dashLightChatStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#8BE9FD"))
+
+	dashLightCodeStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#50FA7B"))
+
+	dashLightExpertStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#FF79C6"))
 )
 
 // SetVerbose toggles verbose display of intermediate inferences and tool payloads.
@@ -421,6 +441,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.appendLog("🛡️ [SAFE MODE ENGAGED] Manual action approval required.\n")
 			}
 			return m, nil
+		case tea.KeyCtrlT:
+			curr := agent.ModeGeneral
+			if m.session != nil {
+				curr = m.session.GetMode()
+			}
+			var nextMode agent.Mode
+			switch curr {
+			case agent.ModeGeneral:
+				nextMode = agent.ModeCoding
+			case agent.ModeCoding:
+				nextMode = agent.ModeMoE
+			default:
+				nextMode = agent.ModeGeneral
+			}
+			if m.session != nil {
+				m.session.SetMode(nextMode)
+			}
+			m.appendLog(fmt.Sprintf("🔄 [Mode Switched] Active persona is now: %s\n\n", nextMode))
+			return m, nil
 		case tea.KeyCtrlV:
 			m.verbose = !m.verbose
 			if m.verbose {
@@ -469,11 +508,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							m.appendLog(fmt.Sprintf("🔄 [Mode Switched] Active persona is now: %s\n\n", targetMode))
 						}
 					} else {
-						curr := "general"
+						// Circular mode toggle: general -> coding -> moe -> general
+						curr := agent.ModeGeneral
 						if m.session != nil {
-							curr = string(m.session.GetMode())
+							curr = m.session.GetMode()
 						}
-						m.appendLog(fmt.Sprintf("ℹ️ Current mode: %s. Use '/mode general', '/mode coding', or '/mode moe'.\n\n", curr))
+						var nextMode agent.Mode
+						switch curr {
+						case agent.ModeGeneral:
+							nextMode = agent.ModeCoding
+						case agent.ModeCoding:
+							nextMode = agent.ModeMoE
+						default:
+							nextMode = agent.ModeGeneral
+						}
+						if m.session != nil {
+							m.session.SetMode(nextMode)
+						}
+						m.appendLog(fmt.Sprintf("🔄 [Mode Switched] Active persona is now: %s\n\n", nextMode))
 					}
 					return m, nil
 				}
@@ -822,49 +874,76 @@ func (m *Model) appendLog(text string) {
 	m.viewport.GotoBottom()
 }
 
+func cleanModelName(raw string) string {
+	if raw == "" {
+		return ""
+	}
+	base := filepath.Base(raw)
+	base = strings.TrimSuffix(base, ".gguf")
+	base = strings.TrimSuffix(base, ".bin")
+	lower := strings.ToLower(base)
+	switch {
+	case strings.Contains(lower, "qwen2.5-coder-7b"):
+		return "Qwen 2.5 Coder 7B"
+	case strings.Contains(lower, "qwen2.5-coder-3b"):
+		return "Qwen 2.5 Coder 3B"
+	case strings.Contains(lower, "qwen2.5-coder-1.5b"):
+		return "Qwen 2.5 Coder 1.5B"
+	case strings.Contains(lower, "llama-3.1-8b"):
+		return "Meta Llama 3.1 8B"
+	case strings.Contains(lower, "llama-3.2-3b"):
+		return "Meta Llama 3.2 3B"
+	case strings.Contains(lower, "llama-3.2-1b"):
+		return "Meta Llama 3.2 1B"
+	case strings.Contains(lower, "qwen1.5-moe") || strings.Contains(lower, "qwen-1.5-moe"):
+		return "Qwen 1.5 MoE A2.7B"
+	default:
+		if strings.Contains(raw, " (") {
+			parts := strings.Split(raw, " (")
+			return parts[0]
+		}
+		return base
+	}
+}
+
+func (m Model) currentModelName() string {
+	if m.slotStatus != nil && m.slotStatus.ModelName != "" {
+		cleaned := cleanModelName(m.slotStatus.ModelName)
+		if cleaned != "" {
+			return cleaned
+		}
+	}
+
+	currMode := agent.ModeGeneral
+	if m.session != nil {
+		currMode = m.session.GetMode()
+	}
+	hw := m.hardware
+	if hw == nil {
+		hw = &probe.HardwareProfile{}
+	}
+	rec := model.SelectOptimalModelForMode(hw, model.Mode(currMode))
+	if rec.ModelName != "" {
+		return cleanModelName(rec.ModelName)
+	}
+	return "Meta Llama 3.1 8B"
+}
+
 func (m Model) View() string {
-	gpuInfo := "CPU Only"
-	if m.hardware != nil && m.hardware.GPUName != "" {
-		gpuInfo = fmt.Sprintf("%s (%s)", m.hardware.GPUName, m.hardware.HumanVRAM())
-	}
-
-	header := headerStyle.Render(fmt.Sprintf(" ⚡ lokol %s ", version.Version)) + "  " +
-		hudStyle.Render(fmt.Sprintf("GPU: %s", gpuInfo))
-
-	// Real-time Context / KV Cache HUD in top status bar following GPU info
-	if m.slotStatus != nil && m.slotStatus.NCtx > 0 {
-		ctxUsed := m.slotStatus.NPromptTokens
-		ctxMax := m.slotStatus.NCtx
-		pct := (float64(ctxUsed) / float64(ctxMax)) * 100
-
-		engineStatus := "Pure VRAM"
-		ctxFg := lipgloss.Color("#50FA7B")
-		if pct > 75.0 {
-			ctxFg = lipgloss.Color("#FFB86C")
-		}
-		if pct > 90.0 {
-			engineStatus = "High Pressure"
-			ctxFg = lipgloss.Color("#FF5555")
-		}
-
-		ctxStr := fmt.Sprintf(" | Context: %d/%d (%.1f%%) [%s]", ctxUsed, ctxMax, pct, engineStatus)
-		hudCtxStyle := lipgloss.NewStyle().Foreground(ctxFg).Bold(true)
-		header += hudCtxStyle.Render(ctxStr)
-	}
-
-	if m.yoloMode {
-		yoloBadge := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FF5555")).Render(" [YOLO ACTIVE]")
-		header += yoloBadge
-	}
-	if m.verbose {
-		verbBadge := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#BD93F9")).Render(" [VERBOSE]")
-		header += verbBadge
-	}
-
 	w := m.width
 	if w <= 0 {
 		w = 80
 	}
+
+	gpuInfo := "None (CPU Fallback)"
+	if m.hardware != nil && m.hardware.GPUName != "" {
+		vramGiB := float64(m.hardware.VRAMBytes) / (1024 * 1024 * 1024)
+		gpuInfo = fmt.Sprintf("%s (%.2f GiB)", m.hardware.GPUName, vramGiB)
+	}
+
+	modelName := m.currentModelName()
+	headerPill := headerStyle.Render(fmt.Sprintf(" ⚡ lokol %s ", version.Version))
+	header := headerPill + "  " + hudStyle.Render(fmt.Sprintf("Model: %s | GPU: %s", modelName, gpuInfo))
 
 	// Upper separator rule between chat viewport and prompt input (integrates spinner/interruption when active)
 	var upperRule string
@@ -932,7 +1011,10 @@ func (m Model) View() string {
 	var hints string
 	switch m.state {
 	case StateIdle:
-		hints = "[Ready] Enter send · [/mode] Switch · [PgUp/PgDn] Scroll · [Ctrl+Y] YOLO · [Ctrl+C] Quit"
+		hints = "[Ready] Enter send · [/mode] Switch · [Ctrl+Y] YOLO · [Ctrl+C] Quit"
+		if w >= 100 {
+			hints = "[Ready] Enter send · [/mode] Switch · [PgUp/PgDn] Scroll · [Ctrl+Y] YOLO · [Ctrl+C] Quit"
+		}
 	case StateStreaming:
 		hints = "[Thinking] Generating response from local engine... · [Esc] Stop"
 	case StateWaitingActionApproval:
@@ -940,9 +1022,49 @@ func (m Model) View() string {
 	case StateExecutingAction:
 		hints = "[Executing] Local runner active · [Esc] Stop"
 	}
-	hotkeyLine := bottomKeyBarStyle.Render(hints)
 
-	// Bottom-most Line: Left = Project path & branch pill, Right = Right-justified Active Mode
+	// Dash-light indicators on the bottom-1 line, right-justified opposite key binding hints
+	currMode := agent.ModeGeneral
+	if m.session != nil {
+		currMode = m.session.GetMode()
+	}
+	var modeDash string
+	switch currMode {
+	case agent.ModeCoding:
+		modeDash = dashLightCodeStyle.Render("[ CODE ]")
+	case agent.ModeMoE:
+		modeDash = dashLightExpertStyle.Render("[EXPERT]")
+	case agent.ModeGeneral:
+		fallthrough
+	default:
+		modeDash = dashLightChatStyle.Render("[ CHAT ]")
+	}
+
+	var yoloDash string
+	if m.yoloMode {
+		yoloDash = dashLightYOLOActiveStyle.Render("[YOLO]")
+	} else {
+		yoloDash = dashLightYOLOInactiveStyle.Render("[YOLO]")
+	}
+	dashLights := modeDash + " " + yoloDash
+	dashWidth := ansi.StringWidth(dashLights)
+
+	hintsWidth := ansi.StringWidth(hints)
+	gapHints := w - hintsWidth - dashWidth
+	if gapHints < 1 {
+		avail := w - dashWidth - 1
+		if avail > 15 {
+			hints = ansi.Truncate(hints, avail, "…")
+			hintsWidth = ansi.StringWidth(hints)
+			gapHints = w - hintsWidth - dashWidth
+		}
+		if gapHints < 1 {
+			gapHints = 1
+		}
+	}
+	hotkeyLine := bottomKeyBarStyle.Render(hints) + strings.Repeat(" ", gapHints) + dashLights
+
+	// Bottom-most Line: Left = Project path & branch pill, Right = Context token usage
 	workDir := "."
 	if m.session != nil && m.session.GetWorkDir() != "" {
 		workDir = m.session.GetWorkDir()
@@ -961,19 +1083,44 @@ func (m Model) View() string {
 	}
 	projBadge := bottomProjStyle.Render(projText)
 
-	currMode := "general"
-	if m.session != nil {
-		currMode = string(m.session.GetMode())
+	var contextBadge string
+	if m.slotStatus != nil && m.slotStatus.NCtx > 0 {
+		ctxUsed := m.slotStatus.NPromptTokens
+		ctxMax := m.slotStatus.NCtx
+		pct := (float64(ctxUsed) / float64(ctxMax)) * 100
+
+		engineStatus := "Pure VRAM"
+		ctxFg := lipgloss.Color("#50FA7B")
+		if pct > 75.0 {
+			ctxFg = lipgloss.Color("#FFB86C")
+		}
+		if pct > 90.0 {
+			engineStatus = "High Pressure"
+			ctxFg = lipgloss.Color("#FF5555")
+		}
+
+		ctxStr := fmt.Sprintf("Context: %d/%d (%.1f%%) [%s]", ctxUsed, ctxMax, pct, engineStatus)
+		hudCtxStyle := lipgloss.NewStyle().Foreground(ctxFg).Bold(true)
+		contextBadge = hudCtxStyle.Render(ctxStr)
+	} else {
+		contextBadge = lipgloss.NewStyle().Foreground(lipgloss.Color("#6272A4")).Render("Context: Idle")
 	}
-	modeBadge := bottomModeStyle.Render(fmt.Sprintf("[Mode: %s]", currMode))
 
 	leftWidth := ansi.StringWidth(projBadge)
-	rightWidth := ansi.StringWidth(modeBadge)
-	gap := w - leftWidth - rightWidth
-	if gap < 1 {
-		gap = 1
+	rightWidth := ansi.StringWidth(contextBadge)
+	gapInfo := w - leftWidth - rightWidth
+	if gapInfo < 1 {
+		avail := w - rightWidth - 1
+		if avail > 10 {
+			projBadge = bottomProjStyle.Render(ansi.Truncate(projText, avail, "…"))
+			leftWidth = ansi.StringWidth(projBadge)
+			gapInfo = w - leftWidth - rightWidth
+		}
+		if gapInfo < 1 {
+			gapInfo = 1
+		}
 	}
-	infoLine := projBadge + strings.Repeat(" ", gap) + modeBadge
+	infoLine := projBadge + strings.Repeat(" ", gapInfo) + contextBadge
 
 	return fmt.Sprintf("%s\n\n%s\n%s\n%s\n%s\n%s\n%s",
 		header,

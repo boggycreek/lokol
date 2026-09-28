@@ -124,3 +124,15 @@ uv run --python .venv tools/laya/judge.py --health
    - Must live in dedicated subdirectories under `./tools/*` (e.g. `./tools/laya/`).
    - Managed strictly via `uv` with PEP 723 inline script metadata. Never install to global Python.
 6. **Non-Interactive Commands**: Always use non-interactive flags (`cp -f`, `rm -rf`, `apt-get -y`, `HOMEBREW_NO_AUTO_UPDATE=1`) to prevent hangs.
+7. **Architecture Decision Records (ADR) Standards**:
+   - **Single-Topic ONLY**: Each ADR addresses exactly one decision; avoid compound topics or "and" titles.
+   - **Audit Existing ADRs First**: Do not draft ADRs for tooling or components that are merely implementations of already accepted ADRs (e.g. ADR-0013, ADR-0014, ADR-0015).
+   - **What and Why, No How**: Strictly omit perishable implementation details (no code snippets, type definitions, package paths, transient timings, tool schemas, or CLI flag names).
+8. **Code/Data Separation for Evaluation Scenarios**:
+   - Test and capability probe scenarios are stored in JSONL datasets (`tools/probe/scenarios.jsonl`), keeping scenario datasets strictly separated from test harness execution logic.
+   - Edge cases and negative findings from live sessions must be persisted to the JSONL dataset for repeatable regression tracking.
+9. **Bead Workflow: Filing vs. Implementation Authorization**:
+   - Distinguish between submitting a bead for future work and receiving permission to proceed with implementation.
+   - Creating/filing a bead (`bd create`) records requirements in the backlog. Do **NOT** claim (`bd update --claim`) or immediately begin implementing. Wait for explicit instructions to proceed.
+
+

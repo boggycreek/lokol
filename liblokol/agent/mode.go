@@ -32,14 +32,14 @@ const (
 func ParseMode(s string) (Mode, error) {
 	trimmed := strings.ToLower(strings.TrimSpace(s))
 	switch trimmed {
-	case "", string(ModeGeneral):
+	case "", string(ModeGeneral), "chat":
 		return ModeGeneral, nil
-	case string(ModeCoding):
+	case string(ModeCoding), "code":
 		return ModeCoding, nil
-	case string(ModeMoE):
+	case string(ModeMoE), "expert":
 		return ModeMoE, nil
 	default:
-		return "", fmt.Errorf("invalid mode %q: must be 'general', 'coding', or 'moe'", s)
+		return "", fmt.Errorf("invalid mode %q: must be 'general' (chat), 'coding' (code), or 'moe' (expert)", s)
 	}
 }
 

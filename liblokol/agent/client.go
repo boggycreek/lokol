@@ -264,8 +264,9 @@ func BuildInitialHistory(codebaseContext, initialPrompt string) []Message {
 
 // Client communicates with the local llama-server instance.
 type Client struct {
-	BaseURL    string
-	HTTPClient *http.Client
+	BaseURL     string
+	HTTPClient  *http.Client
+	cachedModel string
 }
 
 // NewClient creates a new client pointing to the inference engine.
@@ -506,12 +507,52 @@ func ExecuteBash(ctx context.Context, command string, workDir ...string) (string
 
 // SlotStatus represents the real-time context and processing metrics from llama-server /slots.
 type SlotStatus struct {
-	ID              int  `json:"id"`
-	NCtx            int  `json:"n_ctx"`
-	NPromptTokens   int  `json:"n_prompt_tokens"`
-	IsProcessing    bool `json:"is_processing"`
-	NextTokenRemain int  `json:"-"`
-	NDecoded        int  `json:"-"`
+	ID              int    `json:"id"`
+	NCtx            int    `json:"n_ctx"`
+	NPromptTokens   int    `json:"n_prompt_tokens"`
+	IsProcessing    bool   `json:"is_processing"`
+	NextTokenRemain int    `json:"-"`
+	NDecoded        int    `json:"-"`
+	ModelName       string `json:"-"`
+}
+
+// GetLoadedModel queries the engine's /v1/models endpoint to resolve the loaded model identifier.
+func (c *Client) GetLoadedModel(ctx context.Context) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", c.BaseURL+"/v1/models", nil)
+	if err != nil {
+		return "", err
+	}
+
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("models endpoint returned %d", resp.StatusCode)
+	}
+
+	var res struct {
+		Models []struct {
+			Name string `json:"name"`
+		} `json:"models"`
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		return "", err
+	}
+
+	if len(res.Data) > 0 && res.Data[0].ID != "" {
+		return res.Data[0].ID, nil
+	}
+	if len(res.Models) > 0 && res.Models[0].Name != "" {
+		return res.Models[0].Name, nil
+	}
+	return "", fmt.Errorf("no models found")
 }
 
 // GetSlotStatus queries the llama-server /slots endpoint to get real-time context token usage.
@@ -560,6 +601,15 @@ func (c *Client) GetSlotStatus(ctx context.Context) (*SlotStatus, error) {
 		status.NextTokenRemain = rawSlots[0].NextToken[0].NRemain
 		status.NDecoded = rawSlots[0].NextToken[0].NDecoded
 	}
+
+	if c.cachedModel == "" {
+		modelCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
+		if mName, err := c.GetLoadedModel(modelCtx); err == nil && mName != "" {
+			c.cachedModel = mName
+		}
+		cancel()
+	}
+	status.ModelName = c.cachedModel
 
 	return status, nil
 }

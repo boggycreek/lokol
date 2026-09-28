@@ -26,4 +26,5 @@ This directory contains the Architecture Decision Records for the `lokol` projec
 | [ADR-0020](0020-cpu-avx2-offload-strategy-for-auxiliary-decision-models.md) | CPU AVX2 Offload Strategy for Auxiliary Decision Models | Accepted | 2026-09-27 |
 | [ADR-0021](0021-zero-python-production-runtime-dependency-policy.md) | Zero-Python Production Runtime Dependency Policy | Accepted | 2026-09-27 |
 | [ADR-0022](0022-colocated-unit-testing-and-integration-hierarchy.md) | Colocated Unit Testing and Integration Hierarchy | Accepted | 2026-09-27 |
+| [ADR-0023](0023-functional-regulator-action-gating-pipeline.md) | Functional Regulator Action-Gating Pipeline | Accepted | 2026-09-28 |
 

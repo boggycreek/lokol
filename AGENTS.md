@@ -23,6 +23,18 @@ bd close <id>         # Complete work
 bd dolt push          # Push beads data to remote
 ```
 
+## Bead Workflow: Filing vs. Implementation Authorization
+
+**CRITICAL RULE:** Distinguish between submitting a bead for future work and receiving permission to proceed with implementation.
+
+1. **Submitting / Filing Work (`bd create`)**:
+   - When the user asks to create or submit a bead (e.g., "New bead: ...", "File a bead for ...", "Track this requirement ..."), create the bead in `bd` with title, description, priority, and relevant labels.
+   - **DO NOT** claim (`bd update <id> --claim`) or immediately begin implementing the requirements.
+   - Report the created bead ID and summary, then wait for prioritization or explicit instruction.
+2. **Authorization to Implement**:
+   - Only claim and begin implementing code changes when the user explicitly instructs you to proceed (e.g., "claim and implement <id>", "go ahead and work on that", "let's do that now").
+   - Creating a bead is a backlog/task-tracking operation, NOT authorization to execute.
+
 ## Non-Interactive Shell Commands
 
 **ALWAYS use non-interactive flags** with file operations to avoid hanging on confirmation prompts.
@@ -193,3 +205,25 @@ uv run --python .venv tools/laya/judge.py --health
    - Use `uv` with PEP 723 metadata (`uv run --python .venv tools/...`). Never run system-wide `pip install`.
 7. **Local Developer Artifacts**:
    - Benchmark reports are automatically saved to subproject gitignored `liblokol/data/eval_results.json`.
+8. **Code/Data Separation & Scenario Repeatability**:
+   - Evaluation scenarios, capability probes, and regression test cases must be maintained as data files (e.g. JSONL in `tools/probe/scenarios.jsonl`), separated from harness execution logic.
+   - Negative findings discovered during live exploration or agent sessions must be distilled into immutable, version-controlled records in the scenario dataset for repeatable CI regression tracking.
+
+## Architecture Decision Records (ADR) Standards
+
+When authoring, amending, or proposing Architecture Decision Records in `doc/adr/`:
+
+1. **Strictly Single-Topic ONLY**:
+   - Each ADR must address exactly **one** architectural decision.
+   - Never combine orthogonal concerns into a single ADR (e.g., avoid compound titles with "and" joining separate topics).
+2. **Audit Existing ADRs First**:
+   - Always check `doc/adr/` before creating a new ADR to verify whether the architectural decision has already been accepted.
+   - Do not create new ADRs for developer tooling, test harnesses, or submodules that are simply concrete implementations of already accepted architectural decisions (e.g., evaluations are covered by ADR 0013, decision models by ADR 0014, auxiliary tooling by ADR 0015).
+3. **What and Why, No How**:
+   - Express only the context/motivation (why), the architectural decision (what), and the trade-offs (consequences).
+   - **NEVER include perishable implementation details that go stale**:
+     - No code snippets, programming language types, structs, or function signatures.
+     - No transient microbenchmarks or execution latency numbers.
+     - No hardcoded source file paths, internal package names, or transient CLI flag names.
+     - No tool schemas, payload XML tags, or network endpoint routes.
+

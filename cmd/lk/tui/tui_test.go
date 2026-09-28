@@ -410,8 +410,8 @@ func TestTUI_Presentation_ModeSwitching(t *testing.T) {
 
 	// Check default mode in View
 	view := m.View()
-	if !strings.Contains(view, "[Mode: general]") {
-		t.Fatalf("expected view to contain '[Mode: general]', got: %s", view)
+	if !strings.Contains(view, "[ CHAT ]") {
+		t.Fatalf("expected view to contain '[ CHAT ]', got: %s", view)
 	}
 
 	// Switch to coding mode via slash command
@@ -427,8 +427,8 @@ func TestTUI_Presentation_ModeSwitching(t *testing.T) {
 	}
 
 	view = m.View()
-	if !strings.Contains(view, "[Mode: coding]") {
-		t.Errorf("expected view to contain '[Mode: coding]' after switch, got: %s", view)
+	if !strings.Contains(view, "[ CODE ]") {
+		t.Errorf("expected view to contain '[ CODE ]' after switch, got: %s", view)
 	}
 	if !strings.Contains(m.ViewportContent(), "Active persona is now: coding") {
 		t.Errorf("expected log to announce mode switch, got: %s", m.ViewportContent())
@@ -441,6 +441,24 @@ func TestTUI_Presentation_ModeSwitching(t *testing.T) {
 
 	if mock.CurrentMode != agent.ModeMoE {
 		t.Errorf("expected mock session mode to be 'moe', got: %s", mock.CurrentMode)
+	}
+
+	view = m.View()
+	if !strings.Contains(view, "[EXPERT]") {
+		t.Errorf("expected view to contain '[EXPERT]' after switch, got: %s", view)
+	}
+
+	// Circular toggle: /mode with no argument should cycle moe -> general
+	m = m.WithInitialPrompt("/mode")
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(tui.Model)
+
+	if mock.CurrentMode != agent.ModeGeneral {
+		t.Errorf("expected mock session mode to cycle back to 'general', got: %s", mock.CurrentMode)
+	}
+	view = m.View()
+	if !strings.Contains(view, "[ CHAT ]") {
+		t.Errorf("expected view to contain '[ CHAT ]' after circular toggle, got: %s", view)
 	}
 
 	// Invalid mode handling
@@ -532,30 +550,33 @@ func TestTUI_Presentation_Ergonomics_JunieLayoutAndToolFolding(t *testing.T) {
 	m = newM.(tui.Model)
 
 	// Verify layout when idle:
-	// Top bar: hardware and context token HUD
-	// Line 1 below lower rule: hotkey hints with background styling
-	// Line 2 (bottom): project/branch on left, active mode right-justified
+	// Top bar: hardware and model info
+	// Line 1 below lower rule: hotkey hints on left, dash-lights ([ CHAT ] [YOLO]) on right
+	// Line 2 (bottom): project/branch on left, context usage on right
 	idleView := m.View()
 	if !strings.Contains(idleView, "Context: 500/2048 (24.4%) [Pure VRAM]") {
-		t.Errorf("expected top header to contain context token HUD, got: %s", idleView)
+		t.Errorf("expected bottom status bar to contain context token HUD, got: %s", idleView)
 	}
 	if !strings.Contains(idleView, "> ") {
 		t.Errorf("expected prompt to have '> ' prompt icon, got: %s", idleView)
 	}
-	if !strings.Contains(idleView, "[Mode: general]") {
-		t.Errorf("expected bottom bar to contain '[Mode: general]', got: %s", idleView)
+	if !strings.Contains(idleView, "[ CHAT ]") {
+		t.Errorf("expected dash-light to contain '[ CHAT ]', got: %s", idleView)
+	}
+	if !strings.Contains(idleView, "[YOLO]") {
+		t.Errorf("expected dash-light to contain '[YOLO]', got: %s", idleView)
 	}
 
 	hotkeyIdx := strings.Index(idleView, "[Ready] Enter send")
-	modeIdx := strings.Index(idleView, "[Mode: general]")
+	ctxIdx := strings.Index(idleView, "Context: 500/2048")
 	if hotkeyIdx == -1 {
 		t.Errorf("expected hotkey menu in view, got: %s", idleView)
 	}
-	if modeIdx == -1 {
-		t.Errorf("expected mode badge in view, got: %s", idleView)
+	if ctxIdx == -1 {
+		t.Errorf("expected context usage in view, got: %s", idleView)
 	}
-	if hotkeyIdx > modeIdx {
-		t.Errorf("expected hotkey menu directly below input, before bottom mode line")
+	if hotkeyIdx > ctxIdx {
+		t.Errorf("expected hotkey menu directly below input, before bottom context line")
 	}
 
 	// Step 0: User prompt -> enter StateStreaming
