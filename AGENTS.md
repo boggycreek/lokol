@@ -23,6 +23,18 @@ bd close <id>         # Complete work
 bd dolt push          # Push beads data to remote
 ```
 
+## Bead Workflow: Filing vs. Implementation Authorization
+
+**CRITICAL RULE:** Distinguish between submitting a bead for future work and receiving permission to proceed with implementation.
+
+1. **Submitting / Filing Work (`bd create`)**:
+   - When the user asks to create or submit a bead (e.g., "New bead: ...", "File a bead for ...", "Track this requirement ..."), create the bead in `bd` with title, description, priority, and relevant labels.
+   - **DO NOT** claim (`bd update <id> --claim`) or immediately begin implementing the requirements.
+   - Report the created bead ID and summary, then wait for prioritization or explicit instruction.
+2. **Authorization to Implement**:
+   - Only claim and begin implementing code changes when the user explicitly instructs you to proceed (e.g., "claim and implement <id>", "go ahead and work on that", "let's do that now").
+   - Creating a bead is a backlog/task-tracking operation, NOT authorization to execute.
+
 ## Non-Interactive Shell Commands
 
 **ALWAYS use non-interactive flags** with file operations to avoid hanging on confirmation prompts.

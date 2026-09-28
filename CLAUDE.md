@@ -131,5 +131,8 @@ uv run --python .venv tools/laya/judge.py --health
 8. **Code/Data Separation for Evaluation Scenarios**:
    - Test and capability probe scenarios are stored in JSONL datasets (`tools/probe/scenarios.jsonl`), keeping scenario datasets strictly separated from test harness execution logic.
    - Edge cases and negative findings from live sessions must be persisted to the JSONL dataset for repeatable regression tracking.
+9. **Bead Workflow: Filing vs. Implementation Authorization**:
+   - Distinguish between submitting a bead for future work and receiving permission to proceed with implementation.
+   - Creating/filing a bead (`bd create`) records requirements in the backlog. Do **NOT** claim (`bd update --claim`) or immediately begin implementing. Wait for explicit instructions to proceed.
 
 
