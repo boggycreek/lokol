@@ -7,8 +7,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"strings"
@@ -22,40 +24,56 @@ import (
 )
 
 func main() {
-	engineFlag := flag.String("engine", "http://127.0.0.1:8080", "URL of local llama-server engine")
-	modeFlag := flag.String("mode", "general", "Operational mode: general (default), coding, or moe (alias: -m)")
-	flag.StringVar(modeFlag, "m", "general", "Operational mode (shorthand)")
-	yoloFlag := flag.Bool("yolo", false, "Engage YOLO mode: autonomous action execution without approval prompts")
-	verboseFlag := flag.Bool("verbose", false, "Display internal reasoning tokens and tool activity")
-	flag.BoolVar(verboseFlag, "v", false, "Display internal reasoning (shorthand)")
-	promptFlag := flag.String("prompt", "", "Initial prompt to execute (alias: -p)")
-	flag.StringVar(promptFlag, "p", "", "Initial prompt to execute (shorthand)")
-	versionFlag := flag.Bool("version", false, "Display version information and exit")
+	os.Exit(run(os.Args, os.Stdout, os.Stderr))
+}
 
-	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage: lk [options] [prompt]\n\n")
-		fmt.Fprintf(os.Stderr, "lk is the high-velocity interactive terminal agent for lokol.\n\n")
-		fmt.Fprintf(os.Stderr, "Options:\n")
-		flag.PrintDefaults()
+func run(args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("lk", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+
+	engineFlag := flags.String("engine", "http://127.0.0.1:8080", "URL of local llama-server engine")
+	modeFlag := flags.String("mode", "general", "Operational mode: general (default), coding, or moe (alias: -m)")
+	flags.StringVar(modeFlag, "m", "general", "Operational mode (shorthand)")
+	yoloFlag := flags.Bool("yolo", false, "Engage YOLO mode: autonomous action execution without approval prompts")
+	verboseFlag := flags.Bool("verbose", false, "Display internal reasoning tokens and tool activity")
+	flags.BoolVar(verboseFlag, "v", false, "Display internal reasoning (shorthand)")
+	promptFlag := flags.String("prompt", "", "Initial prompt to execute (alias: -p)")
+	flags.StringVar(promptFlag, "p", "", "Initial prompt to execute (shorthand)")
+	versionFlag := flags.Bool("version", false, "Display version information and exit")
+
+	flags.Usage = func() {
+		fmt.Fprintf(stderr, "Usage: lk [options] [prompt]\n\n")
+		fmt.Fprintf(stderr, "lk is the high-velocity interactive terminal agent for lokol.\n\n")
+		fmt.Fprintf(stderr, "Options:\n")
+		flags.PrintDefaults()
 	}
 
-	flag.Parse()
+	var parseArgs []string
+	if len(args) > 1 {
+		parseArgs = args[1:]
+	}
+	if err := flags.Parse(parseArgs); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 1
+	}
 
 	if *versionFlag {
-		fmt.Printf("lk %s\n", version.FullVersion())
-		os.Exit(0)
+		fmt.Fprintf(stdout, "lk %s\n", version.FullVersion())
+		return 0
 	}
 
 	mode, err := agent.ParseMode(*modeFlag)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		fmt.Fprintf(stderr, "Error: %v\n", err)
+		return 1
 	}
 
 	cwd, err := os.Getwd()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error getting current working directory: %v\n", err)
-		os.Exit(1)
+		fmt.Fprintf(stderr, "Error getting current working directory: %v\n", err)
+		return 1
 	}
 
 	client := agent.NewClient(*engineFlag)
@@ -67,8 +85,8 @@ func main() {
 
 	// If prompt passed via flags or positional arguments, pre-populate
 	initialPrompt := *promptFlag
-	if initialPrompt == "" && flag.NArg() > 0 {
-		initialPrompt = strings.Join(flag.Args(), " ")
+	if initialPrompt == "" && flags.NArg() > 0 {
+		initialPrompt = strings.Join(flags.Args(), " ")
 	}
 	if initialPrompt != "" {
 		model = model.WithInitialPrompt(initialPrompt)
@@ -84,7 +102,9 @@ func main() {
 	)
 
 	if _, err := p.Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error running lk: %v\n", err)
-		os.Exit(1)
+		fmt.Fprintf(stderr, "Error running lk: %v\n", err)
+		return 1
 	}
+
+	return 0
 }
