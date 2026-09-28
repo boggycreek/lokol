@@ -1,3 +1,20 @@
+---
+adr: "0019"
+title: "Filesystem Boundary Containment and Pre-Execution Permissions Pipeline"
+topic: "Security & Isolation"
+theme: "THEME-SECURITY"
+status: "accepted"
+version: "v0.1.0-alpha"
+as_built: true
+tags:
+  - security
+  - path-containment
+  - guardrails
+  - permissions
+  - workspace-boundary
+executive_summary: "Enforces strict workspace directory traversal containment and shell command risk inspection before any filesystem mutation or command execution occurs."
+---
+
 # ADR 0019: Filesystem Boundary Containment and Pre-Execution Permissions Pipeline
 
 ## Status

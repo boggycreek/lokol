@@ -1,3 +1,20 @@
+---
+adr: "0020"
+title: "CPU AVX2 Offload Strategy for Auxiliary Decision Models"
+topic: "Hardware & Inference"
+theme: "THEME-INFERENCE"
+status: "accepted"
+version: "v0.1.0-alpha"
+as_built: true
+tags:
+  - cpu-offload
+  - avx2
+  - hardware
+  - vram-preservation
+  - decision-models
+executive_summary: "Directs auxiliary decision models to execute exclusively on host CPU cores via AVX2/AVX-512 instructions, reserving 100% of GPU VRAM for the primary generative LLM context."
+---
+
 # ADR 0020: CPU AVX2 Offload Strategy for Auxiliary Decision Models
 
 ## Status

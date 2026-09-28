@@ -1,3 +1,19 @@
+---
+adr: "0017"
+title: "Decoupled Core Agent Engine from Presentation Layers"
+topic: "Foundations & Architecture"
+theme: "THEME-CORE"
+status: "accepted"
+version: "v0.1.0-alpha"
+as_built: true
+tags:
+  - architecture
+  - core-engine
+  - presentation-decoupling
+  - session-core
+executive_summary: "Decouples the core agent execution engine (SessionCore, DispatchAction) from terminal presentation layers, enabling headful TUI, headless CLI, and diagnostic drivers to share identical reasoning loops."
+---
+
 # ADR 0017: Decoupled Core Agent Engine from Presentation Layers
 
 ## Status

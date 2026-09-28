@@ -1,3 +1,19 @@
+---
+adr: "0022"
+title: "Colocated Unit Testing and Integration Hierarchy"
+topic: "Evaluations & Verification"
+theme: "THEME-QUALITY"
+status: "accepted"
+version: "v0.1.0-alpha"
+as_built: true
+tags:
+  - testing
+  - colocated-tests
+  - test-hierarchy
+  - go-idioms
+executive_summary: "Standardizes idiomatic colocated unit tests (*_test.go) within subproject packages, reserving subproject test/ directories exclusively for multi-turn integration and end-to-end suites."
+---
+
 # ADR 0022: Colocated Unit Testing and Integration Hierarchy
 
 ## Status

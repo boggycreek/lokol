@@ -1,3 +1,20 @@
+---
+adr: "0024"
+title: "Progressive Tool Disclosure and Catalog Architecture"
+topic: "Protocols & Catalog"
+theme: "THEME-AGENT"
+status: "accepted"
+version: "v0.1.0-alpha"
+as_built: true
+tags:
+  - catalog
+  - progressive-disclosure
+  - intent-routing
+  - context-efficiency
+  - lean-prompt
+executive_summary: "Implements a centralized tool catalog providing an invariant ~250-token base prompt with 4 foundational primitives, disclosing specialized tools dynamically via intent routing or tool_help reflection."
+---
+
 # ADR 0024: Progressive Tool Disclosure and Catalog Architecture
 
 ## Status

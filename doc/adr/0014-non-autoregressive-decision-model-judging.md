@@ -1,3 +1,20 @@
+---
+adr: "0014"
+title: "Non-Autoregressive Decision Models for Semantic Evaluation"
+topic: "Evaluations & Verification"
+theme: "THEME-QUALITY"
+status: "accepted"
+version: "v0.1.0-alpha"
+as_built: true
+tags:
+  - decision-models
+  - laya
+  - semantic-eval
+  - non-autoregressive
+  - scoring
+executive_summary: "Integrates ultra-fast non-autoregressive decision models (Laya) on CPU to score qualitative software engineering artifacts deterministically without generative judge variance or GPU VRAM contention."
+---
+
 # ADR 0014: Non-Autoregressive Decision Models for Semantic Evaluation
 
 ## Status

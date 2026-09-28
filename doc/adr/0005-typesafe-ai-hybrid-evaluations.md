@@ -1,3 +1,19 @@
+---
+adr: "0005"
+title: "Hybrid Evaluations and Fast Routing with TypeSafe AI (Jev / not-a-llm)"
+topic: "Evaluations & Verification"
+theme: "THEME-QUALITY"
+status: "proposed"
+version: "v0.1.0-alpha"
+as_built: false
+tags:
+  - evaluations
+  - typesafe-ai
+  - routing
+  - benchmarking
+executive_summary: "Proposes integrating TypeSafe AI non-LLM decision classifiers for fast query complexity routing and deterministic evaluation scoring."
+---
+
 # ADR 0005: Hybrid Evaluations and Fast Routing with TypeSafe AI (Jev / "not-a-llm")
 
 ## Status

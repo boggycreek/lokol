@@ -1,3 +1,20 @@
+---
+adr: "0018"
+title: "Monorepo Workspace Architecture with Subproject Isolation"
+topic: "Foundations & Architecture"
+theme: "THEME-CORE"
+status: "accepted"
+version: "v0.1.0-alpha"
+as_built: true
+tags:
+  - monorepo
+  - go-work
+  - subprojects
+  - ci-matrix
+  - isolation
+executive_summary: "Establishes a multi-module Go workspace (go.work) isolating liblokol, cmd/lk, cmd/lokol, and cmd/lokol-mcp with dedicated Makefiles and parallel CI matrix jobs."
+---
+
 # ADR 0018: Monorepo Workspace Architecture with Subproject Isolation
 
 ## Status

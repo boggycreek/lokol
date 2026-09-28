@@ -1,3 +1,20 @@
+---
+adr: "0002"
+title: "Hardware Probing and Tiering Matrix (12GB to 4GB GTX 1650)"
+topic: "Hardware & Inference"
+theme: "THEME-INFERENCE"
+status: "accepted"
+version: "v0.1.0-alpha"
+as_built: true
+tags:
+  - hardware
+  - vram
+  - gpu
+  - llama-server
+  - context-window
+executive_summary: "Establishes a three-tier hardware allocation policy (12GB+, 8GB, 4GB) dedicating 100% of GPU VRAM to a single inference slot to guarantee full context window utilization without host RAM thrashing."
+---
+
 # ADR 0002: Hardware Tiering and Constrained VRAM Profiles
 
 ## Status

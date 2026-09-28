@@ -214,19 +214,26 @@ uv run --python .venv tools/laya/judge.py --health
 
 ## Architecture Decision Records (ADR) Standards
 
-When authoring, amending, or proposing Architecture Decision Records in `doc/adr/`:
+When researching, authoring, amending, or proposing Architecture Decision Records in `doc/adr/`:
 
-1. **Strictly Single-Topic ONLY**:
+1. **Inspecting Architecture Decision Records via `doc/ai/` and YAML Front Matter**:
+   - **Start with `doc/ai/`**: Autonomous agents must inspect [`doc/ai/`](doc/ai/) for progressive disclosure before reading raw ADR files. The topic guides in `doc/ai/` (`architecture.md`, `inference-and-hardware.md`, `tool-catalog-and-protocols.md`, `testing-and-evals.md`, `dev-workflow.md`) synthesize multiple related ADRs into concise, high-level summaries with direct links.
+   - **Consult `doc/adr/README.md`**: For a global index of all accepted architectural decisions, review [`doc/adr/README.md`](doc/adr/README.md) to inspect thematic groupings (`THEME-CORE`, `THEME-INFERENCE`, `THEME-AGENT`, `THEME-MEMORY`, `THEME-SECURITY`, `THEME-QUALITY`) and executive summaries in under 400 tokens.
+   - **Inspect ADR Front Matter First**: Every ADR file in `doc/adr/` includes standardized machine-readable YAML front matter (`adr`, `title`, `topic`, `theme`, `status`, `version`, `as_built`, `tags`, `executive_summary`). Reading the first 15 lines of an ADR reveals its complete architectural decision without parsing full markdown prose.
+2. **Strictly Single-Topic ONLY**:
    - Each ADR must address exactly **one** architectural decision.
    - Never combine orthogonal concerns into a single ADR (e.g., avoid compound titles with "and" joining separate topics).
-2. **Audit Existing ADRs First**:
-   - Always check `doc/adr/` before creating a new ADR to verify whether the architectural decision has already been accepted.
+3. **Audit Existing ADRs First**:
+   - Always check `doc/ai/` and `doc/adr/README.md` before creating a new ADR to verify whether the architectural decision has already been accepted.
    - Do not create new ADRs for developer tooling, test harnesses, or submodules that are simply concrete implementations of already accepted architectural decisions (e.g., evaluations are covered by ADR 0013, decision models by ADR 0014, auxiliary tooling by ADR 0015).
-3. **What and Why, No How**:
+4. **What and Why, No How**:
    - Express only the context/motivation (why), the architectural decision (what), and the trade-offs (consequences).
    - **NEVER include perishable implementation details that go stale**:
      - No code snippets, programming language types, structs, or function signatures.
      - No transient microbenchmarks or execution latency numbers.
      - No hardcoded source file paths, internal package names, or transient CLI flag names.
      - No tool schemas, payload XML tags, or network endpoint routes.
+5. **Front Matter Required on New ADRs**:
+   - Every new ADR must include the standard YAML front matter block matching the schema in `doc/adr/`.
+
 
