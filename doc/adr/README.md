@@ -42,6 +42,8 @@ Records are numbered serially (`0001` through `0024`) and organized by topic dom
   *Executive Summary:* Establishes a sparse MoE operational strategy that prioritizes attention layers and active experts in GPU VRAM while paging non-active experts in system RAM via `mmap`.
 - **[ADR 0020 — CPU AVX2 Offload Strategy for Auxiliary Decision Models](0020-cpu-avx2-offload-strategy-for-auxiliary-decision-models.md)**  
   *Executive Summary:* Directs auxiliary decision models to execute exclusively on host CPU cores via AVX2/AVX-512 instructions, reserving 100% of GPU VRAM for the primary generative LLM context.
+- **[ADR 0026 — Inference Slot Pressure and Context Budget Regulation](0026-inference-slot-pressure-and-context-budget-regulation.md)**  
+  *Executive Summary:* Regulates execution cadence and triggers proactive context compaction based on inference slot memory utilization and token window pressure.
 
 ### Protocols, Catalog & Governance (`THEME-AGENT`)
 - **[ADR 0003 — Deterministic Agent Protocol vs JSON Schema Tool Calling](0003-deterministic-agent-protocol.md)**  
@@ -54,6 +56,10 @@ Records are numbered serially (`0001` through `0024`) and organized by topic dom
   *Executive Summary:* Defines a composable functional regulator pipeline that intercepts, inspects, and validates proposed agent actions through layered static, dynamic, and human-in-the-loop gates.
 - **[ADR 0024 — Progressive Tool Disclosure and Catalog Architecture](0024-progressive-tool-disclosure-and-catalog-architecture.md)**  
   *Executive Summary:* Implements a centralized tool catalog providing an invariant ~250-token base prompt with 4 foundational primitives, disclosing specialized tools dynamically via intent routing or `tool_help` reflection.
+- **[ADR 0025 — Dynamic Loop Circuit Breaking and Oscillation Governance](0025-dynamic-loop-circuit-breaking-and-oscillation-governance.md)**  
+  *Executive Summary:* Establishes automated loop detection and circuit breaking within the regulator pipeline to identify repeated identical tool failures, runaway inspection loops, and state oscillation before resource exhaustion occurs.
+- **[ADR 0027 — Structured Trajectory Remediation for Autonomous Recovery](0027-structured-trajectory-remediation-for-autonomous-recovery.md)**  
+  *Executive Summary:* Defines a structured remediation protocol that transforms regulatory rejections and boundary denials into actionable self-correction feedback for the agent.
 
 ### Memory & Retrieval (`THEME-MEMORY`)
 - **[ADR 0010 — Persistent Memory Storage Architecture in XDG State and Data Directories](0010-xdg-persistent-memory-storage.md)**  
