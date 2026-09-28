@@ -157,7 +157,11 @@ func (r *Runner) Run(ctx context.Context, initialPrompt string) (string, error) 
 			if r.OnOutput != nil {
 				r.OnOutput("guardrail", fmt.Sprintf("[PERMISSION DENIED] %s", perm.Reason))
 			}
-			toolResult := fmt.Sprintf("<action_result>\n[PERMISSION DENIED]: %s\n</action_result>", perm.Reason)
+			msg := fmt.Sprintf("[PERMISSION DENIED]: %s", perm.Reason)
+			if perm.Remediation != "" {
+				msg += fmt.Sprintf("\n[REMEDIATION]: %s", perm.Remediation)
+			}
+			toolResult := fmt.Sprintf("<action_result>\n%s\n</action_result>", msg)
 			session.AppendUserMessage(toolResult)
 			continue
 		}
