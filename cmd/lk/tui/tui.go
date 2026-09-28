@@ -194,6 +194,11 @@ func (m Model) StepCount() int {
 	return m.stepCount
 }
 
+// PendingAction returns the currently proposed action waiting for approval, if any.
+func (m Model) PendingAction() *agent.Action {
+	return m.pendingAct
+}
+
 // New creates and initializes the TUI model.
 func New(client *agent.Client, hw *probe.HardwareProfile, yoloMode bool, workDirOpt ...string) Model {
 	workDir := ""
@@ -258,7 +263,7 @@ func (m *Model) updateViewportDimensions() {
 // NewWithSession creates and initializes the TUI model with an existing agent SessionCore.
 func NewWithSession(session agent.SessionCore, hw *probe.HardwareProfile, yoloMode bool) Model {
 	ta := textarea.New()
-	ta.Placeholder = "Ask lokol to inspect files, write reports, or type /mode..."
+	ta.Placeholder = "Ask lokol to inspect files, write reports, or type /mode, /yolo, /clear..."
 	ta.Focus()
 	ta.Prompt = "> "
 	ta.CharLimit = 1000
@@ -496,7 +501,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.textarea.SetHeight(1)
 				m.updateViewportDimensions()
 
-				// Handle /mode slash command
+				// Handle slash commands
 				if strings.HasPrefix(input, "/mode") {
 					parts := strings.Fields(input)
 					if len(parts) >= 2 {
@@ -527,6 +532,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						}
 						m.appendLog(fmt.Sprintf("🔄 [Mode Switched] Active persona is now: %s\n\n", nextMode))
 					}
+					return m, nil
+				} else if input == "/yolo" {
+					m.yoloMode = !m.yoloMode
+					if m.yoloMode {
+						m.appendLog("⚡ [YOLO MODE ENGAGED] Autonomous command execution active.\n\n")
+					} else {
+						m.appendLog("🛡️ [SAFE MODE ENGAGED] Manual action approval required.\n\n")
+					}
+					return m, nil
+				} else if input == "/clear" {
+					if m.session != nil {
+						m.session.Reset()
+					}
+					m.chatLog = ""
+					m.stepCount = 0
+					m.lastThought = ""
+					m.lastTool = ""
+					m.appendLog("🧹 [Session Cleared] Chat history and conversation context reset.\n\n")
 					return m, nil
 				}
 
