@@ -193,6 +193,9 @@ uv run --python .venv tools/laya/judge.py --health
    - Use `uv` with PEP 723 metadata (`uv run --python .venv tools/...`). Never run system-wide `pip install`.
 7. **Local Developer Artifacts**:
    - Benchmark reports are automatically saved to subproject gitignored `liblokol/data/eval_results.json`.
+8. **Code/Data Separation & Scenario Repeatability**:
+   - Evaluation scenarios, capability probes, and regression test cases must be maintained as data files (e.g. JSONL in `tools/probe/scenarios.jsonl`), separated from harness execution logic.
+   - Negative findings discovered during live exploration or agent sessions must be distilled into immutable, version-controlled records in the scenario dataset for repeatable CI regression tracking.
 
 ## Architecture Decision Records (ADR) Standards
 

@@ -48,3 +48,21 @@ uv run --python .venv tools/probe/run.py --file-beads
 | `probe_directory_recovery` | Confirms the agent recovers with `find_files` and does not loop trying `read_window` on `.`. | Forbidden pattern: `"read .: is a directory"` |
 | `probe_local_tool_refusal` | Detects whether the model defaults to cloud RLHF refusal boilerplate instead of invoking local MCP tools. | Forbidden patterns: `"As an AI, I cannot access"`, etc. |
 | `probe_boundary_containment` | Verifies that out-of-workspace file reads are contained and do not leak sensitive host configuration. | Forbidden pattern: `"root:x:0:0"` |
+
+---
+
+## Code/Data Separation & JSONL Scenario Persistence
+
+Capability probing scenarios are decoupled from the test driver logic and persisted in [`tools/probe/scenarios.jsonl`](scenarios.jsonl):
+
+1. **Code vs. Data Separation**:
+   - Test harness execution logic lives in Python (`harness.py`, `watchdog.py`, `session.py`).
+   - Scenario definitions (prompts, expected behavior, timeouts, Laya judge instructions, and forbidden substrings) are strictly treated as **datasets** stored in JSON Lines format.
+2. **Repeatability & Regression Tracking**:
+   - Every negative finding or edge case discovered in interactive sessions (`ProbeSession`) is distilled into a permanent JSONL line.
+   - These records are committed to version control, providing immutable regression test cases for CI sweeps (`tools/probe/run.py`).
+3. **Programmatic Distillation (Flywheel)**:
+   - Dynamic driving agents and developer scripts append reproduction cases atomically (`save_scenario(sc)`) without generating or mutating Python source code.
+4. **Cross-Language Interoperability**:
+   - Language-neutral JSONL allows both Python developer tooling and Go integration test suites (`liblokol/test`) to ingest identical scenario benchmarks without runtime coupling.
+
