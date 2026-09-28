@@ -136,9 +136,9 @@ func (s *Session) AppendAssistantMessage(content string) {
 func (s *Session) AppendActionResult(output string, err error) {
 	var toolResult string
 	if err != nil {
-		toolResult = fmt.Sprintf("<action_result>\n[Error: %v]\n%s\n</action_result>", err, output)
+		toolResult = fmt.Sprintf("<action_result>\n[Error: %v]\n%s\n</action_result>\n[Observation: The tool failed with the error above. Proceed with your next step.]", err, output)
 	} else {
-		toolResult = fmt.Sprintf("<action_result>\n%s\n</action_result>", output)
+		toolResult = fmt.Sprintf("<action_result>\n%s\n</action_result>\n[Observation: Analyze the tool output above directly to fulfill the user request. Do not thank the user.]", output)
 	}
 	s.History = append(s.History, Message{Role: "user", Content: toolResult})
 }
