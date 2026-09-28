@@ -8,7 +8,7 @@ Capability Probe Scenario Matrix & JSONL Loader.
 
 Defines targeted evaluation prompts that exercise lokol's self-awareness,
 hardware grounding, MCP integration, and tool boundary recovery.
-Scenarios are persisted in tools/probe/scenarios.jsonl.
+Scenarios are persisted in tools/scenarios/scenarios.jsonl.
 """
 
 from dataclasses import asdict, dataclass, field
@@ -17,7 +17,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 
-DEFAULT_SCENARIOS_PATH = Path(__file__).resolve().parent / "scenarios.jsonl"
+_central_path = Path(__file__).resolve().parent.parent / "scenarios" / "scenarios.jsonl"
+_legacy_path = Path(__file__).resolve().parent / "scenarios.jsonl"
+DEFAULT_SCENARIOS_PATH = _central_path if _central_path.exists() else _legacy_path
 
 
 @dataclass

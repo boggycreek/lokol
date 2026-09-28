@@ -129,7 +129,7 @@ uv run --python .venv tools/laya/judge.py --health
    - **Audit Existing ADRs First**: Do not draft ADRs for tooling or components that are merely implementations of already accepted ADRs (e.g. ADR-0013, ADR-0014, ADR-0015).
    - **What and Why, No How**: Strictly omit perishable implementation details (no code snippets, type definitions, package paths, transient timings, tool schemas, or CLI flag names).
 8. **Code/Data Separation for Evaluation Scenarios**:
-   - Test and capability probe scenarios are stored in JSONL datasets (`tools/probe/scenarios.jsonl`), keeping scenario datasets strictly separated from test harness execution logic.
+   - Test and capability probe scenarios are stored in JSONL datasets (`tools/scenarios/scenarios.jsonl`), keeping scenario datasets strictly separated from test harness execution logic.
    - Edge cases and negative findings from live sessions must be persisted to the JSONL dataset for repeatable regression tracking.
 9. **Bead Workflow: Filing vs. Implementation Authorization**:
    - Distinguish between submitting a bead for future work and receiving permission to proceed with implementation.

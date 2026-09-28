@@ -20,7 +20,7 @@ func main() {
 	var (
 		interactive   = flag.Bool("interactive", false, "Start interactive REPL directly driving SessionCore (alias: -i)")
 		interactiveSh = flag.Bool("i", false, "Start interactive REPL (shorthand)")
-		scenarioFile  = flag.String("scenarios", "", "Path to scenarios JSONL file (default: tools/probe/scenarios.jsonl)")
+		scenarioFile  = flag.String("scenarios", "", "Path to scenarios JSONL file (default: tools/scenarios/scenarios.jsonl)")
 		scenarioID    = flag.String("scenario", "all", "Specific scenario ID to run, or 'all' (alias: -s)")
 		scenarioIDSh  = flag.String("s", "all", "Specific scenario ID to run (shorthand)")
 		repeat        = flag.Int("repeat", 1, "Number of times to run each scenario for repeatability testing (alias: -r)")
@@ -80,9 +80,12 @@ func main() {
 	// Resolve scenarios file
 	scPath := *scenarioFile
 	if scPath == "" {
-		candidate := filepath.Join(repoRoot, "tools", "probe", "scenarios.jsonl")
+		candidate := filepath.Join(repoRoot, "tools", "scenarios", "scenarios.jsonl")
+		legacyCandidate := filepath.Join(repoRoot, "tools", "probe", "scenarios.jsonl")
 		if _, err := os.Stat(candidate); err == nil {
 			scPath = candidate
+		} else if _, err := os.Stat(legacyCandidate); err == nil {
+			scPath = legacyCandidate
 		} else {
 			scPath = filepath.Join(workDir, "scenarios.jsonl")
 		}
