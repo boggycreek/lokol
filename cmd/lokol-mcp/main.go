@@ -7,8 +7,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -22,15 +24,44 @@ import (
 )
 
 func main() {
-	versionFlag := flag.Bool("version", false, "Print version and exit")
-	flag.Parse()
+	os.Exit(run(os.Args, os.Stdin, os.Stdout, os.Stderr))
+}
+
+func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("lokol-mcp", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	versionFlag := flags.Bool("version", false, "Print version and exit")
+
+	var parseArgs []string
+	if len(args) > 1 {
+		parseArgs = args[1:]
+	}
+	if err := flags.Parse(parseArgs); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 1
+	}
 
 	if *versionFlag {
-		fmt.Printf("lokol-mcp %s (commit: %s, built: %s)\n", version.Version, version.GitCommit, version.BuildDate)
-		return
+		fmt.Fprintf(stdout, "lokol-mcp %s (commit: %s, built: %s)\n", version.Version, version.GitCommit, version.BuildDate)
+		return 0
 	}
 
 	server := mcp.NewServer("lokol-mcp", version.Version)
+	registerTools(server)
+
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
+	if err := server.Serve(ctx, stdin, stdout); err != nil && err != context.Canceled {
+		fmt.Fprintf(stderr, "lokol-mcp error: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+func registerTools(server *mcp.Server) {
 
 	// Register read_outline tool
 	server.RegisterTool(mcp.Tool{
@@ -405,14 +436,6 @@ func main() {
 			return out, false, nil
 		},
 	})
-
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer cancel()
-
-	if err := server.Serve(ctx, os.Stdin, os.Stdout); err != nil && err != context.Canceled {
-		fmt.Fprintf(os.Stderr, "lokol-mcp error: %v\n", err)
-		os.Exit(1)
-	}
 }
 
 func getStringArg(args map[string]any, key string) string {
