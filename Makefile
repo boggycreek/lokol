@@ -26,6 +26,9 @@ test:
 		$(MAKE) -C $$p test || exit 1; \
 	done
 
+test-probe:
+	uv run --python .venv python -m unittest tools/probe/test_harness.py -v
+
 integration-test:
 	@for p in $(SUBPROJECTS); do \
 		echo "==> Integration Testing $$p"; \
