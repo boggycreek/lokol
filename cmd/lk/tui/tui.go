@@ -9,6 +9,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -16,6 +18,7 @@ import (
 	"github.com/boggycreek/lokol/liblokol/guardrail"
 	"github.com/boggycreek/lokol/liblokol/probe"
 	"github.com/boggycreek/lokol/liblokol/version"
+	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/textarea"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -49,6 +52,7 @@ type Model struct {
 	state        State
 	viewport     viewport.Model
 	textarea     textarea.Model
+	spinner      spinner.Model
 	chatLog      string
 	pendingAct   *agent.Action
 	currentResp  string
@@ -62,9 +66,15 @@ type Model struct {
 	err          error
 
 	// Internalized activity & step tracking
-	stepCount   int
-	lastThought string
-	lastTool    string
+	stepCount           int
+	lastThought         string
+	lastTool            string
+	consecutiveCommands int
+	lastBadge           string
+
+	// Loop circuit breaker tracking
+	lastSig     string
+	repeatCount int
 }
 
 var (
@@ -101,6 +111,47 @@ var (
 			BorderForeground(lipgloss.Color("#6272A4")).
 			Padding(0, 1).
 			Foreground(lipgloss.Color("#8BE9FD"))
+
+	toolBadgeStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#6272A4")).
+			Italic(true)
+
+	spinnerStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#BD93F9")).
+			Bold(true)
+
+	spinnerHintStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#6272A4"))
+
+	inputBoxStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("#44475A")).
+			Padding(0, 1)
+
+	inputBoxFocusedStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("#7D56F4")).
+			Padding(0, 1)
+
+	ruleStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#44475A"))
+
+	bottomProjStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#FAFAFA")).
+			Background(lipgloss.Color("#5A56E0")).
+			Padding(0, 1)
+
+	bottomModeStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#8BE9FD")).
+			Background(lipgloss.Color("#282A36")).
+			Padding(0, 1)
+
+	bottomKeyBarStyle = lipgloss.NewStyle().
+			Background(lipgloss.Color("#282A36")).
+			Foreground(lipgloss.Color("#F8F8F2")).
+			Padding(0, 1)
 )
 
 // SetVerbose toggles verbose display of intermediate inferences and tool payloads.
@@ -135,7 +186,8 @@ func New(client *agent.Client, hw *probe.HardwareProfile, yoloMode bool, workDir
 
 // NewModel creates a TUI model with the given session, yoloMode, and verbose setting.
 func NewModel(session agent.SessionCore, yoloMode, verbose bool) Model {
-	m := NewWithSession(session, nil, yoloMode)
+	hw, _ := probe.Detect()
+	m := NewWithSession(session, hw, yoloMode)
 	m.verbose = verbose
 	return m
 }
@@ -143,7 +195,44 @@ func NewModel(session agent.SessionCore, yoloMode, verbose bool) Model {
 // WithInitialPrompt pre-populates the prompt into the input area.
 func (m Model) WithInitialPrompt(prompt string) Model {
 	m.textarea.SetValue(prompt)
+	lines := m.textarea.LineCount()
+	if lines < 1 {
+		lines = 1
+	}
+	if lines > 8 {
+		lines = 8
+	}
+	m.textarea.SetHeight(lines)
+	m.updateViewportDimensions()
 	return m
+}
+
+func (m *Model) updateViewportDimensions() {
+	height := m.height
+	if height <= 0 {
+		height = 24
+	}
+	width := m.width
+	if width <= 0 {
+		width = 80
+	}
+	inputHeight := m.textarea.Height()
+	if inputHeight < 1 {
+		inputHeight = 1
+	}
+	if inputHeight > 8 {
+		inputHeight = 8
+	}
+	vpHeight := height - inputHeight - 6
+	if vpHeight < 5 {
+		vpHeight = 5
+	}
+	m.viewport.Height = vpHeight
+	vpWidth := width - 4
+	if vpWidth < 20 {
+		vpWidth = 20
+	}
+	m.viewport.Width = vpWidth
 }
 
 // NewWithSession creates and initializes the TUI model with an existing agent SessionCore.
@@ -151,11 +240,15 @@ func NewWithSession(session agent.SessionCore, hw *probe.HardwareProfile, yoloMo
 	ta := textarea.New()
 	ta.Placeholder = "Ask lokol to inspect files, write reports, or type /mode..."
 	ta.Focus()
-	ta.Prompt = "│ "
+	ta.Prompt = "> "
 	ta.CharLimit = 1000
 	ta.SetWidth(80)
-	ta.SetHeight(3)
+	ta.SetHeight(1)
 	ta.ShowLineNumbers = false
+
+	s := spinner.New()
+	s.Spinner = spinner.Dot
+	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#BD93F9"))
 
 	vp := viewport.New(80, 20)
 	initialText := "⚡ Welcome to lokol. Local-first autonomous AI agent.\nType your request below and press Enter to begin.\n\n"
@@ -170,6 +263,7 @@ func NewWithSession(session agent.SessionCore, hw *probe.HardwareProfile, yoloMo
 		state:     StateIdle,
 		viewport:  vp,
 		textarea:  ta,
+		spinner:   s,
 		tokenChan: make(chan string, 100),
 		yoloMode:  yoloMode,
 		chatLog:   initialText,
@@ -194,6 +288,7 @@ func pollSlotStatus(session agent.SessionCore) tea.Cmd {
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(
 		textarea.Blink,
+		m.spinner.Tick,
 		pollSlotStatus(m.session),
 	)
 }
@@ -244,6 +339,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var vpCmd tea.Cmd
 
 	switch msg := msg.(type) {
+	case spinner.TickMsg:
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		return m, cmd
+
 	case SlotTickMsg:
 		if msg != nil {
 			m.slotStatus = msg
@@ -265,16 +365,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		headerHeight := 2
-		inputHeight := 5
-		spacing := 5
-		vpHeight := msg.Height - headerHeight - inputHeight - spacing
-		if vpHeight < 5 {
-			vpHeight = 5
+		taWidth := msg.Width - 4
+		if taWidth < 20 {
+			taWidth = 20
 		}
-		m.viewport.Width = msg.Width - 4
-		m.viewport.Height = vpHeight
-		m.textarea.SetWidth(msg.Width - 4)
+		m.textarea.SetWidth(taWidth)
+		m.updateViewportDimensions()
 		m.viewport.SetContent(wrapContent(m.chatLog, m.viewport.Width))
 		m.viewport.GotoBottom()
 
@@ -290,6 +386,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.stepCount = 0
 				m.lastThought = ""
 				m.lastTool = ""
+				m.consecutiveCommands = 0
+				m.lastBadge = ""
 				m.appendLog("\n[Stream cancelled by user (Ctrl+C). Slot released.]\n")
 				return m, nil
 			}
@@ -309,6 +407,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.stepCount = 0
 				m.lastThought = ""
 				m.lastTool = ""
+				m.consecutiveCommands = 0
+				m.lastBadge = ""
 				m.appendLog("\n[Stream aborted (Esc). Slot released.]\n")
 				return m, nil
 			}
@@ -339,8 +439,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.state == StateWaitingActionApproval {
 				// Approve action
 				m.state = StateExecutingAction
-				m.appendLog(outputBoxStyle.Render("⚡ Executing command: " + m.pendingAct.Command))
-				return m, executeAction(m.session, m.pendingAct)
+				if m.verbose && m.pendingAct != nil {
+					m.appendLog(m.pendingAct.VerboseDescription() + "\n\n")
+				}
+				return m, tea.Batch(
+					executeAction(m.session, m.pendingAct),
+					m.spinner.Tick,
+				)
 			}
 
 			if m.state == StateIdle {
@@ -349,6 +454,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				m.textarea.Reset()
+				m.textarea.SetHeight(1)
+				m.updateViewportDimensions()
 
 				// Handle /mode slash command
 				if strings.HasPrefix(input, "/mode") {
@@ -379,6 +486,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.stepCount = 0
 				m.lastThought = ""
 				m.lastTool = ""
+				m.consecutiveCommands = 0
+				m.lastBadge = ""
+				m.lastSig = ""
+				m.repeatCount = 0
 				m.currentResp = ""
 				m.tokenChan = make(chan string, 100)
 
@@ -388,6 +499,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, tea.Batch(
 					startStream(streamCtx, m.session, m.tokenChan),
 					waitForToken(m.tokenChan),
+					m.spinner.Tick,
 				)
 			}
 		}
@@ -406,11 +518,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch msg.String() {
 			case "y", "Y":
 				m.state = StateExecutingAction
-				m.appendLog(outputBoxStyle.Render("⚡ Executing approved command: " + m.pendingAct.Command))
-				return m, executeAction(m.session, m.pendingAct)
+				if m.verbose && m.pendingAct != nil {
+					m.appendLog(m.pendingAct.VerboseDescription() + "\n\n")
+				}
+				return m, tea.Batch(
+					executeAction(m.session, m.pendingAct),
+					m.spinner.Tick,
+				)
 			case "n", "N":
 				m.state = StateIdle
-				m.appendLog("[Action rejected by user]\n")
+				m.consecutiveCommands = 0
+				m.lastBadge = ""
+				m.lastSig = ""
+				m.repeatCount = 0
+				m.appendLog("[Action rejected by user]\n\n")
 				if m.session != nil {
 					m.session.AppendUserMessage("User rejected the action proposal. Please decide on an alternative or ask for clarification.")
 				}
@@ -455,6 +576,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.lastThought = act.CleanThought
 				m.lastTool = act.Name
 
+				currentSig := act.Name + ":" + strings.TrimSpace(act.Command)
+				if currentSig == m.lastSig {
+					m.repeatCount++
+				} else {
+					m.lastSig = currentSig
+					m.repeatCount = 1
+				}
+
+				if m.repeatCount >= 4 {
+					m.state = StateIdle
+					m.consecutiveCommands = 0
+					m.lastBadge = ""
+					m.pendingAct = nil
+					m.lastSig = ""
+					m.repeatCount = 0
+					m.appendLog(fmt.Sprintf("⚠️  [Loop Circuit Breaker] Action %s repeated %d times consecutively without progress. Halting loop to protect KV cache.\n\n", act.Name, 4))
+					return m, nil
+				}
+
 				if m.verbose && act.CleanThought != "" {
 					m.appendLog(agentStyle.Render("lokol: ") + act.CleanThought + "\n")
 				}
@@ -477,11 +617,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// YOLO Mode: execute immediately without waiting for user approval
 					m.state = StateExecutingAction
 					if m.verbose {
-						m.appendLog(act.VerboseDescription() + "\n")
+						m.appendLog(act.VerboseDescription() + "\n\n")
 					}
-					return m, executeAction(m.session, act)
+					return m, tea.Batch(
+						executeAction(m.session, act),
+						m.spinner.Tick,
+					)
 				}
 
+				m.consecutiveCommands = 0
+				m.lastBadge = ""
 				m.state = StateWaitingActionApproval
 				warningBadge := ""
 				if perm.Status != guardrail.StatusAllowed {
@@ -494,6 +639,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.appendLog("\n" + box + "\n")
 			} else if act != nil && act.Name == "task_finish" {
 				m.state = StateIdle
+				m.consecutiveCommands = 0
+				m.lastBadge = ""
+				m.lastSig = ""
+				m.repeatCount = 0
 				finalText := strings.TrimSpace(act.Command)
 				if act.CleanThought != "" {
 					if finalText != "" && !strings.Contains(act.CleanThought, finalText) {
@@ -522,6 +671,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.lastTool = ""
 			} else {
 				m.state = StateIdle
+				m.consecutiveCommands = 0
+				m.lastBadge = ""
+				m.lastSig = ""
+				m.repeatCount = 0
 				m.appendLog(agentStyle.Render("lokol: ") + strings.TrimSpace(response) + "\n\n")
 				m.stepCount = 0
 				m.lastThought = ""
@@ -532,13 +685,77 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case ActionExecutedMsg:
 		output := string(msg)
+		isError := strings.HasPrefix(output, "[Error: ")
+
 		if m.verbose {
-			m.appendLog("✓ Executed successfully\n")
+			if isError {
+				m.appendLog("✗ Execution failed\n\n")
+			} else {
+				m.appendLog("✓ Executed successfully\n\n")
+			}
+		} else if m.pendingAct != nil {
+			if isError {
+				errSummary := output
+				if idx := strings.Index(errSummary, "\n"); idx != -1 {
+					errSummary = errSummary[:idx]
+				}
+				errSummary = strings.TrimPrefix(errSummary, "[Error: ")
+				errSummary = strings.TrimSuffix(errSummary, "]")
+				if len(errSummary) > 60 {
+					errSummary = errSummary[:57] + "..."
+				}
+				badge := fmt.Sprintf("Failed %s (%s) ✗", m.pendingAct.Name, errSummary)
+				badgeStr := toolBadgeStyle.Render(badge) + "\n\n"
+				m.lastBadge = badgeStr
+				m.appendLog(badgeStr)
+			} else {
+				m.consecutiveCommands++
+				if m.consecutiveCommands == 1 {
+					badge := formatCompactAction(m.pendingAct)
+					badgeStr := toolBadgeStyle.Render(badge) + "\n\n"
+					m.lastBadge = badgeStr
+					m.appendLog(badgeStr)
+				} else {
+					newBadge := fmt.Sprintf("Ran %d commands ▸", m.consecutiveCommands)
+					newBadgeStr := toolBadgeStyle.Render(newBadge) + "\n\n"
+					if m.lastBadge != "" && strings.HasSuffix(m.chatLog, m.lastBadge) {
+						m.chatLog = strings.TrimSuffix(m.chatLog, m.lastBadge) + newBadgeStr
+						m.lastBadge = newBadgeStr
+						w := m.viewport.Width
+						if w <= 0 {
+							w = 76
+						}
+						m.viewport.SetContent(wrapContent(m.chatLog, w))
+						m.viewport.GotoBottom()
+					} else {
+						m.lastBadge = newBadgeStr
+						m.appendLog(newBadgeStr)
+					}
+				}
+			}
+		}
+
+		// Inject system intervention if repeating action loop detected
+		sessionOutput := output
+		if m.repeatCount >= 2 && m.pendingAct != nil {
+			if isError {
+				if m.pendingAct.Name == "read_window" {
+					sessionOutput += fmt.Sprintf("\n\n[SYSTEM INTERVENTION: Loop detected. You have attempted this exact read %d times consecutively and it failed. DO NOT repeat this action. If you are trying to inspect a directory, use <action name=\"find_files\"><pattern>*</pattern></action> instead.]", m.repeatCount)
+				} else if m.pendingAct.Name == "replace_file" {
+					sessionOutput += fmt.Sprintf("\n\n[SYSTEM INTERVENTION: Loop detected. You have attempted this EXACT edit %d times consecutively and it failed. DO NOT repeat this action. Use <action name=\"read_window\"> to inspect lines, or use <action name=\"write_file\"> to rewrite completely.]", m.repeatCount)
+				} else {
+					sessionOutput += fmt.Sprintf("\n\n[SYSTEM INTERVENTION: Loop detected. You have attempted this EXACT action %d times consecutively and it failed. DO NOT repeat this action. Change your strategy or call <action name=\"task_finish\">.]", m.repeatCount)
+				}
+			} else {
+				if m.pendingAct.Name == "read_window" {
+					sessionOutput += fmt.Sprintf("\n\n[SYSTEM INTERVENTION: Loop detected. You have read this exact line window %d times consecutively. You now have the contents. Take action to edit the file or proceed with your next step.]", m.repeatCount)
+				}
+			}
 		}
 
 		// Feed tool output back to agent session
 		if m.session != nil {
-			m.session.AppendActionResult(output, nil)
+			m.session.AppendActionResult(sessionOutput, nil)
 		}
 
 		// Trigger next agent iteration
@@ -552,6 +769,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(
 			startStream(streamCtx, m.session, m.tokenChan),
 			waitForToken(m.tokenChan),
+			m.spinner.Tick,
 		)
 
 	case ErrMsg:
@@ -567,6 +785,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var taCmd tea.Cmd
 		m.textarea, taCmd = m.textarea.Update(msg)
 		cmds = append(cmds, taCmd)
+
+		lines := m.textarea.LineCount()
+		if lines < 1 {
+			lines = 1
+		}
+		if lines > 8 {
+			lines = 8
+		}
+		if m.textarea.Height() != lines {
+			m.textarea.SetHeight(lines)
+			m.updateViewportDimensions()
+		}
 	}
 
 	m.viewport, vpCmd = m.viewport.Update(msg)
@@ -600,12 +830,28 @@ func (m Model) View() string {
 
 	header := headerStyle.Render(fmt.Sprintf(" ⚡ lokol %s ", version.Version)) + "  " +
 		hudStyle.Render(fmt.Sprintf("GPU: %s", gpuInfo))
-	currentMode := "general"
-	if m.session != nil {
-		currentMode = string(m.session.GetMode())
+
+	// Real-time Context / KV Cache HUD in top status bar following GPU info
+	if m.slotStatus != nil && m.slotStatus.NCtx > 0 {
+		ctxUsed := m.slotStatus.NPromptTokens
+		ctxMax := m.slotStatus.NCtx
+		pct := (float64(ctxUsed) / float64(ctxMax)) * 100
+
+		engineStatus := "Pure VRAM"
+		ctxFg := lipgloss.Color("#50FA7B")
+		if pct > 75.0 {
+			ctxFg = lipgloss.Color("#FFB86C")
+		}
+		if pct > 90.0 {
+			engineStatus = "High Pressure"
+			ctxFg = lipgloss.Color("#FF5555")
+		}
+
+		ctxStr := fmt.Sprintf(" | Context: %d/%d (%.1f%%) [%s]", ctxUsed, ctxMax, pct, engineStatus)
+		hudCtxStyle := lipgloss.NewStyle().Foreground(ctxFg).Bold(true)
+		header += hudCtxStyle.Render(ctxStr)
 	}
-	modeBadge := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#8BE9FD")).Render(fmt.Sprintf(" [Mode: %s]", currentMode))
-	header += modeBadge
+
 	if m.yoloMode {
 		yoloBadge := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#FF5555")).Render(" [YOLO ACTIVE]")
 		header += yoloBadge
@@ -615,46 +861,45 @@ func (m Model) View() string {
 		header += verbBadge
 	}
 
-	// Real-time Context / KV Cache HUD
-	if m.slotStatus != nil && m.slotStatus.NCtx > 0 {
-		ctxUsed := m.slotStatus.NPromptTokens
-		ctxMax := m.slotStatus.NCtx
-		pct := (float64(ctxUsed) / float64(ctxMax)) * 100
-
-		// Engine / Memory Status
-		engineStatus := "Pure VRAM"
-		if pct > 90.0 {
-			engineStatus = "High Pressure"
-		}
-
-		hudCtxStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#50FA7B")).Bold(true)
-		if pct > 75.0 {
-			hudCtxStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFB86C")).Bold(true)
-		}
-		if pct > 90.0 {
-			hudCtxStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF5555")).Bold(true)
-		}
-
-		ctxStr := fmt.Sprintf(" | Context: %d/%d (%.1f%%) [%s]", ctxUsed, ctxMax, pct, engineStatus)
-		header += hudCtxStyle.Render(ctxStr)
+	w := m.width
+	if w <= 0 {
+		w = 80
 	}
 
-	var statusLine string
+	// Upper separator rule between chat viewport and prompt input (integrates spinner/interruption when active)
+	var upperRule string
 	switch m.state {
-	case StateIdle:
-		statusLine = "[Ready] Enter send | [/mode <mode>] Switch mode | [PgUp/PgDn] Scroll | [Ctrl+Y] YOLO | [Ctrl+C] Quit"
 	case StateStreaming:
-		if m.stepCount > 0 {
-			toolHint := ""
-			if m.lastTool != "" {
-				toolHint = fmt.Sprintf(" (after %s)", m.lastTool)
-			}
-			statusLine = fmt.Sprintf("⚡ [Step %d%s] Reasoning and deciding next action... | [Ctrl+C] Stop", m.stepCount+1, toolHint)
-		} else {
-			statusLine = "[Thinking] Generating response from local engine... | [Ctrl+C] Stop"
+		toolHint := ""
+		if m.stepCount > 0 && m.lastTool != "" {
+			toolHint = fmt.Sprintf(" (after %s)", m.lastTool)
 		}
+		statusText := "Thinking..."
+		if m.stepCount > 0 {
+			statusText = fmt.Sprintf("[Step %d%s] Reasoning and deciding next action...", m.stepCount+1, toolHint)
+		}
+		left := fmt.Sprintf("── %s %s ", m.spinner.View(), statusText)
+		right := " esc to stop ──"
+		leftW := ansi.StringWidth(left)
+		rightW := ansi.StringWidth(right)
+		gap := w - leftW - rightW
+		if gap < 1 {
+			gap = 1
+		}
+		upperRule = spinnerStyle.Render(left) + ruleStyle.Render(strings.Repeat("─", gap)) + spinnerHintStyle.Render(right)
+
 	case StateWaitingActionApproval:
-		statusLine = "[Approval Needed] Review proposed action above. Press [Y] Approve, [N] Deny | [Ctrl+Y] Auto-approve all"
+		left := "── ⏸ [Approval Needed] Review proposed action above "
+		right := " [Y] Approve · [N] Deny · [Ctrl+Y] Auto ──"
+		leftW := ansi.StringWidth(left)
+		rightW := ansi.StringWidth(right)
+		gap := w - leftW - rightW
+		if gap < 1 {
+			gap = 1
+		}
+		approvalStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#F1FA8C")).Bold(true)
+		upperRule = approvalStyle.Render(left) + ruleStyle.Render(strings.Repeat("─", gap)) + spinnerHintStyle.Render(right)
+
 	case StateExecutingAction:
 		toolDesc := "tool"
 		if m.pendingAct != nil {
@@ -665,18 +910,147 @@ func (m Model) View() string {
 				toolDesc = m.pendingAct.Name
 			}
 		}
-		statusLine = fmt.Sprintf("⚡ [Step %d] Executing %s locally... | [Ctrl+C] Stop", m.stepCount, toolDesc)
+		left := fmt.Sprintf("── %s [Step %d] Executing %s locally... ", m.spinner.View(), m.stepCount, toolDesc)
+		right := " esc to stop ──"
+		leftW := ansi.StringWidth(left)
+		rightW := ansi.StringWidth(right)
+		gap := w - leftW - rightW
+		if gap < 1 {
+			gap = 1
+		}
+		execStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#50FA7B")).Bold(true)
+		upperRule = execStyle.Render(left) + ruleStyle.Render(strings.Repeat("─", gap)) + spinnerHintStyle.Render(right)
+
+	default:
+		upperRule = ruleStyle.Render(strings.Repeat("─", w))
 	}
 
-	return fmt.Sprintf("%s\n\n%s\n\n%s\n%s",
+	// Lower separator rule between prompt input and status lines
+	lowerRule := ruleStyle.Render(strings.Repeat("─", w))
+
+	// Hotkey options and active state hints directly below lower rule
+	var hints string
+	switch m.state {
+	case StateIdle:
+		hints = "[Ready] Enter send · [/mode] Switch · [PgUp/PgDn] Scroll · [Ctrl+Y] YOLO · [Ctrl+C] Quit"
+	case StateStreaming:
+		hints = "[Thinking] Generating response from local engine... · [Esc] Stop"
+	case StateWaitingActionApproval:
+		hints = "[Approval Needed] [Y] Approve · [N] Deny · [Ctrl+Y] Auto-approve all"
+	case StateExecutingAction:
+		hints = "[Executing] Local runner active · [Esc] Stop"
+	}
+	hotkeyLine := bottomKeyBarStyle.Render(hints)
+
+	// Bottom-most Line: Left = Project path & branch pill, Right = Right-justified Active Mode
+	workDir := "."
+	if m.session != nil && m.session.GetWorkDir() != "" {
+		workDir = m.session.GetWorkDir()
+	}
+	projectName := "workspace"
+	if abs, err := filepath.Abs(workDir); err == nil {
+		base := filepath.Base(abs)
+		if base != "/" && base != "." {
+			projectName = base
+		}
+	}
+	branch := getGitBranch(workDir)
+	projText := fmt.Sprintf("~ %s", projectName)
+	if branch != "" {
+		projText = fmt.Sprintf("~ %s (%s)", projectName, branch)
+	}
+	projBadge := bottomProjStyle.Render(projText)
+
+	currMode := "general"
+	if m.session != nil {
+		currMode = string(m.session.GetMode())
+	}
+	modeBadge := bottomModeStyle.Render(fmt.Sprintf("[Mode: %s]", currMode))
+
+	leftWidth := ansi.StringWidth(projBadge)
+	rightWidth := ansi.StringWidth(modeBadge)
+	gap := w - leftWidth - rightWidth
+	if gap < 1 {
+		gap = 1
+	}
+	infoLine := projBadge + strings.Repeat(" ", gap) + modeBadge
+
+	return fmt.Sprintf("%s\n\n%s\n%s\n%s\n%s\n%s\n%s",
 		header,
 		m.viewport.View(),
-		statusLine,
+		upperRule,
 		m.textarea.View(),
+		lowerRule,
+		hotkeyLine,
+		infoLine,
 	)
 }
 
 // ViewportContent returns the raw wrapped text content currently held in the viewport.
 func (m Model) ViewportContent() string {
 	return wrapContent(m.chatLog, m.viewport.Width)
+}
+
+func getGitBranch(workDir string) string {
+	if workDir == "" {
+		workDir = "."
+	}
+	gitPath := filepath.Join(workDir, ".git")
+	fi, err := os.Stat(gitPath)
+	if err != nil {
+		return ""
+	}
+	headPath := filepath.Join(gitPath, "HEAD")
+	if !fi.IsDir() {
+		data, err := os.ReadFile(gitPath)
+		if err == nil {
+			line := strings.TrimSpace(string(data))
+			if strings.HasPrefix(line, "gitdir: ") {
+				gitDir := strings.TrimSpace(strings.TrimPrefix(line, "gitdir: "))
+				if !filepath.IsAbs(gitDir) {
+					gitDir = filepath.Join(workDir, gitDir)
+				}
+				headPath = filepath.Join(gitDir, "HEAD")
+			}
+		}
+	}
+	headBytes, err := os.ReadFile(headPath)
+	if err != nil {
+		return ""
+	}
+	headContent := strings.TrimSpace(string(headBytes))
+	if strings.HasPrefix(headContent, "ref: refs/heads/") {
+		return strings.TrimPrefix(headContent, "ref: refs/heads/")
+	}
+	if len(headContent) >= 7 {
+		return headContent[:7]
+	}
+	return headContent
+}
+
+func formatCompactAction(act *agent.Action) string {
+	if act == nil {
+		return "Ran command ▸"
+	}
+	if act.Name == "exec_bash" {
+		cmdStr := strings.TrimSpace(act.Command)
+		if idx := strings.Index(cmdStr, "\n"); idx != -1 {
+			cmdStr = strings.TrimSpace(cmdStr[:idx])
+		}
+		if len(cmdStr) > 40 {
+			cmdStr = cmdStr[:37] + "..."
+		}
+		if cmdStr != "" {
+			return fmt.Sprintf("Ran %s ▸", cmdStr)
+		}
+		return "Ran command ▸"
+	}
+	target := act.TargetSummary()
+	if target != "" {
+		if len(target) > 30 {
+			target = target[:27] + "..."
+		}
+		return fmt.Sprintf("Ran %s %s ▸", act.Name, target)
+	}
+	return fmt.Sprintf("Ran %s ▸", act.Name)
 }

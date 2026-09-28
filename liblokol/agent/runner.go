@@ -184,14 +184,23 @@ func (r *Runner) Run(ctx context.Context, initialPrompt string) (string, error) 
 				}
 			case "read_window":
 				toolResult = fmt.Sprintf("<action_result>\n[Read error: %v]\n</action_result>", err)
+				if repeatCount >= 2 {
+					toolResult += fmt.Sprintf("\n\n[SYSTEM INTERVENTION: Loop detected. You have attempted this exact read %d times consecutively and it failed: %v. DO NOT repeat this action. If you are trying to inspect a directory, use <action name=\"find_files\"><pattern>*</pattern></action> instead.]", repeatCount, err)
+				}
 			case "read_outline":
 				toolResult = fmt.Sprintf("<action_result>\n[Outline error: %v]\n</action_result>", err)
+				if repeatCount >= 2 {
+					toolResult += fmt.Sprintf("\n\n[SYSTEM INTERVENTION: Loop detected. You have attempted this exact outline %d times consecutively and it failed: %v. DO NOT repeat this action. If you are trying to inspect a directory, use <action name=\"find_files\"><pattern>*</pattern></action> instead.]", repeatCount, err)
+				}
 			case "run_test":
 				toolResult = fmt.Sprintf("<action_result>\n[Test execution error: %v]\n</action_result>", err)
 			case "get_environment":
 				toolResult = fmt.Sprintf("<action_result>\n[Environment error: %v]\n</action_result>", err)
 			default:
 				toolResult = fmt.Sprintf("<action_result>\n[Error: %v]\n%s\n</action_result>", err, out)
+				if repeatCount >= 2 {
+					toolResult += fmt.Sprintf("\n\n[SYSTEM INTERVENTION: Loop detected. You have attempted this EXACT action %d times consecutively and it failed. DO NOT repeat this action. Change your strategy or call <action name=\"task_finish\">.]", repeatCount)
+				}
 			}
 		} else {
 			if act.Name == "replace_file" || act.Name == "write_file" {
@@ -200,12 +209,12 @@ func (r *Runner) Run(ctx context.Context, initialPrompt string) (string, error) 
 			toolResult = fmt.Sprintf("<action_result>\n%s\n</action_result>", out)
 		}
 
-		if repeatCount >= 2 {
+		if repeatCount >= 2 && err == nil {
 			if act.Name == "read_window" {
 				toolResult += fmt.Sprintf("\n\n[SYSTEM INTERVENTION: Loop detected. You have read this exact line window %d times consecutively. You now have the contents. Take action to edit the file (<action name=\"replace_file\"> or <action name=\"write_file\">) or proceed with your next step.]", repeatCount)
-			} else if act.Name == "run_test" && err != nil {
-				toolResult += fmt.Sprintf("\n\n[SYSTEM INTERVENTION: Loop detected. You have run the exact same test command %d times consecutively and tests are failing. Inspect or edit the source code with <action name=\"replace_file\"> or <action name=\"write_file\"> before re-running tests.]", repeatCount)
 			}
+		} else if repeatCount >= 2 && err != nil && act.Name == "run_test" {
+			toolResult += fmt.Sprintf("\n\n[SYSTEM INTERVENTION: Loop detected. You have run the exact same test command %d times consecutively and tests are failing. Inspect or edit the source code with <action name=\"replace_file\"> or <action name=\"write_file\"> before re-running tests.]", repeatCount)
 		}
 
 		if r.OnOutput != nil {

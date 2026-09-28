@@ -510,5 +510,240 @@ func TestTUI_Presentation_GuardrailYOLOIntercept(t *testing.T) {
 	}
 }
 
+// TestTUI_Presentation_Ergonomics_JunieLayoutAndToolFolding verifies Junie-inspired ergonomics:
+// 1. Dual status bar hierarchy (top hardware/mode, dense bottom status bar with git branch, engine, context HUD)
+// 2. Active animated spinner line above framed textarea during inference/action turns
+// 3. Compact tool badges folding consecutive commands into "Ran N commands ▸"
+func TestTUI_Presentation_Ergonomics_JunieLayoutAndToolFolding(t *testing.T) {
+	mock := NewMockSession()
+	hw := &probe.HardwareProfile{
+		OS:        "linux",
+		Arch:      "amd64",
+		GPUName:   "NVIDIA GeForce RTX 3060",
+		VRAMBytes: 12 * 1024 * 1024 * 1024,
+	}
+	m := tui.NewWithSession(mock, hw, true) // YOLO mode engaged
+
+	// Context status tick
+	newM, _ := m.Update(tui.SlotTickMsg(&agent.SlotStatus{
+		NCtx:          2048,
+		NPromptTokens: 500,
+	}))
+	m = newM.(tui.Model)
+
+	// Verify layout when idle:
+	// Top bar: hardware and context token HUD
+	// Line 1 below lower rule: hotkey hints with background styling
+	// Line 2 (bottom): project/branch on left, active mode right-justified
+	idleView := m.View()
+	if !strings.Contains(idleView, "Context: 500/2048 (24.4%) [Pure VRAM]") {
+		t.Errorf("expected top header to contain context token HUD, got: %s", idleView)
+	}
+	if !strings.Contains(idleView, "> ") {
+		t.Errorf("expected prompt to have '> ' prompt icon, got: %s", idleView)
+	}
+	if !strings.Contains(idleView, "[Mode: general]") {
+		t.Errorf("expected bottom bar to contain '[Mode: general]', got: %s", idleView)
+	}
+
+	hotkeyIdx := strings.Index(idleView, "[Ready] Enter send")
+	modeIdx := strings.Index(idleView, "[Mode: general]")
+	if hotkeyIdx == -1 {
+		t.Errorf("expected hotkey menu in view, got: %s", idleView)
+	}
+	if modeIdx == -1 {
+		t.Errorf("expected mode badge in view, got: %s", idleView)
+	}
+	if hotkeyIdx > modeIdx {
+		t.Errorf("expected hotkey menu directly below input, before bottom mode line")
+	}
+
+	// Step 0: User prompt -> enter StateStreaming
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("check codebase")})
+	m = newM.(tui.Model)
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = newM.(tui.Model)
+
+	// Verify active spinner line above prompt during initial thinking
+	streamingView := m.View()
+	if !strings.Contains(streamingView, "Thinking...") || !strings.Contains(streamingView, "esc to stop") {
+		t.Errorf("expected active spinner line with interruption hint above prompt, got: %s", streamingView)
+	}
+
+	// Tool Turn 1: exec_bash git status
+	turn1 := "Checking status.\n<action name=\"exec_bash\">\ngit status\n</action>"
+	newM, _ = m.Update(tui.StreamDoneMsg(turn1))
+	m = newM.(tui.Model)
+	newM, _ = m.Update(tui.ActionExecutedMsg("On branch main\nnothing to commit"))
+	m = newM.(tui.Model)
+
+	content := m.ViewportContent()
+	if !strings.Contains(content, "Ran git status ▸") {
+		t.Errorf("expected compact single tool badge 'Ran git status ▸', got: %s", content)
+	}
+
+	// Tool Turn 2: exec_bash git diff
+	turn2 := "Checking diff.\n<action name=\"exec_bash\">\ngit diff\n</action>"
+	newM, _ = m.Update(tui.StreamDoneMsg(turn2))
+	m = newM.(tui.Model)
+	newM, _ = m.Update(tui.ActionExecutedMsg(""))
+	m = newM.(tui.Model)
+
+	content = m.ViewportContent()
+	if !strings.Contains(content, "Ran 2 commands ▸") {
+		t.Errorf("expected consecutive commands to fold into 'Ran 2 commands ▸', got: %s", content)
+	}
+	if strings.Contains(content, "Ran git status ▸") {
+		t.Errorf("expected previous individual badge to be replaced upon folding, got: %s", content)
+	}
+
+	// Tool Turn 3: exec_bash go test
+	turn3 := "Running tests.\n<action name=\"exec_bash\">\ngo test ./...\n</action>"
+	newM, _ = m.Update(tui.StreamDoneMsg(turn3))
+	m = newM.(tui.Model)
+	newM, _ = m.Update(tui.ActionExecutedMsg("PASS"))
+	m = newM.(tui.Model)
+
+	content = m.ViewportContent()
+	if !strings.Contains(content, "Ran 3 commands ▸") {
+		t.Errorf("expected 3 consecutive commands to fold into 'Ran 3 commands ▸', got: %s", content)
+	}
+
+	// Task finish
+	turnDone := "All checks passed.\n<action name=\"task_finish\">\nCodebase is in good health.\n</action>"
+	newM, _ = m.Update(tui.StreamDoneMsg(turnDone))
+	m = newM.(tui.Model)
+
+	finalContent := m.ViewportContent()
+	if !strings.Contains(finalContent, "Ran 3 commands ▸") {
+		t.Errorf("expected collapsed tool summary preserved in final viewport, got: %s", finalContent)
+	}
+	if !strings.Contains(finalContent, "Codebase is in good health.") {
+		t.Errorf("expected final finish answer, got: %s", finalContent)
+	}
+	if !strings.Contains(finalContent, "✅ Task Complete • Resolved in 3 autonomous steps") {
+		t.Errorf("expected 3 autonomous steps in complete banner, got: %s", finalContent)
+	}
+}
+
+// TestTUI_Presentation_NewModelAutoDetectsHardware verifies that NewModel automatically probes host hardware.
+func TestTUI_Presentation_NewModelAutoDetectsHardware(t *testing.T) {
+	mock := NewMockSession()
+	m := tui.NewModel(mock, false, false)
+	view := m.View()
+
+	hw, _ := probe.Detect()
+	if hw != nil && hw.GPUName != "" {
+		if !strings.Contains(view, hw.GPUName) {
+			t.Errorf("expected view to contain detected GPU %q, got: %s", hw.GPUName, view)
+		}
+	}
+}
+
+// TestTUI_Presentation_FullWindowHeightUtilization verifies that the TUI utilizes the full terminal window height
+// so that the bottom status line renders at the exact bottom line without blank line padding.
+func TestTUI_Presentation_FullWindowHeightUtilization(t *testing.T) {
+	mock := NewMockSession()
+	m := tui.NewWithSession(mock, nil, false)
+
+	// Simulate window resize to 80x24 (standard terminal height)
+	newModel, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = newModel.(tui.Model)
+
+	viewOutput := m.View()
+	lines := strings.Split(viewOutput, "\n")
+	if len(lines) != 24 {
+		t.Errorf("expected view output to have exactly 24 lines, got %d", len(lines))
+	}
+	lastLine := lines[len(lines)-1]
+	if !strings.Contains(lastLine, "~ ") {
+		t.Errorf("expected last line of terminal to contain project info, got: %q", lastLine)
+	}
+	secondLastLine := lines[len(lines)-2]
+	if !strings.Contains(secondLastLine, "[Ready] Enter send") {
+		t.Errorf("expected second to last line of terminal to contain hotkey menu, got: %q", secondLastLine)
+	}
+}
+
+// TestTUI_Presentation_LoopCircuitBreakerAndFailureBadges verifies that the TUI halts repeating action loops
+// and presents informative failure badges and system interventions.
+func TestTUI_Presentation_LoopCircuitBreakerAndFailureBadges(t *testing.T) {
+	mock := NewMockSession()
+	m := tui.NewWithSession(mock, nil, false)
+	newModel, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	m = newModel.(tui.Model)
+
+	// User submits initial prompt
+	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("inspect workspace")})
+	m = newM.(tui.Model)
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = newM.(tui.Model)
+
+	repeatActionXML := "I will inspect the workspace.\n<action name=\"read_window\">\n<path>.</path>\n<start>1</start>\n<end>50</end>\n</action>"
+
+	// Turn 1: Propose read_window on directory .
+	newM, _ = m.Update(tui.StreamDoneMsg(repeatActionXML))
+	m = newM.(tui.Model)
+
+	// User approves (or executes)
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	m = newM.(tui.Model)
+
+	// Action returns directory error
+	newM, _ = m.Update(tui.ActionExecutedMsg("[Error: current directory \".\" is a directory, not a file. To discover files in this workspace, use <action name=\"find_files\"><pattern>*</pattern></action>.]\n"))
+	m = newM.(tui.Model)
+
+	content := m.ViewportContent()
+	if !strings.Contains(content, "Failed read_window") {
+		t.Errorf("expected failure badge 'Failed read_window', got: %s", content)
+	}
+	if !strings.Contains(content, "✗") {
+		t.Errorf("expected failure badge marker ✗, got: %s", content)
+	}
+
+	// Turn 2: Repeat exact same action
+	newM, _ = m.Update(tui.StreamDoneMsg(repeatActionXML))
+	m = newM.(tui.Model)
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	m = newM.(tui.Model)
+	newM, _ = m.Update(tui.ActionExecutedMsg("[Error: current directory \".\" is a directory, not a file.]\n"))
+	m = newM.(tui.Model)
+
+	// Verify mock session received loop intervention
+	var receivedIntervention bool
+	for _, res := range mock.ActionResults {
+		if strings.Contains(res, "SYSTEM INTERVENTION: Loop detected") {
+			receivedIntervention = true
+			break
+		}
+	}
+	if !receivedIntervention {
+		t.Errorf("expected system intervention to be fed to session ActionResults on turn 2 loop, got: %v", mock.ActionResults)
+	}
+
+	// Turn 3: Repeat exact same action
+	newM, _ = m.Update(tui.StreamDoneMsg(repeatActionXML))
+	m = newM.(tui.Model)
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	m = newM.(tui.Model)
+	newM, _ = m.Update(tui.ActionExecutedMsg("[Error: current directory \".\" is a directory, not a file.]\n"))
+	m = newM.(tui.Model)
+
+	// Turn 4: Repeat 4th time -> Circuit breaker should trip immediately and halt
+	newM, _ = m.Update(tui.StreamDoneMsg(repeatActionXML))
+	m = newM.(tui.Model)
+
+	if m.State() != tui.StateIdle {
+		t.Errorf("expected model state to halt and be StateIdle, got %v", m.State())
+	}
+	circuitBreakerContent := m.ViewportContent()
+	if !strings.Contains(circuitBreakerContent, "Loop Circuit Breaker") {
+		t.Errorf("expected circuit breaker alert in viewport, got: %s", circuitBreakerContent)
+	}
+	if !strings.Contains(circuitBreakerContent, "repeated 4 times") {
+		t.Errorf("expected 4 times repeat explanation in viewport, got: %s", circuitBreakerContent)
+	}
+}
+
 
 

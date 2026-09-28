@@ -16,6 +16,7 @@ import (
 
 	"github.com/boggycreek/lokol/cmd/lk/tui"
 	"github.com/boggycreek/lokol/liblokol/agent"
+	"github.com/boggycreek/lokol/liblokol/probe"
 	"github.com/boggycreek/lokol/liblokol/version"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -60,7 +61,9 @@ func main() {
 	client := agent.NewClient(*engineFlag)
 	session := agent.NewSessionWithMode(client, cwd, mode)
 
-	model := tui.NewModel(session, *yoloFlag, *verboseFlag)
+	hw, _ := probe.Detect()
+	model := tui.NewWithSession(session, hw, *yoloFlag)
+	model.SetVerbose(*verboseFlag)
 
 	// If prompt passed via flags or positional arguments, pre-populate
 	initialPrompt := *promptFlag
