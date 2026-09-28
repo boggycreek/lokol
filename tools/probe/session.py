@@ -20,7 +20,7 @@ import subprocess
 import time
 from typing import Any, Dict, List, Optional
 
-from .scenarios import Scenario
+from .scenarios import Scenario, save_scenario
 from .watchdog import HardwareWatchdog, TelemetrySample, WatchdogViolation
 
 
@@ -236,24 +236,7 @@ class ProbeSession:
         )
 
         if append_to_file:
-            scenarios_file = Path(__file__).resolve().parent / "scenarios.py"
-            if scenarios_file.exists():
-                code_snippet = (
-                    f"\n    Scenario(\n"
-                    f"        id={sc.id!r},\n"
-                    f"        name={sc.name!r},\n"
-                    f"        prompt={sc.prompt!r},\n"
-                    f"        mode={sc.mode!r},\n"
-                    f"        forbidden_substrings={sc.forbidden_substrings!r},\n"
-                    f"        required_substrings={sc.required_substrings!r},\n"
-                    f"        laya_instructions={sc.laya_instructions!r},\n"
-                    f"    ),\n"
-                )
-                text = scenarios_file.read_text()
-                closing_bracket_idx = text.rfind("]")
-                if closing_bracket_idx != -1:
-                    new_text = text[:closing_bracket_idx] + code_snippet + text[closing_bracket_idx:]
-                    scenarios_file.write_text(new_text)
+            save_scenario(sc)
 
         return sc
 

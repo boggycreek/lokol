@@ -21,7 +21,7 @@ if str(tools_dir) not in sys.path:
     sys.path.insert(0, str(tools_dir))
 
 from probe.harness import ProbeHarness, ScenarioResult
-from probe.scenarios import SCENARIOS, Scenario, get_scenario
+from probe.scenarios import SCENARIOS, Scenario, get_scenario, load_scenarios, save_scenario
 from probe.session import ProbeSession, ProbeTurn
 from probe.watchdog import HardwareWatchdog, TelemetrySample
 
@@ -43,6 +43,34 @@ class TestScenarios(unittest.TestCase):
 
         none_s = get_scenario("non_existent_scenario_id")
         self.assertIsNone(none_s)
+
+    def test_jsonl_load_and_save(self):
+        with tempfile.NamedTemporaryFile("w+", suffix=".jsonl", delete=False) as f:
+            temp_path = Path(f.name)
+        try:
+            sc = Scenario(
+                id="probe_temp_test",
+                name="Temp Test",
+                prompt="Prompt text",
+                mode="coding",
+                max_wall_clock_sec=15.0,
+                max_gpu_pegged_sec=8.0,
+                forbidden_substrings=["forbidden"],
+                required_substrings=["required"],
+                laya_instructions="Instructions",
+                description="Desc",
+            )
+            save_scenario(sc, file_path=temp_path)
+            loaded = load_scenarios(file_path=temp_path)
+            self.assertEqual(len(loaded), 1)
+            self.assertEqual(loaded[0].id, "probe_temp_test")
+            self.assertEqual(loaded[0].mode, "coding")
+            self.assertEqual(loaded[0].forbidden_substrings, ["forbidden"])
+            self.assertEqual(loaded[0].required_substrings, ["required"])
+            self.assertEqual(loaded[0].description, "Desc")
+        finally:
+            if temp_path.exists():
+                temp_path.unlink()
 
 
 class TestWatchdog(unittest.TestCase):
