@@ -5,4 +5,5 @@ use (
 	./cmd/lokol
 	./cmd/lokol-mcp
 	./liblokol
+	./tools/core_driver
 )
