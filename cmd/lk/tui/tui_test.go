@@ -531,27 +531,31 @@ func TestTUI_Presentation_Ergonomics_JunieLayoutAndToolFolding(t *testing.T) {
 	}))
 	m = newM.(tui.Model)
 
-	// Verify 2-line bottom status bar layout when idle:
-	// Line 1 (directly below input): hotkey hints with background styling
-	// Line 2 (bottom): project/branch on left, context token HUD right-justified
+	// Verify layout when idle:
+	// Top bar: hardware and context token HUD
+	// Line 1 below lower rule: hotkey hints with background styling
+	// Line 2 (bottom): project/branch on left, active mode right-justified
 	idleView := m.View()
-	if !strings.Contains(idleView, "⌘ llama.cpp") {
-		t.Errorf("expected header to contain '⌘ llama.cpp', got: %s", idleView)
+	if !strings.Contains(idleView, "Context: 500/2048 (24.4%) [Pure VRAM]") {
+		t.Errorf("expected top header to contain context token HUD, got: %s", idleView)
 	}
 	if !strings.Contains(idleView, "> ") {
-		t.Errorf("expected framed prompt to have '> ' prompt icon, got: %s", idleView)
+		t.Errorf("expected prompt to have '> ' prompt icon, got: %s", idleView)
+	}
+	if !strings.Contains(idleView, "[Mode: general]") {
+		t.Errorf("expected bottom bar to contain '[Mode: general]', got: %s", idleView)
 	}
 
 	hotkeyIdx := strings.Index(idleView, "[Ready] Enter send")
-	contextIdx := strings.Index(idleView, "Context: 500/2048 (24.4%) [Pure VRAM]")
+	modeIdx := strings.Index(idleView, "[Mode: general]")
 	if hotkeyIdx == -1 {
 		t.Errorf("expected hotkey menu in view, got: %s", idleView)
 	}
-	if contextIdx == -1 {
-		t.Errorf("expected context HUD in view, got: %s", idleView)
+	if modeIdx == -1 {
+		t.Errorf("expected mode badge in view, got: %s", idleView)
 	}
-	if hotkeyIdx > contextIdx {
-		t.Errorf("expected hotkey menu directly below input, before bottom context line")
+	if hotkeyIdx > modeIdx {
+		t.Errorf("expected hotkey menu directly below input, before bottom mode line")
 	}
 
 	// Step 0: User prompt -> enter StateStreaming
