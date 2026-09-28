@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 )
 
 // Stage represents an individual inspection gate in the regulator pipeline.
@@ -48,9 +49,10 @@ func (s *NamedStage) Evaluate(ctx context.Context, action ActionCandidate, workD
 }
 
 // Pipeline orchestrates an ordered sequence of regulator stages.
-// Execution short-circuits on the first StatusBlocked decision, preventing
-// unnecessary evaluation of downstream, computationally expensive stages.
+// Execution short-circuits on StatusBlocked or RiskLevelHigh decisions, preventing
+// unnecessary evaluation of downstream, computationally expensive stages (lokol-gml.7, lokol-gml.11).
 type Pipeline struct {
+	mu      sync.RWMutex
 	workDir string
 	stages  []Stage
 }
@@ -66,15 +68,21 @@ func NewPipeline(workDir string, stages ...Stage) *Pipeline {
 	}
 }
 
-// AddStage appends a new inspection stage to the end of the pipeline.
+// AddStage appends a new inspection stage to the end of the pipeline with concurrency safety.
 func (p *Pipeline) AddStage(stage Stage) *Pipeline {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.stages = append(p.stages, stage)
 	return p
 }
 
-// Stages returns the ordered slice of registered inspection stages.
+// Stages returns a snapshot copy of the registered inspection stages.
 func (p *Pipeline) Stages() []Stage {
-	return p.stages
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	stagesCopy := make([]Stage, len(p.stages))
+	copy(stagesCopy, p.stages)
+	return stagesCopy
 }
 
 // WorkDir returns the root workspace directory enforced by this pipeline.
@@ -83,32 +91,36 @@ func (p *Pipeline) WorkDir() string {
 }
 
 // Regulate executes candidate action validation through the ordered pipeline stages.
-// It short-circuits on the first StatusBlocked result and returns structured remediation.
+// It short-circuits immediately on StatusBlocked or RiskLevelHigh warnings (lokol-gml.7).
 func (p *Pipeline) Regulate(ctx context.Context, action ActionCandidate) PermissionResult {
-	workDir := p.workDir
-	if workDir == "" {
-		workDir = "."
-	}
+	workDir := p.WorkDir()
 
-	var firstWarning *PermissionResult
+	p.mu.RLock()
+	stages := make([]Stage, len(p.stages))
+	copy(stages, p.stages)
+	p.mu.RUnlock()
 
-	for _, stage := range p.stages {
+	var maxWarning *PermissionResult
+
+	for _, stage := range stages {
 		res := stage.Evaluate(ctx, action, workDir)
 		res.Stage = stage.Name()
 
-		if res.Status == StatusBlocked {
-			// Cost-ordered short circuit: stop immediately
+		// Immediate short circuit on blocked or high-risk hazard (lokol-gml.7)
+		if res.Status == StatusBlocked || (res.Status == StatusWarning && res.RiskLevel == RiskLevelHigh) {
 			return res
 		}
 
-		if res.Status == StatusWarning && firstWarning == nil {
-			resCopy := res
-			firstWarning = &resCopy
+		if res.Status == StatusWarning {
+			if maxWarning == nil || warningRank(res.RiskLevel) > warningRank(maxWarning.RiskLevel) {
+				resCopy := res
+				maxWarning = &resCopy
+			}
 		}
 	}
 
-	if firstWarning != nil {
-		return *firstWarning
+	if maxWarning != nil {
+		return *maxWarning
 	}
 
 	return PermissionResult{
@@ -116,6 +128,21 @@ func (p *Pipeline) Regulate(ctx context.Context, action ActionCandidate) Permiss
 		Reason:    "Action verified within authorized workspace boundaries and safety policies",
 		RiskLevel: RiskLevelNone,
 		Stage:     "pipeline",
+	}
+}
+
+func warningRank(level RiskLevel) int {
+	switch level {
+	case RiskLevelCritical:
+		return 4
+	case RiskLevelHigh:
+		return 3
+	case RiskLevelMedium:
+		return 2
+	case RiskLevelLow:
+		return 1
+	default:
+		return 0
 	}
 }
 
@@ -256,16 +283,22 @@ func NewSemanticStage(evaluator SemanticEvaluator) Stage {
 	})
 }
 
-// DefaultPipeline constructs the standard 4-tier cost-ordered regulator pipeline (ADR 0023).
+// DefaultPipeline constructs the standard cost-ordered regulator pipeline (ADR 0023, ADR 0025).
+// Always wires pure Go Stage 4 semantic evaluation in production (lokol-gml.2).
 func DefaultPipeline(workDir string, evaluator ...SemanticEvaluator) *Pipeline {
+	var semEvaluator SemanticEvaluator
+	if len(evaluator) > 0 && evaluator[0] != nil {
+		semEvaluator = evaluator[0]
+	} else {
+		semEvaluator = NewNativeCPUEvaluator()
+	}
+
 	stages := []Stage{
 		NewStructuralStage(),
 		NewBoundaryStage(),
 		NewStaticShellStage(),
-	}
-
-	if len(evaluator) > 0 && evaluator[0] != nil {
-		stages = append(stages, NewSemanticStage(evaluator[0]))
+		NewLoopCircuitBreakerStage(),
+		NewSemanticStage(semEvaluator),
 	}
 
 	return NewPipeline(workDir, stages...)

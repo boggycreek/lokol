@@ -69,12 +69,20 @@ func (r *Regulator) Pipeline() *Pipeline {
 	return r.pipeline
 }
 
+// SetPipeline sets a custom pipeline on the regulator.
+func (r *Regulator) SetPipeline(p *Pipeline) {
+	r.pipeline = p
+}
+
+// SetSemanticEvaluator updates the semantic evaluator and initializes the default pipeline (lokol-gml.6).
+func (r *Regulator) SetSemanticEvaluator(evaluator SemanticEvaluator) {
+	r.SemanticEvaluator = evaluator
+	r.pipeline = DefaultPipeline(r.WorkDir, evaluator)
+}
+
 // CheckPermission validates an action through the functional regulator pipeline.
 func (r *Regulator) CheckPermission(ctx context.Context, action ActionCandidate) PermissionResult {
-	if r.pipeline == nil || (r.SemanticEvaluator != nil && len(r.pipeline.Stages()) == 3) {
-		r.pipeline = DefaultPipeline(r.WorkDir, r.SemanticEvaluator)
-	}
-	return r.pipeline.Regulate(ctx, action)
+	return r.Pipeline().Regulate(ctx, action)
 }
 
 // Regulate executes candidate action validation through the functional pipeline.

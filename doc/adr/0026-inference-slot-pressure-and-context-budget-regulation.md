@@ -46,15 +46,15 @@ flowchart TD
 
 ### 1. Slot Metric Ingestion
 The regulator interfaces with the local inference server's status endpoints to sample real-time metrics:
-- Allocated context capacity (`n_ctx`).
-- Accumulated prompt and KV-cache tokens (`n_past`).
-- Active slot utilization percentage (`n_past / n_ctx`).
+- Allocated context window capacity.
+- Accumulated prompt and cache memory consumption.
+- Active slot utilization percentage.
 
 ### 2. Tiered Regulatory Thresholds
 The regulator defines explicit operational bands:
-- **Nominal Band (< 70% utilization)**: Normal execution cadence without regulatory restriction.
-- **Warning Band (70% - 85% utilization)**: Triggers visual pressure indicators in user interfaces and disallows non-essential diagnostic tools from bloating context.
-- **Compaction Band (>= 85% utilization)**: Proactively halts standard inference turns and initiates structured context compaction before engine truncation or OOM occurs.
+- **Nominal Band**: Normal execution cadence within safe headroom without regulatory restriction.
+- **Warning Band**: Approaching capacity limits, triggering visual pressure indicators in user interfaces and restricting non-essential diagnostic tool emissions.
+- **Compaction Band**: Critical threshold where standard turns are proactively halted to trigger structured context compaction before engine truncation occurs.
 
 ### 3. Isolated Component Testing
 The slot governor must be testable in total isolation from physical GPU hardware. It receives an abstract slot status provider, permitting deterministic verification of threshold triggers, warning emissions, and compaction signals across simulated context profiles (e.g., 2K, 8K, 32K).

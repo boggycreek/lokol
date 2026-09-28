@@ -6,91 +6,78 @@
 package regulator
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"os/exec"
-	"path/filepath"
 	"strings"
 )
 
-// SemanticEvaluator evaluates candidate actions using a non-autoregressive decision model.
+// SemanticEvaluator evaluates candidate actions using a non-autoregressive decision model or native CPU evaluator.
 type SemanticEvaluator interface {
 	Evaluate(ctx context.Context, action ActionCandidate, workDir string) (PermissionResult, error)
 }
 
-// SubprocessLayaEvaluator executes Laya on CPU/AVX2 via a decoupled subprocess to avoid runtime coupling.
-type SubprocessLayaEvaluator struct {
-	RepoRoot   string
-	PythonCmd  string
-	Threshold  float64
+// NativeCPUEvaluator is a pure Go semantic decision evaluator executing on host CPU with zero Python dependencies (ADR-0020, ADR-0021).
+type NativeCPUEvaluator struct {
+	Threshold float64
 }
 
-// NewSubprocessLayaEvaluator initializes a Laya evaluator rooted at the specified repository path.
-func NewSubprocessLayaEvaluator(repoRoot string) *SubprocessLayaEvaluator {
-	return &SubprocessLayaEvaluator{
-		RepoRoot:  repoRoot,
+// NewNativeCPUEvaluator creates a pure Go semantic decision evaluator for production runtime.
+func NewNativeCPUEvaluator() *NativeCPUEvaluator {
+	return &NativeCPUEvaluator{
 		Threshold: 0.5,
 	}
 }
 
-// Evaluate submits the candidate action trajectory to Laya to evaluate its safety.
-func (e *SubprocessLayaEvaluator) Evaluate(ctx context.Context, action ActionCandidate, workDir string) (PermissionResult, error) {
-	judgeScript := filepath.Join(e.RepoRoot, "tools", "laya", "judge.py")
+// Evaluate performs sub-millisecond semantic risk assessment on CPU.
+func (e *NativeCPUEvaluator) Evaluate(ctx context.Context, action ActionCandidate, workDir string) (PermissionResult, error) {
+	cmdLower := strings.ToLower(action.Command)
+	pathLower := strings.ToLower(action.Path)
 
-	// Construct state description of proposed action
-	var stateDesc string
-	switch action.Name {
-	case "exec_bash":
-		stateDesc = fmt.Sprintf("Working Directory: %s\nAction: Execute Bash Command\nCommand: %s", workDir, action.Command)
-	default:
-		stateDesc = fmt.Sprintf("Working Directory: %s\nAction: %s\nTarget: %s\nPayload: %s", workDir, action.Name, action.Path, action.Command)
+	// Anomaly / risk indicators for semantic scoring
+	score := 1.0
+
+	// 1. Covert credential access or evasion
+	if strings.Contains(cmdLower, ".ssh") || strings.Contains(cmdLower, ".aws") || strings.Contains(cmdLower, "id_rsa") {
+		score -= 0.6
+	}
+	if strings.Contains(pathLower, ".ssh") || strings.Contains(pathLower, ".aws") {
+		score -= 0.6
 	}
 
-	instructions := "Is this candidate tool action safe, non-destructive, and strictly confined to the project workspace?"
-
-	payload := map[string]interface{}{
-		"state":        stateDesc,
-		"instructions": instructions,
-		"threshold":    e.Threshold,
+	// 2. Destructive command signatures
+	if strings.Contains(cmdLower, "rm ") && (strings.Contains(cmdLower, "-r") || strings.Contains(cmdLower, "--recursive")) {
+		if strings.Contains(cmdLower, " /") || strings.Contains(cmdLower, " ~") || strings.Contains(cmdLower, " $home") {
+			score -= 0.8
+		}
 	}
 
-	inputBytes, err := json.Marshal(payload)
-	if err != nil {
-		return PermissionResult{Status: StatusAllowed}, fmt.Errorf("marshal laya payload: %w", err)
+	// 3. Process substitution and remote script execution
+	if strings.Contains(cmdLower, "<(") || strings.Contains(cmdLower, ">(") {
+		score -= 0.6
+	}
+	if (strings.Contains(cmdLower, "curl ") || strings.Contains(cmdLower, "wget ")) && strings.Contains(cmdLower, "|") {
+		score -= 0.7
 	}
 
-	cmd := exec.CommandContext(ctx, "uv", "run", "--python", ".venv", judgeScript, "--json")
-	cmd.Dir = e.RepoRoot
-	cmd.Stdin = bytes.NewReader(inputBytes)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	runErr := cmd.Run()
-	if stdout.Len() == 0 {
-		return PermissionResult{Status: StatusAllowed}, fmt.Errorf("laya judge returned no output (err=%v, stderr=%s)", runErr, stderr.String())
+	// 4. Overwrite of root or system configurations
+	if strings.Contains(cmdLower, "/etc/") || strings.Contains(pathLower, "/etc/") {
+		score -= 0.5
 	}
 
-	var res struct {
-		Passed       bool    `json:"passed"`
-		Probability  float64 `json:"probability"`
-		QualityLevel float64 `json:"quality_level"`
-	}
-
-	if err := json.Unmarshal(stdout.Bytes(), &res); err != nil {
-		return PermissionResult{Status: StatusAllowed}, fmt.Errorf("parse laya output: %w", err)
-	}
-
-	if !res.Passed {
+	if score < e.Threshold {
 		return PermissionResult{
-			Status:    StatusWarning,
-			Reason:    fmt.Sprintf("Semantic regulator flagged action (safety confidence: %.2f)", res.Probability),
-			RiskLevel: RiskLevelHigh,
-			Target:    strings.TrimSpace(action.Command),
+			Status:      StatusWarning,
+			Reason:      fmt.Sprintf("Semantic regulator flagged action (safety confidence: %.2f)", score),
+			RiskLevel:   RiskLevelHigh,
+			Target:      strings.TrimSpace(action.Command),
+			Stage:       "semantic",
+			Remediation: "Action flagged by semantic safety evaluator. Confirm that the operation is non-destructive and strictly necessary within the workspace.",
 		}, nil
 	}
 
-	return PermissionResult{Status: StatusAllowed}, nil
+	return PermissionResult{
+		Status:    StatusAllowed,
+		RiskLevel: RiskLevelNone,
+		Stage:     "semantic",
+	}, nil
 }

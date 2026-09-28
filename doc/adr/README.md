@@ -2,7 +2,7 @@
 
 This directory documents the foundational architectural decisions governing the **lokol** local agentic coding ecosystem for the **v0.1.0-alpha** release.
 
-Records are numbered serially (`0001` through `0024`) and organized by topic domain to reflect the current **as-built** architecture. Each decision record includes machine-readable YAML front matter (with standardized thematic markers, tags, and executive summaries) for consumption by automated agents and tooling.
+Records are numbered serially (`0001` through `0027`) and organized by topic domain to reflect the current **as-built** architecture. Each decision record includes machine-readable YAML front matter (with standardized thematic markers, tags, and executive summaries) for consumption by automated agents and tooling.
 
 ---
 

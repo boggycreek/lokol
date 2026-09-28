@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -102,42 +103,47 @@ func CheckPathWithinBounds(workDir string, targetPath string) (string, error) {
 	return absTarget, nil
 }
 
-// ExtractTagContent parses the inner text of an XML tag.
+// ExtractTagContent parses the inner text of an XML tag, supporting attributes and whitespace (lokol-gml.4).
 func ExtractTagContent(payload, tag string) string {
-	openTag := "<" + tag + ">"
-	closeTag := "</" + tag + ">"
-	start := strings.Index(payload, openTag)
-	if start == -1 {
-		return ""
+	tagRegex := regexp.MustCompile(`(?si)<` + regexp.QuoteMeta(tag) + `(?:\s+[^>]*)?>(.*?)</` + regexp.QuoteMeta(tag) + `>`)
+	match := tagRegex.FindStringSubmatch(payload)
+	if len(match) > 1 {
+		return strings.TrimSpace(match[1])
 	}
-	start += len(openTag)
-	end := strings.Index(payload[start:], closeTag)
-	if end == -1 {
-		return ""
-	}
-	return payload[start : start+end]
+	return ""
 }
 
-// ValidateFilesystemBounds inspects an action and confirms all referenced paths are within the workspace.
+// ValidateFilesystemBounds inspects an action and confirms all referenced paths are within the workspace (lokol-gml.4).
 func ValidateFilesystemBounds(workDir string, actionName string, targetPath string, command string) error {
-	// Always prioritize actual XML payload <path> tag if present in the command
 	path := ""
 	if command != "" {
 		path = strings.TrimSpace(ExtractTagContent(command, "path"))
 	}
-	if path == "" {
-		path = strings.TrimSpace(targetPath)
-	}
 
 	switch actionName {
 	case "write_file", "replace_file", "read_window", "read_outline":
+		if path == "" {
+			path = strings.TrimSpace(targetPath)
+		}
 		if path == "" {
 			return fmt.Errorf("action %s missing target file path", actionName)
 		}
 		_, err := CheckPathWithinBounds(workDir, path)
 		return err
 
-	case "find_files", "search_code", "git_diff_summary", "get_environment", "run_test":
+	case "find_files", "search_code":
+		// For search tools, targetPath might be a search pattern (e.g. "*.go" or "TODO");
+		// ONLY validate boundary if an explicit path was defined in XML <path> or targetPath is an absolute or relative directory.
+		if path != "" {
+			_, err := CheckPathWithinBounds(workDir, path)
+			return err
+		}
+		return nil
+
+	case "git_diff_summary", "get_environment", "run_test":
+		if path == "" {
+			path = strings.TrimSpace(targetPath)
+		}
 		if path != "" {
 			_, err := CheckPathWithinBounds(workDir, path)
 			return err

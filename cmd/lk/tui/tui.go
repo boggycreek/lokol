@@ -76,6 +76,7 @@ type Model struct {
 	// Loop circuit breaker tracking
 	lastSig     string
 	repeatCount int
+	regulator   *regulator.Regulator
 }
 
 var (
@@ -282,6 +283,11 @@ func NewWithSession(session agent.SessionCore, hw *probe.HardwareProfile, yoloMo
 	}
 	vp.SetContent(wrapContent(initialText, 76))
 
+	workDir := "."
+	if session != nil && session.GetWorkDir() != "" {
+		workDir = session.GetWorkDir()
+	}
+
 	return Model{
 		session:   session,
 		hardware:  hw,
@@ -292,6 +298,7 @@ func NewWithSession(session agent.SessionCore, hw *probe.HardwareProfile, yoloMo
 		tokenChan: make(chan string, 100),
 		yoloMode:  yoloMode,
 		chatLog:   initialText,
+		regulator: regulator.New(workDir),
 	}
 }
 
@@ -674,15 +681,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.appendLog(agentStyle.Render("lokol: ") + act.CleanThought + "\n")
 				}
 
-				workDir := "."
-				if m.session != nil && m.session.GetWorkDir() != "" {
-					workDir = m.session.GetWorkDir()
+				if m.regulator == nil {
+					workDir := "."
+					if m.session != nil && m.session.GetWorkDir() != "" {
+						workDir = m.session.GetWorkDir()
+					}
+					m.regulator = regulator.New(workDir)
 				}
-				reg := regulator.New(workDir)
-				perm := reg.CheckPermission(context.Background(), regulator.ActionCandidate{
+
+				actionPath := act.TargetSummary()
+				if act.Name == "find_files" || act.Name == "search_code" {
+					actionPath = regulator.ExtractTagContent(act.Command, "path")
+				}
+
+				perm := m.regulator.CheckPermission(context.Background(), regulator.ActionCandidate{
 					Name:    act.Name,
 					Command: act.Command,
-					Path:    act.TargetSummary(),
+					Path:    actionPath,
 				})
 
 				if perm.Status != regulator.StatusAllowed && m.yoloMode {
