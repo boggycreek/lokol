@@ -193,3 +193,22 @@ uv run --python .venv tools/laya/judge.py --health
    - Use `uv` with PEP 723 metadata (`uv run --python .venv tools/...`). Never run system-wide `pip install`.
 7. **Local Developer Artifacts**:
    - Benchmark reports are automatically saved to subproject gitignored `liblokol/data/eval_results.json`.
+
+## Architecture Decision Records (ADR) Standards
+
+When authoring, amending, or proposing Architecture Decision Records in `doc/adr/`:
+
+1. **Strictly Single-Topic ONLY**:
+   - Each ADR must address exactly **one** architectural decision.
+   - Never combine orthogonal concerns into a single ADR (e.g., avoid compound titles with "and" joining separate topics).
+2. **Audit Existing ADRs First**:
+   - Always check `doc/adr/` before creating a new ADR to verify whether the architectural decision has already been accepted.
+   - Do not create new ADRs for developer tooling, test harnesses, or submodules that are simply concrete implementations of already accepted architectural decisions (e.g., evaluations are covered by ADR 0013, decision models by ADR 0014, auxiliary tooling by ADR 0015).
+3. **What and Why, No How**:
+   - Express only the context/motivation (why), the architectural decision (what), and the trade-offs (consequences).
+   - **NEVER include perishable implementation details that go stale**:
+     - No code snippets, programming language types, structs, or function signatures.
+     - No transient microbenchmarks or execution latency numbers.
+     - No hardcoded source file paths, internal package names, or transient CLI flag names.
+     - No tool schemas, payload XML tags, or network endpoint routes.
+

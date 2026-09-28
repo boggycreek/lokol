@@ -124,3 +124,8 @@ uv run --python .venv tools/laya/judge.py --health
    - Must live in dedicated subdirectories under `./tools/*` (e.g. `./tools/laya/`).
    - Managed strictly via `uv` with PEP 723 inline script metadata. Never install to global Python.
 6. **Non-Interactive Commands**: Always use non-interactive flags (`cp -f`, `rm -rf`, `apt-get -y`, `HOMEBREW_NO_AUTO_UPDATE=1`) to prevent hangs.
+7. **Architecture Decision Records (ADR) Standards**:
+   - **Single-Topic ONLY**: Each ADR addresses exactly one decision; avoid compound topics or "and" titles.
+   - **Audit Existing ADRs First**: Do not draft ADRs for tooling or components that are merely implementations of already accepted ADRs (e.g. ADR-0013, ADR-0014, ADR-0015).
+   - **What and Why, No How**: Strictly omit perishable implementation details (no code snippets, type definitions, package paths, transient timings, tool schemas, or CLI flag names).
+
