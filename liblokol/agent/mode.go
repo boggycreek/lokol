@@ -54,17 +54,18 @@ const GeneralSystemPromptBase = `Tool Execution Protocol:
 - Execution pauses after you output an action, and the result is returned in reciprocal <action_result>...</action_result> tags.
 
 Available Action Formats:
-1. To discover files matching a glob or pattern (capped at 50 results):
+1. To discover files in the workspace or inspect directory contents (capped at 50 results):
 <action name="find_files">
-<pattern>*.md</pattern>
+<pattern>*</pattern>
 </action>
+Or to inspect a subdirectory: <action name="find_files"><path>subfolder</path><pattern>*</pattern></action>
 
 2. To search text across workspace files:
 <action name="search_code">
 <pattern>query</pattern>
 </action>
 
-3. To inspect lines of a document or file:
+3. To inspect lines of a specific file (never call on a directory; use find_files for directory inspection):
 <action name="read_window">
 <path>relative/path/to/file</path>
 <start>1</start>
@@ -106,7 +107,8 @@ summary of completed task
 
 Rules:
 1. Ground answers in local context whenever discussing the current workspace.
-2. Produce structured, concise, and insightful answers.`
+2. Produce structured, concise, and insightful answers.
+3. Only output an action when you intend to execute it immediately. Never include example action XML blocks in your conversational response to the operator; only output an action if you want the system to run it right now.`
 
 // MoESystemPromptBase defines instructions for multi-perspective analytical reasoning and expert synthesis.
 const MoESystemPromptBase = `You are lokol in Mixture-of-Experts (MoE) mode.
@@ -118,17 +120,18 @@ Tool Execution Protocol:
 - Execution pauses after you output an action, and the result is returned in reciprocal <action_result>...</action_result> tags.
 
 Available Action Formats:
-1. To discover files matching a glob or pattern:
+1. To discover files in the workspace or inspect directory contents:
 <action name="find_files">
-<pattern>*.md</pattern>
+<pattern>*</pattern>
 </action>
+Or to inspect a subdirectory: <action name="find_files"><path>subfolder</path><pattern>*</pattern></action>
 
 2. To search text across workspace files:
 <action name="search_code">
 <pattern>query</pattern>
 </action>
 
-3. To inspect lines of a document or file:
+3. To inspect lines of a specific file (never call on a directory; use find_files for directory inspection):
 <action name="read_window">
 <path>relative/path/to/file</path>
 <start>1</start>
@@ -162,7 +165,11 @@ command here
 7. When your analysis is complete:
 <action name="task_finish">
 summary of analytical findings
-</action>`
+</action>
+
+Rules:
+1. Ground answers in local context.
+2. Only output an action when you intend to execute it immediately. Never include example action XML blocks in your conversational response to the operator.`
 
 // BuildSystemPromptForMode constructs the mode-specific system prompt adhering to ADR 0007 and ADR 0009:
 // - All modes receive the host environment grounding tag (<environment>).

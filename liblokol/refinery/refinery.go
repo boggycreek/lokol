@@ -45,10 +45,18 @@ func ReadWindow(path string, startLine, endLine int) (string, error) {
 		return "", fmt.Errorf("failed to open file %s: %w", path, err)
 	}
 	if fi.IsDir() {
-		if path == "." || path == "./" {
-			return "", fmt.Errorf("current directory %q is a directory, not a file. To discover files in this workspace, use <action name=\"find_files\"><pattern>*</pattern></action>. To inspect a file, provide a file path", path)
+		cleanPath := filepath.Clean(path)
+		cwd, _ := os.Getwd()
+		cleanCwd := filepath.Clean(cwd)
+		if cleanPath == "." || cleanPath == "./" || cleanPath == cleanCwd {
+			return "", fmt.Errorf("current directory is a directory, not a file. To discover files in this workspace, use <action name=\"find_files\"><pattern>*</pattern></action>. To inspect a file, provide a file path")
 		}
-		return "", fmt.Errorf("%q is a directory, not a file. To discover files in this directory, use <action name=\"find_files\"><path>%s</path><pattern>*</pattern></action>. To inspect a file, provide a file path", path, path)
+		rel, err := filepath.Rel(cleanCwd, cleanPath)
+		displayPath := path
+		if err == nil && !strings.HasPrefix(rel, "..") {
+			displayPath = rel
+		}
+		return "", fmt.Errorf("%q is a directory, not a file. To discover files in this directory, use <action name=\"find_files\"><path>%s</path><pattern>*</pattern></action>. To inspect a file, provide a file path", displayPath, displayPath)
 	}
 
 	file, err := os.Open(path)
@@ -95,10 +103,18 @@ func ReadOutline(path string) (string, error) {
 		return "", fmt.Errorf("failed to stat file %s: %w", path, err)
 	}
 	if fi.IsDir() {
-		if path == "." || path == "./" {
-			return "", fmt.Errorf("current directory %q is a directory, not a file. To discover files in this workspace, use <action name=\"find_files\"><pattern>*</pattern></action>", path)
+		cleanPath := filepath.Clean(path)
+		cwd, _ := os.Getwd()
+		cleanCwd := filepath.Clean(cwd)
+		if cleanPath == "." || cleanPath == "./" || cleanPath == cleanCwd {
+			return "", fmt.Errorf("current directory is a directory, not a file. To discover files in this workspace, use <action name=\"find_files\"><pattern>*</pattern></action>")
 		}
-		return "", fmt.Errorf("%q is a directory, not a file. To discover files in this directory, use <action name=\"find_files\"><path>%s</path><pattern>*</pattern></action>", path, path)
+		rel, err := filepath.Rel(cleanCwd, cleanPath)
+		displayPath := path
+		if err == nil && !strings.HasPrefix(rel, "..") {
+			displayPath = rel
+		}
+		return "", fmt.Errorf("%q is a directory, not a file. To discover files in this directory, use <action name=\"find_files\"><path>%s</path><pattern>*</pattern></action>", displayPath, displayPath)
 	}
 
 	ext := filepath.Ext(path)

@@ -127,10 +127,11 @@ const SystemPromptBase = `Tool Execution Protocol:
 - Never output fake <action_result> tags or evasive responses (e.g. "I cannot access files" or "As an AI...").
 
 Available Action Formats:
-1. To discover files matching a glob or pattern respecting .gitignore (capped at 50 results):
+1. To discover files in the workspace or inspect directory contents respecting .gitignore (capped at 50 results):
 <action name="find_files">
-<pattern>*.go</pattern>
+<pattern>*</pattern>
 </action>
+Or to inspect a subdirectory: <action name="find_files"><path>subfolder</path><pattern>*</pattern></action>
 
 2. To search code or symbols across files with regex or literal matching (capped at 30 results):
 <action name="search_code">
@@ -142,7 +143,7 @@ Available Action Formats:
 <path>relative/path/to/file</path>
 </action>
 
-4. To inspect a specific line window of a file (e.g. lines 20-50):
+4. To inspect a specific line window of a file (e.g. lines 20-50; never call on a directory):
 <action name="read_window">
 <path>relative/path/to/file</path>
 <start>20</start>
@@ -195,7 +196,8 @@ Rules:
 1. Always state your intent briefly before taking an action.
 2. Context Hygiene: Never dump whole files with cat/head or grep whole repos. Use find_files and search_code for discovery, read_outline and read_window for inspection, and git_diff_summary to verify working changes.
 3. Code Edits: Prefer replace_file for existing files; use write_file for new files.
-4. Verification: When modifying code that has tests, verify with run_test before calling task_finish.`
+4. Verification: When modifying code that has tests, verify with run_test before calling task_finish.
+5. Only output an action when you intend to execute it immediately. Never include example action XML blocks in your conversational response to the operator; only output an action if you want the system to run it right now.`
 
 // SystemPrompt is the base invariant system prompt (identity, rules, and tool execution protocol).
 // For host-environment grounding and codebase context, prefer BuildSystemPrompt or BuildSystemPromptWithEnv.
