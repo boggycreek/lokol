@@ -37,11 +37,12 @@ type PermissionResult struct {
 }
 
 // Regulator coordinates Tier 1 pure Go containment and Tier 2 semantic validation.
-// It orchestrates the functional Pipeline defined in ADR 0023.
+// It orchestrates the functional Pipeline defined in ADR 0023, ADR 0025, and ADR 0026.
 type Regulator struct {
-	WorkDir           string
-	SemanticEvaluator SemanticEvaluator
-	pipeline          *Pipeline
+	WorkDir            string
+	SemanticEvaluator  SemanticEvaluator
+	SlotStatusProvider SlotStatusProvider
+	pipeline           *Pipeline
 }
 
 // New creates an initialized Regulator rooted at the specified workspace directory.
@@ -61,10 +62,24 @@ func NewWithEvaluator(workDir string, evaluator SemanticEvaluator) *Regulator {
 	}
 }
 
+// NewWithSlotProvider creates an initialized Regulator with both a semantic evaluator and slot status provider.
+func NewWithSlotProvider(workDir string, evaluator SemanticEvaluator, slotProvider SlotStatusProvider) *Regulator {
+	return &Regulator{
+		WorkDir:            workDir,
+		SemanticEvaluator:  evaluator,
+		SlotStatusProvider: slotProvider,
+		pipeline:           DefaultPipelineWithSlot(workDir, evaluator, slotProvider),
+	}
+}
+
 // Pipeline returns the underlying functional regulator pipeline.
 func (r *Regulator) Pipeline() *Pipeline {
 	if r.pipeline == nil {
-		r.pipeline = DefaultPipeline(r.WorkDir, r.SemanticEvaluator)
+		if r.SlotStatusProvider != nil {
+			r.pipeline = DefaultPipelineWithSlot(r.WorkDir, r.SemanticEvaluator, r.SlotStatusProvider)
+		} else {
+			r.pipeline = DefaultPipeline(r.WorkDir, r.SemanticEvaluator)
+		}
 	}
 	return r.pipeline
 }
@@ -74,10 +89,24 @@ func (r *Regulator) SetPipeline(p *Pipeline) {
 	r.pipeline = p
 }
 
-// SetSemanticEvaluator updates the semantic evaluator and initializes the default pipeline (lokol-gml.6).
+// SetSemanticEvaluator updates the semantic evaluator and updates the pipeline (lokol-gml.6).
 func (r *Regulator) SetSemanticEvaluator(evaluator SemanticEvaluator) {
 	r.SemanticEvaluator = evaluator
-	r.pipeline = DefaultPipeline(r.WorkDir, evaluator)
+	if r.SlotStatusProvider != nil {
+		r.pipeline = DefaultPipelineWithSlot(r.WorkDir, evaluator, r.SlotStatusProvider)
+	} else {
+		r.pipeline = DefaultPipeline(r.WorkDir, evaluator)
+	}
+}
+
+// SetSlotStatusProvider updates the slot status provider and updates the pipeline (ADR 0026).
+func (r *Regulator) SetSlotStatusProvider(provider SlotStatusProvider) {
+	r.SlotStatusProvider = provider
+	if provider != nil {
+		r.pipeline = DefaultPipelineWithSlot(r.WorkDir, r.SemanticEvaluator, provider)
+	} else {
+		r.pipeline = DefaultPipeline(r.WorkDir, r.SemanticEvaluator)
+	}
 }
 
 // CheckPermission validates an action through the functional regulator pipeline.

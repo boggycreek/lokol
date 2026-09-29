@@ -32,7 +32,9 @@ description: >-
 ## Functional Regulator Action-Gating Pipeline
 - **Layered Action Governance**: Mediates tool execution through composable pipeline stages ([ADR 0023](../adr/0023-functional-regulator-action-gating-pipeline.md)):
   - **Static Gating**: Pre-execution syntax validation, filesystem boundary containment (`CheckPathWithinBounds`), and shell command blocklist scanning ([ADR 0019](../adr/0019-filesystem-boundary-containment-and-permissions-pipeline.md)).
-  - **Dynamic Gating**: Loop circuit breakers detecting repetitive failed action loops, runaway reads, and ping-pong state oscillation.
+  - **Dynamic Gating**: Loop circuit breakers detecting repetitive failed action loops, runaway reads, and ping-pong state oscillation ([ADR 0025](../adr/0025-dynamic-loop-circuit-breaking-and-oscillation-governance.md)).
+  - **Slot Pressure & Budget Regulation**: Tracks real-time inference slot KV-cache utilization, emitting tiered warnings and triggering proactive context compaction ([ADR 0026](../adr/0026-inference-slot-pressure-and-context-budget-regulation.md)).
+  - **Structured Remediation**: Provides actionable self-correction feedback directing the agent to valid alternatives upon any regulatory denial ([ADR 0027](../adr/0027-structured-trajectory-remediation-for-autonomous-recovery.md)).
   - **Human-in-the-Loop Intercepts**: Gating destructive operations for explicit operator approval in the TUI (`cmd/lk`).
 
 Further reading:
@@ -42,3 +44,6 @@ Further reading:
 - [ADR 0019 — Filesystem Boundary Containment and Pre-Execution Permissions Pipeline](../adr/0019-filesystem-boundary-containment-and-permissions-pipeline.md)
 - [ADR 0023 — Functional Regulator Action-Gating Pipeline](../adr/0023-functional-regulator-action-gating-pipeline.md)
 - [ADR 0024 — Progressive Tool Disclosure and Catalog Architecture](../adr/0024-progressive-tool-disclosure-and-catalog-architecture.md)
+- [ADR 0025 — Dynamic Loop Circuit Breaking and Oscillation Governance](../adr/0025-dynamic-loop-circuit-breaking-and-oscillation-governance.md)
+- [ADR 0026 — Inference Slot Pressure and Context Budget Regulation](../adr/0026-inference-slot-pressure-and-context-budget-regulation.md)
+- [ADR 0027 — Structured Trajectory Remediation for Autonomous Recovery](../adr/0027-structured-trajectory-remediation-for-autonomous-recovery.md)

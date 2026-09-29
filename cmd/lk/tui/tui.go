@@ -288,7 +288,7 @@ func NewWithSession(session agent.SessionCore, hw *probe.HardwareProfile, yoloMo
 		workDir = session.GetWorkDir()
 	}
 
-	return Model{
+	m := Model{
 		session:   session,
 		hardware:  hw,
 		state:     StateIdle,
@@ -300,6 +300,20 @@ func NewWithSession(session agent.SessionCore, hw *probe.HardwareProfile, yoloMo
 		chatLog:   initialText,
 		regulator: regulator.New(workDir),
 	}
+	if session != nil {
+		m.regulator.SetSlotStatusProvider(regulator.SlotStatusFunc(func(ctx context.Context) (*regulator.SlotMetrics, error) {
+			slot, err := session.GetSlotStatus(ctx)
+			if err != nil {
+				return nil, err
+			}
+			return &regulator.SlotMetrics{
+				NCtx:          slot.NCtx,
+				NPromptTokens: slot.NPromptTokens,
+				IsProcessing:  slot.IsProcessing,
+			}, nil
+		}))
+	}
+	return m
 }
 
 func pollSlotStatus(session agent.SessionCore) tea.Cmd {
@@ -687,6 +701,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						workDir = m.session.GetWorkDir()
 					}
 					m.regulator = regulator.New(workDir)
+					if m.session != nil {
+						m.regulator.SetSlotStatusProvider(regulator.SlotStatusFunc(func(ctx context.Context) (*regulator.SlotMetrics, error) {
+							slot, err := m.session.GetSlotStatus(ctx)
+							if err != nil {
+								return nil, err
+							}
+							return &regulator.SlotMetrics{
+								NCtx:          slot.NCtx,
+								NPromptTokens: slot.NPromptTokens,
+								IsProcessing:  slot.IsProcessing,
+							}, nil
+						}))
+					}
 				}
 
 				actionPath := act.TargetSummary()

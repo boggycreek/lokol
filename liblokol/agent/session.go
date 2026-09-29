@@ -13,6 +13,7 @@ import (
 
 	"github.com/boggycreek/lokol/liblokol/catalog"
 	"github.com/boggycreek/lokol/liblokol/refinery"
+	"github.com/boggycreek/lokol/liblokol/regulator"
 )
 
 // SessionCore defines the presentation-facing contract of the core agent engine.
@@ -181,6 +182,16 @@ func (s *Session) GetSlotStatus(ctx context.Context) (*SlotStatus, error) {
 	}
 	return s.Client.GetSlotStatus(ctx)
 }
+
+// GetSlotMetrics implements regulator.SlotStatusProvider for the active session (ADR 0026).
+func (s *Session) GetSlotMetrics(ctx context.Context) (*regulator.SlotMetrics, error) {
+	if s.Client == nil {
+		return nil, fmt.Errorf("session client is nil")
+	}
+	return s.Client.GetSlotMetrics(ctx)
+}
+
+var _ regulator.SlotStatusProvider = (*Session)(nil)
 
 // Reset resets the conversation history back to the initial system prompt for the active mode.
 func (s *Session) Reset() {

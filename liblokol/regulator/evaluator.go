@@ -16,6 +16,13 @@ type SemanticEvaluator interface {
 	Evaluate(ctx context.Context, action ActionCandidate, workDir string) (PermissionResult, error)
 }
 
+// SemanticEvaluatorFunc adapts an ordinary function to the SemanticEvaluator interface.
+type SemanticEvaluatorFunc func(ctx context.Context, action ActionCandidate, workDir string) (PermissionResult, error)
+
+func (f SemanticEvaluatorFunc) Evaluate(ctx context.Context, action ActionCandidate, workDir string) (PermissionResult, error) {
+	return f(ctx, action, workDir)
+}
+
 // NativeCPUEvaluator is a pure Go semantic decision evaluator executing on host CPU with zero Python dependencies (ADR-0020, ADR-0021).
 type NativeCPUEvaluator struct {
 	Threshold float64

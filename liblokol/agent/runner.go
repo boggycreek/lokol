@@ -39,6 +39,9 @@ func (r *Runner) Run(ctx context.Context, initialPrompt string) (string, error) 
 
 	if r.Regulator == nil {
 		r.Regulator = regulator.New(workDir)
+		if r.Client != nil {
+			r.Regulator.SetSlotStatusProvider(r.Client)
+		}
 	}
 
 	session := r.Session

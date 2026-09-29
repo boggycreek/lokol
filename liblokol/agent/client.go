@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/boggycreek/lokol/liblokol/catalog"
+	"github.com/boggycreek/lokol/liblokol/regulator"
 )
 
 // Message represents a chat message in the conversation.
@@ -541,6 +542,21 @@ func (c *Client) GetSlotStatus(ctx context.Context) (*SlotStatus, error) {
 
 	return status, nil
 }
+
+// GetSlotMetrics implements regulator.SlotStatusProvider for real-time context token budgeting (ADR 0026).
+func (c *Client) GetSlotMetrics(ctx context.Context) (*regulator.SlotMetrics, error) {
+	status, err := c.GetSlotStatus(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &regulator.SlotMetrics{
+		NCtx:          status.NCtx,
+		NPromptTokens: status.NPromptTokens,
+		IsProcessing:  status.IsProcessing,
+	}, nil
+}
+
+var _ regulator.SlotStatusProvider = (*Client)(nil)
 
 // SlotInfo captures the high-level slot state from GET /slots.
 type SlotInfo struct {
