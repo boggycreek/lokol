@@ -5,7 +5,7 @@ topic: "Regulator & Governance"
 theme: "THEME-AGENT"
 status: "accepted"
 version: "v0.1.0-alpha"
-as_built: false
+as_built: true
 tags:
   - regulator
   - circuit-breaker

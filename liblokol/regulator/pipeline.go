@@ -286,11 +286,14 @@ func NewSemanticStage(evaluator SemanticEvaluator) Stage {
 // DefaultPipeline constructs the standard cost-ordered regulator pipeline (ADR 0023, ADR 0025).
 // Always wires pure Go Stage 4 semantic evaluation in production (lokol-gml.2).
 func DefaultPipeline(workDir string, evaluator ...SemanticEvaluator) *Pipeline {
-	var semEvaluator SemanticEvaluator
-	if len(evaluator) > 0 && evaluator[0] != nil {
-		semEvaluator = evaluator[0]
-	} else {
-		semEvaluator = NewNativeCPUEvaluator()
+	return DefaultPipelineWithSlot(workDir, firstEvaluator(evaluator...), nil)
+}
+
+// DefaultPipelineWithSlot constructs the standard cost-ordered regulator pipeline including an
+// inference slot governor stage (ADR 0023, ADR 0025, ADR 0026).
+func DefaultPipelineWithSlot(workDir string, evaluator SemanticEvaluator, slotProvider SlotStatusProvider) *Pipeline {
+	if evaluator == nil {
+		evaluator = NewNativeCPUEvaluator()
 	}
 
 	stages := []Stage{
@@ -298,8 +301,21 @@ func DefaultPipeline(workDir string, evaluator ...SemanticEvaluator) *Pipeline {
 		NewBoundaryStage(),
 		NewStaticShellStage(),
 		NewLoopCircuitBreakerStage(),
-		NewSemanticStage(semEvaluator),
 	}
+
+	if slotProvider != nil {
+		stages = append(stages, NewInferenceSlotGovernorStage(slotProvider))
+	}
+
+	stages = append(stages, NewSemanticStage(evaluator))
 
 	return NewPipeline(workDir, stages...)
 }
+
+func firstEvaluator(evaluator ...SemanticEvaluator) SemanticEvaluator {
+	if len(evaluator) > 0 && evaluator[0] != nil {
+		return evaluator[0]
+	}
+	return nil
+}
+

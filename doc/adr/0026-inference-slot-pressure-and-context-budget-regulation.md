@@ -5,7 +5,7 @@ topic: "Regulator & Governance"
 theme: "THEME-INFERENCE"
 status: "accepted"
 version: "v0.1.0-alpha"
-as_built: false
+as_built: true
 tags:
   - regulator
   - slot-pressure
