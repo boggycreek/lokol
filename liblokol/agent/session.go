@@ -292,12 +292,24 @@ func (s *Session) GetSlotMetrics(ctx context.Context) (*regulator.SlotMetrics, e
 
 var _ regulator.SlotStatusProvider = (*Session)(nil)
 
-// Reset resets the conversation history back to the initial system prompt for the active mode.
+// Reset resets the conversation history back to the initial system prompt for the active mode,
+// clearing temporary window caches, resetting read counters, preserving persona and environment
+// invariants, and purging the inference engine KV cache slot (lokol-m7s).
 func (s *Session) Reset() {
 	if s.windowCache != nil {
 		s.windowCache.Clear()
 	}
+	s.consecutiveReads = 0
+	if s.Client != nil {
+		_ = s.Client.AbortActiveSlots(context.Background())
+	}
 	env := DetectHostEnvironment(s.WorkDir)
+	if s.AgentName != "" {
+		env.AgentName = s.AgentName
+	}
+	if s.OperatorName != "" {
+		env.OperatorName = s.OperatorName
+	}
 	s.History = []Message{
 		{Role: "system", Content: BuildSystemPromptForMode(s.GetMode(), env, s.CodebaseContext)},
 	}
