@@ -448,3 +448,158 @@ func TestSimulatedRunner_BashExecutionFeedbackLoop(t *testing.T) {
 		t.Errorf("unexpected summary: %q", summary)
 	}
 }
+
+func TestIsVerbatimRepetition(t *testing.T) {
+	cases := []struct {
+		curr     string
+		prev     string
+		expected bool
+	}{
+		{"This is a summary paragraph.", "This is a summary paragraph.", true},
+		{"  This is a summary paragraph.  \n", "This is a summary paragraph.", true},
+		{"THIS IS A SUMMARY PARAGRAPH.", "this is a summary paragraph.", true},
+		{"First response about the project.", "Second completely different answer.", false},
+		{"", "Some text", false},
+		{"Some text", "", false},
+	}
+
+	for _, tc := range cases {
+		res := agent.IsVerbatimRepetition(tc.curr, tc.prev)
+		if res != tc.expected {
+			t.Errorf("IsVerbatimRepetition(%q, %q) = %v, want %v", tc.curr, tc.prev, res, tc.expected)
+		}
+	}
+}
+
+func TestRunner_ConversationalFeedbackDoesNotForceAction(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher, _ := w.(http.Flusher)
+
+		// Model responds conversationally without actions
+		tok := "You're very welcome! Let me know if you need anything else."
+		chunk := agent.ChatChunkResponse{
+			Choices: []struct {
+				Delta struct {
+					Content string `json:"content"`
+				} `json:"delta"`
+				FinishReason string `json:"finish_reason"`
+			}{
+				{Delta: struct {
+					Content string `json:"content"`
+				}{Content: tok}},
+			},
+		}
+		bytesChunk, _ := json.Marshal(chunk)
+		fmt.Fprintf(w, "data: %s\n\n", bytesChunk)
+		flusher.Flush()
+		fmt.Fprintf(w, "data: [DONE]\n\n")
+		flusher.Flush()
+	}))
+	defer server.Close()
+
+	client := agent.NewClient(server.URL)
+	runner := &agent.Runner{
+		Client:   client,
+		MaxTurns: 3,
+		WorkDir:  t.TempDir(),
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	reply, err := runner.Run(ctx, "Nice. Glad your regulator flagged my last prompt")
+	if err != nil {
+		t.Fatalf("unexpected error on conversational prompt: %v", err)
+	}
+
+	if !strings.Contains(reply, "welcome") {
+		t.Errorf("expected conversational reply, got: %s", reply)
+	}
+}
+
+func TestRunner_BreaksVerbatimRepetitionLoop(t *testing.T) {
+	turns := 0
+	var receivedIntervention bool
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req agent.StreamChatRequest
+		_ = json.NewDecoder(r.Body).Decode(&req)
+
+		for _, msg := range req.Messages {
+			if strings.Contains(msg.Content, "SYSTEM INTERVENTION: Cross-turn verbatim repetition loop detected") {
+				receivedIntervention = true
+			}
+		}
+
+		turns++
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher, _ := w.(http.Flusher)
+
+		var tok string
+		if turns <= 2 {
+			// Model repeats exact same 4-sentence generic summary verbatim
+			tok = "Lokol is a local-first autonomous AI agent that runs on your local machine."
+		} else {
+			// After intervention, model finishes
+			tok = "Finished summary.\n<action name=\"task_finish\">done</action>"
+		}
+
+		chunk := agent.ChatChunkResponse{
+			Choices: []struct {
+				Delta struct {
+					Content string `json:"content"`
+				} `json:"delta"`
+				FinishReason string `json:"finish_reason"`
+			}{
+				{Delta: struct {
+					Content string `json:"content"`
+				}{Content: tok}},
+			},
+		}
+		bytesChunk, _ := json.Marshal(chunk)
+		fmt.Fprintf(w, "data: %s\n\n", bytesChunk)
+		flusher.Flush()
+		fmt.Fprintf(w, "data: [DONE]\n\n")
+		flusher.Flush()
+	}))
+	defer server.Close()
+
+	client := agent.NewClient(server.URL)
+	runner := &agent.Runner{
+		Client:   client,
+		MaxTurns: 5,
+		WorkDir:  t.TempDir(),
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err := runner.Run(ctx, "What can you tell me about the current project?")
+	if err != nil {
+		t.Fatalf("unexpected runner error: %v", err)
+	}
+
+	if !receivedIntervention {
+		t.Errorf("expected runner to inject verbatim repetition intervention, but was not detected")
+	}
+}
+
+func TestSession_ProjectSummaryGuidanceInjection(t *testing.T) {
+	session := agent.NewSession(nil, t.TempDir())
+
+	// 1. Conversational feedback does not inject tools or guidance
+	session.AppendUserMessage("Nice job! Thanks")
+	lastMsg := session.History[len(session.History)-1].Content
+	if strings.Contains(lastMsg, "available_specialized_tools") || strings.Contains(lastMsg, "System Guidance") {
+		t.Errorf("expected no tool injection or guidance on conversational feedback, got: %s", lastMsg)
+	}
+
+	// 2. Project summary query injects repository grounding guidance
+	session.AppendUserMessage("What does the project do?")
+	lastMsg = session.History[len(session.History)-1].Content
+	if !strings.Contains(lastMsg, "System Guidance: Ground your answer in actual repository files") {
+		t.Errorf("expected grounding guidance injected on project summary query, got: %s", lastMsg)
+	}
+}
+

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/boggycreek/lokol/liblokol/catalog"
 	"github.com/boggycreek/lokol/liblokol/regulator"
 )
 
@@ -67,6 +68,8 @@ func (r *Runner) Run(ctx context.Context, initialPrompt string) (string, error) 
 	lastSig := ""
 	repeatCount := 0
 	editFailures := make(map[string]int)
+	lastAssistantText := ""
+	isConversational := catalog.IsConversationalFeedback(initialPrompt)
 
 	for turn := 0; turn < r.MaxTurns; turn++ {
 		tokenChan := make(chan string, 100)
@@ -124,6 +127,16 @@ func (r *Runner) Run(ctx context.Context, initialPrompt string) (string, error) 
 
 		act := ParseAction(replyText)
 		if act == nil {
+			// Conversational feedback does not require forcing an action (lokol-kih.6)
+			if isConversational {
+				return replyText, nil
+			}
+			// Break cross-turn verbatim response loops (lokol-kih.8)
+			if lastAssistantText != "" && IsVerbatimRepetition(replyText, lastAssistantText) {
+				session.AppendUserMessage("[SYSTEM INTERVENTION: Cross-turn verbatim repetition loop detected. You have repeated your prior response word-for-word. DO NOT repeat your previous answer. Inspect the repository with <action name=\"read_window\"> on README.md or relevant project files, or formulate a fresh, grounded answer.]")
+				continue
+			}
+			lastAssistantText = replyText
 			consecutiveNoAction++
 			if consecutiveNoAction >= 2 || turn == r.MaxTurns-1 {
 				// No action proposed twice in a row; conversational turn done
@@ -134,6 +147,7 @@ func (r *Runner) Run(ctx context.Context, initialPrompt string) (string, error) 
 			continue
 		}
 		consecutiveNoAction = 0
+		lastAssistantText = replyText
 
 		if act.Name == "task_finish" {
 			if r.OnOutput != nil {

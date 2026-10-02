@@ -298,6 +298,7 @@ func DefaultPipelineWithSlot(workDir string, evaluator SemanticEvaluator, slotPr
 
 	stages := []Stage{
 		NewStructuralStage(),
+		NewUserRejectionStage(),
 		NewBoundaryStage(),
 		NewStaticShellStage(),
 		NewLoopCircuitBreakerStage(),
