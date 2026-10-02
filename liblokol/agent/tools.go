@@ -89,6 +89,10 @@ func ExecuteReplaceFile(ctx context.Context, payload string, workDir ...string) 
 		return "", fmt.Errorf("boundary check failed for %s: %w", input.Path, err)
 	}
 
+	if err := validatePreWriteTarget(targetPath, workDir...); err != nil {
+		return "", err
+	}
+
 	if fi, statErr := os.Stat(targetPath); statErr == nil && fi.IsDir() {
 		return "", fmt.Errorf("%q is a directory, not a file: cannot replace text in a directory. Use <action name=\"find_files\"><pattern>*</pattern></action> to discover files", input.Path)
 	}

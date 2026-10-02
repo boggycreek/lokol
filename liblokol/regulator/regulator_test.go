@@ -163,6 +163,17 @@ func TestValidateFilesystemBounds_DifferentialPathsAndFindFiles(t *testing.T) {
 	if err := regulator.ValidateFilesystemBounds(workDir, "find_files", "sub", ""); err != nil {
 		t.Errorf("expected find_files with safe sub dir to pass, got: %v", err)
 	}
+
+	// 3. Glob patterns (e.g. *.go, **/*.go, config/*.json) must not produce false positives
+	if err := regulator.ValidateFilesystemBounds(workDir, "find_files", "*.go", ""); err != nil {
+		t.Errorf("expected find_files with glob pattern '*.go' to pass without false positive, got: %v", err)
+	}
+	if err := regulator.ValidateFilesystemBounds(workDir, "find_files", "src/*.go", ""); err != nil {
+		t.Errorf("expected find_files with glob pattern 'src/*.go' to pass without false positive, got: %v", err)
+	}
+	if err := regulator.ValidateFilesystemBounds(workDir, "search_code", "*.json", ""); err != nil {
+		t.Errorf("expected search_code with glob pattern '*.json' to pass without false positive, got: %v", err)
+	}
 }
 
 func TestCheckPathWithinBounds_RecursiveURLDecoding(t *testing.T) {
