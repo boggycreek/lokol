@@ -118,3 +118,35 @@ func (r *Regulator) CheckPermission(ctx context.Context, action ActionCandidate)
 func (r *Regulator) Regulate(ctx context.Context, action ActionCandidate) PermissionResult {
 	return r.CheckPermission(ctx, action)
 }
+
+// UserRejectionStage returns the active UserRejectionStage if present in the pipeline.
+func (r *Regulator) UserRejectionStage() *UserRejectionStage {
+	for _, s := range r.Pipeline().Stages() {
+		if urs, ok := s.(*UserRejectionStage); ok {
+			return urs
+		}
+	}
+	return nil
+}
+
+// RecordRejection adds an action candidate to the regulator's rejection registry (lokol-kih.2).
+func (r *Regulator) RecordRejection(action ActionCandidate) {
+	if s := r.UserRejectionStage(); s != nil {
+		s.RecordRejection(action)
+	}
+}
+
+// ClearRejections clears any operator rejections stored in the pipeline.
+func (r *Regulator) ClearRejections() {
+	if s := r.UserRejectionStage(); s != nil {
+		s.ClearRejections()
+	}
+}
+
+// ReconcileRejections clears rejections for targets explicitly referenced in the user's prompt.
+func (r *Regulator) ReconcileRejections(prompt string) {
+	if s := r.UserRejectionStage(); s != nil {
+		s.ReconcilePrompt(prompt)
+	}
+}
+

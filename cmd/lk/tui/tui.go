@@ -76,10 +76,11 @@ type Model struct {
 	consecutiveCommands int
 	lastBadge           string
 
-	// Loop circuit breaker tracking
-	lastSig     string
-	repeatCount int
-	regulator   *regulator.Regulator
+	// Loop circuit breaker & repetition tracking
+	lastSig            string
+	repeatCount        int
+	lastAssistantReply string
+	regulator          *regulator.Regulator
 }
 
 var (
@@ -597,10 +598,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if m.session != nil {
 						m.session.Reset()
 					}
+					if m.regulator != nil {
+						m.regulator.ClearRejections()
+					}
 					m.chatLog = ""
 					m.stepCount = 0
 					m.lastThought = ""
 					m.lastTool = ""
+					m.lastAssistantReply = ""
 					m.appendLog("🧹 [Session Cleared] Chat history and conversation context reset.\n\n")
 					return m, nil
 				} else if strings.HasPrefix(input, "/name") {
@@ -639,6 +644,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 
 				m.appendLog(userStyle.Render(fmt.Sprintf("%s: ", m.OperatorName())) + input + "\n\n")
+				if m.regulator != nil {
+					m.regulator.ReconcileRejections(input)
+				}
 				if m.session != nil {
 					m.session.AppendUserMessage(input)
 				}
@@ -692,7 +700,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.lastSig = ""
 				m.repeatCount = 0
 				m.appendLog("[Action rejected by user]\n\n")
-				if m.session != nil {
+				if m.pendingAct != nil {
+					actionPath := m.pendingAct.TargetSummary()
+					if m.pendingAct.Name == "find_files" || m.pendingAct.Name == "search_code" {
+						actionPath = regulator.ExtractTagContent(m.pendingAct.Command, "path")
+					}
+					if m.regulator != nil {
+						m.regulator.RecordRejection(regulator.ActionCandidate{
+							Name:    m.pendingAct.Name,
+							Command: m.pendingAct.Command,
+							Path:    actionPath,
+						})
+					}
+					if m.session != nil {
+						targetDesc := actionPath
+						if targetDesc == "" {
+							targetDesc = m.pendingAct.Name
+						}
+						m.session.AppendUserMessage(fmt.Sprintf("[Action rejected by user]: User rejected the proposal to execute %s on %q. DO NOT retry this action or access this target in subsequent planning. Shift strategy, use an alternate tool or file, or ask for clarification.", m.pendingAct.Name, targetDesc))
+					}
+				} else if m.session != nil {
 					m.session.AppendUserMessage("User rejected the action proposal. Please decide on an alternative or ask for clarification.")
 				}
 				m.pendingAct = nil
@@ -860,7 +887,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.lastBadge = ""
 				m.lastSig = ""
 				m.repeatCount = 0
-				m.appendLog(agentStyle.Render(fmt.Sprintf("%s: ", m.AgentName())) + strings.TrimSpace(response) + "\n\n")
+				cleanResp := strings.TrimSpace(response)
+				if m.lastAssistantReply != "" && agent.IsVerbatimRepetition(cleanResp, m.lastAssistantReply) {
+					m.appendLog("⚠️  [Loop Intervention] Verbatim response detected across turns. Grounding in repository files is recommended.\n\n")
+				}
+				m.lastAssistantReply = cleanResp
+				m.appendLog(agentStyle.Render(fmt.Sprintf("%s: ", m.AgentName())) + cleanResp + "\n\n")
 				m.stepCount = 0
 				m.lastThought = ""
 				m.lastTool = ""

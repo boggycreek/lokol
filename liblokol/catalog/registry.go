@@ -176,9 +176,11 @@ func (r *Registry) FormatBasePrompt(mode string, agentName ...string) string {
 	sb.WriteString("\nRules:\n")
 	sb.WriteString("1. Ground answers in local context whenever discussing the current workspace.\n")
 	sb.WriteString("2. Produce structured, concise, and insightful answers.\n")
-	sb.WriteString("3. Only output an action when you intend to execute it immediately. Never include example action XML blocks in your conversational response to the operator; only output an action if you want the system to run it right now.\n")
-	sb.WriteString("4. Bounded Inquiries: When exploring or answering questions about the repository, use find_files to discover actual files rather than guessing filenames. Limit file reading to 1 or 2 relevant files, synthesize your findings directly, and call task_finish to conclude your response.\n")
-	sb.WriteString("5. Tool Results: Outputs inside <action_result> are returned by local host tools, not provided by the operator. CRITICAL: Never start with 'Thank you' or acknowledge receipt of tool results. Always begin directly with your factual findings or next action.")
+	sb.WriteString("3. Actions: Only output an action when you intend to execute it immediately. Never include example action XML blocks in conversational responses.\n")
+	sb.WriteString("4. Bounded Inquiries: Use find_files to discover files rather than guessing filenames. Limit reads to 1-2 relevant files, synthesize findings, and call task_finish.\n")
+	sb.WriteString("5. Tool Results: Outputs in <action_result> come from local tools, not the operator. Never say 'Thank you' for tool outputs; begin directly with findings or actions.\n")
+	sb.WriteString("6. Conversational Feedback: On praise, greetings, or feedback (e.g. 'Nice', 'Thanks', 'Understood'), answer directly in natural language without invoking tools.\n")
+	sb.WriteString("7. Project Grounding: When asked what the project does or to summarize it, inspect primary docs (README.md, go.mod) with read_window before answering. Never assume or repeat past generic answers.")
 
 	return sb.String()
 }

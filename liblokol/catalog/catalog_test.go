@@ -205,3 +205,62 @@ line replaced
 		t.Errorf("file content not replaced: %s", string(data))
 	}
 }
+
+func TestIntentRouter_ConversationalFeedbackAndSummaryQueries(t *testing.T) {
+	feedbackCases := []struct {
+		prompt   string
+		expected bool
+	}{
+		{"Nice. Glad your regulator flagged my last prompt", true},
+		{"Nice job!", true},
+		{"Thanks!", true},
+		{"Thank you so much", true},
+		{"Understood.", true},
+		{"Got it, sounds good.", true},
+		{"Hello there", true},
+		{"Good morning", true},
+		// Actionable prompts must NOT be classified as pure conversational feedback
+		{"Can you fix the bug?", false},
+		{"Please find all files", false},
+		{"Run go test", false},
+		{"What does the project do?", false},
+		{"Explain this function", false},
+	}
+
+	for _, tc := range feedbackCases {
+		res := IsConversationalFeedback(tc.prompt)
+		if res != tc.expected {
+			t.Errorf("IsConversationalFeedback(%q) = %v, want %v", tc.prompt, res, tc.expected)
+		}
+	}
+
+	// Test RouteIntent suppresses specialized tool injection on conversational feedback
+	matched := DefaultRouter.RouteIntent(context.Background(), "Nice. Glad your regulator flagged my last prompt")
+	if len(matched) != 0 {
+		t.Errorf("expected 0 tools for conversational feedback, got %d", len(matched))
+	}
+
+	summaryCases := []struct {
+		prompt   string
+		expected bool
+	}{
+		{"What can you tell me about the current project?", true},
+		{"Can you summarize that the project does?", true},
+		{"What does the project do?", true},
+		{"Summarize the current project", true},
+		{"Tell me about this codebase", true},
+		{"Explain this repository", true},
+		// Non-summary queries
+		{"Find all files matching *.go", false},
+		{"Run tests in ./liblokol", false},
+		{"Nice work!", false},
+	}
+
+	for _, tc := range summaryCases {
+		res := IsProjectSummaryQuery(tc.prompt)
+		if res != tc.expected {
+			t.Errorf("IsProjectSummaryQuery(%q) = %v, want %v", tc.prompt, res, tc.expected)
+		}
+	}
+}
+

@@ -41,14 +41,15 @@ type SessionCore interface {
 // It encapsulates conversation history, prompt hierarchy, tool execution,
 // slot lifecycle, and token streaming independently of any UI or presentation layer.
 type Session struct {
-	Client          *Client
-	WorkDir         string
-	Mode            Mode
-	CodebaseContext string
-	AgentName       string
-	OperatorName    string
-	History         []Message
+	Client           *Client
+	WorkDir          string
+	Mode             Mode
+	CodebaseContext  string
+	AgentName        string
+	OperatorName     string
+	History          []Message
 	consecutiveReads int
+	windowCache      *WindowReadCache
 }
 
 var _ SessionCore = (*Session)(nil)
@@ -92,6 +93,7 @@ func NewSessionWithMode(client *Client, workDir string, mode Mode, codebaseCtxOp
 		CodebaseContext: codebaseCtx,
 		AgentName:       env.AgentName,
 		OperatorName:    env.OperatorName,
+		windowCache:     NewWindowReadCache(),
 		History: []Message{
 			{Role: "system", Content: systemPrompt},
 		},
@@ -171,10 +173,19 @@ func (s *Session) SetMode(mode Mode) {
 // AppendUserMessage appends a user message to the session's conversation history,
 // dynamically injecting specialized tools matching the user's intent per ADR-0024.
 func (s *Session) AppendUserMessage(content string) {
-	injected := catalog.DefaultRouter.RouteIntent(context.Background(), content)
+	if catalog.IsConversationalFeedback(content) {
+		s.History = append(s.History, Message{Role: "user", Content: content})
+		return
+	}
+
 	fullContent := content
+	if catalog.IsProjectSummaryQuery(content) {
+		fullContent = content + "\n[System Guidance: Ground your answer in actual repository files. Inspect README.md, go.mod, package.json, or primary docs with read_window before synthesizing your project summary.]"
+	}
+
+	injected := catalog.DefaultRouter.RouteIntent(context.Background(), content)
 	if len(injected) > 0 {
-		fullContent = content + catalog.DefaultRouter.FormatInjectedTools(injected)
+		fullContent = fullContent + catalog.DefaultRouter.FormatInjectedTools(injected)
 	}
 	s.History = append(s.History, Message{Role: "user", Content: fullContent})
 }
@@ -197,15 +208,42 @@ func (s *Session) AppendActionResult(output string, err error) {
 
 // ExecuteAction executes a parsed Action using the centralized DispatchAction.
 func (s *Session) ExecuteAction(ctx context.Context, act *Action) (string, error) {
-	if act != nil && (act.Name == "read_window" || act.Name == "read_outline") {
+	if act == nil {
+		return "", fmt.Errorf("action is nil")
+	}
+
+	// Trajectory inspection & short-term cache: suppress identical unchanged read_window calls (lokol-kih.4)
+	if act.Name == "read_window" && s.windowCache != nil {
+		if input, parseErr := refinery.ParseReadWindowPayload(act.Command); parseErr == nil {
+			if redundant, notice, _ := s.windowCache.CheckRedundant(input.Path, input.StartLine, input.EndLine, s.WorkDir); redundant {
+				return notice, nil
+			}
+		}
+	}
+
+	if act.Name == "read_window" || act.Name == "read_outline" {
 		s.consecutiveReads++
 	} else {
 		s.consecutiveReads = 0
 	}
 
 	out, err := DispatchAction(ctx, act, s.WorkDir)
-	if err == nil && s.consecutiveReads >= 2 {
-		out += "\n\n[Guidance: You have inspected multiple files. Please synthesize your findings now and conclude your response, or call task_finish.]"
+	if err == nil {
+		if act.Name == "read_window" && s.windowCache != nil {
+			if input, parseErr := refinery.ParseReadWindowPayload(act.Command); parseErr == nil {
+				s.windowCache.RecordRead(input.Path, input.StartLine, input.EndLine, s.WorkDir)
+			}
+		} else if (act.Name == "replace_file" || act.Name == "write_file") && s.windowCache != nil {
+			target := act.TargetSummary()
+			s.windowCache.Invalidate(target, s.WorkDir)
+		} else if act.Name == "exec_bash" && s.windowCache != nil {
+			// External bash execution may modify files; clear cache
+			s.windowCache.Clear()
+		}
+
+		if s.consecutiveReads >= 2 {
+			out += "\n\n[Guidance: You have inspected multiple files. Please synthesize your findings now and conclude your response, or call task_finish.]"
+		}
 	}
 	return out, err
 }
@@ -246,6 +284,9 @@ var _ regulator.SlotStatusProvider = (*Session)(nil)
 
 // Reset resets the conversation history back to the initial system prompt for the active mode.
 func (s *Session) Reset() {
+	if s.windowCache != nil {
+		s.windowCache.Clear()
+	}
 	env := DetectHostEnvironment(s.WorkDir)
 	s.History = []Message{
 		{Role: "system", Content: BuildSystemPromptForMode(s.GetMode(), env, s.CodebaseContext)},

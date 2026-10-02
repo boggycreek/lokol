@@ -30,6 +30,11 @@ var DefaultRouter = NewIntentRouter(DefaultRegistry)
 
 // RouteIntent analyzes the user prompt and returns matching specialized tools.
 func (r *IntentRouter) RouteIntent(ctx context.Context, prompt string) []Tool {
+	// Suppress tool injection on pure conversational feedback or acknowledgments (lokol-kih.6)
+	if IsConversationalFeedback(prompt) {
+		return nil
+	}
+
 	lower := strings.ToLower(prompt)
 	words := strings.Fields(lower)
 
@@ -57,6 +62,89 @@ func (r *IntentRouter) RouteIntent(ctx context.Context, prompt string) []Tool {
 	}
 
 	return matched
+}
+
+// IsConversationalFeedback checks if the user prompt is conversational feedback, praise, greetings,
+// or evaluative remarks that should be answered directly without triggering tool invocations (lokol-kih.6).
+func IsConversationalFeedback(prompt string) bool {
+	p := strings.TrimSpace(strings.ToLower(prompt))
+	if p == "" {
+		return false
+	}
+
+	// Action words and explicit questions indicate actionable intent, not pure conversational feedback
+	actionWords := []string{
+		"?", "please", "can you", "could you", "would you",
+		"write", "create", "edit", "replace", "fix", "update", "delete", "remove",
+		"run", "exec", "test", "build", "compile", "find", "search", "read",
+		"show", "list", "inspect", "diff", "outline", "summarize", "explain",
+	}
+	for _, word := range actionWords {
+		if strings.Contains(p, word) {
+			return false
+		}
+	}
+
+	feedbackPhrases := []string{
+		"nice", "great", "cool", "awesome", "good job", "well done", "nice work",
+		"looks good", "sounds good", "lgtm", "perfect",
+		"thanks", "thank you", "thx", "appreciate it",
+		"glad your regulator flagged", "glad that was flagged", "glad that was caught", "glad it caught that", "glad to hear",
+		"ok", "okay", "got it", "understood", "acknowledged", "no problem", "sure",
+		"hello", "hi", "hey", "good morning", "good evening", "good night",
+	}
+
+	for _, phrase := range feedbackPhrases {
+		if p == phrase || strings.HasPrefix(p, phrase+".") || strings.HasPrefix(p, phrase+"!") || strings.HasPrefix(p, phrase+",") {
+			return true
+		}
+		if strings.Contains(p, phrase) && len(strings.Fields(p)) <= 10 {
+			return true
+		}
+	}
+
+	return false
+}
+
+// IsProjectSummaryQuery detects requests asking what the project/codebase does or to summarize it (lokol-kih.8).
+func IsProjectSummaryQuery(prompt string) bool {
+	p := strings.TrimSpace(strings.ToLower(prompt))
+	if p == "" {
+		return false
+	}
+
+	summaryPatterns := []string{
+		"what can you tell me about the current project",
+		"what does the project do",
+		"what does this project do",
+		"summarize that the project does",
+		"summarize what the project does",
+		"summarize the project",
+		"summarize the current project",
+		"summarize this project",
+		"summarize the codebase",
+		"summarize this codebase",
+		"tell me about this project",
+		"tell me about the current project",
+		"tell me about this codebase",
+		"tell me about this repository",
+		"explain this repository",
+		"explain this project",
+		"explain the project",
+		"overview of the project",
+		"project overview",
+		"what is this project",
+		"what is this repository",
+		"what is this codebase",
+	}
+
+	for _, pat := range summaryPatterns {
+		if strings.Contains(p, pat) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (r *IntentRouter) matchesIntent(lower string, words []string, tool Tool) bool {

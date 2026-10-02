@@ -936,6 +936,88 @@ func TestTUI_Presentation_PersonaSlashCommands(t *testing.T) {
 	}
 }
 
+// TestTUI_Presentation_ActionRejectionPersistsToRegulator verifies that rejected actions are tracked by the regulator.
+func TestTUI_Presentation_ActionRejectionPersistsToRegulator(t *testing.T) {
+	mock := NewMockSession()
+	m := tui.NewWithSession(mock, nil, false)
+
+	// Step 0: User inputs message
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("check files")})
+	m = updated.(tui.Model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(tui.Model)
+
+	// Propose action reading README.md
+	actionTurn := "I will inspect lines.\n<action name=\"read_window\">\n<path>README.md</path>\n<start_line>101</start_line>\n<end_line>200</end_line>\n</action>"
+	updated, _ = m.Update(tui.StreamDoneMsg(actionTurn))
+	m = updated.(tui.Model)
+
+	if m.State() != tui.StateWaitingActionApproval {
+		t.Fatalf("expected StateWaitingActionApproval, got %v", m.State())
+	}
+
+	// Reject with 'n'
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	m = updated.(tui.Model)
+
+	if m.State() != tui.StateIdle {
+		t.Fatalf("expected StateIdle, got %v", m.State())
+	}
+
+	// User enters second turn prompt
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("tell me more")})
+	m = updated.(tui.Model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(tui.Model)
+
+	// Attempt to propose another action targeting the rejected README.md
+	actionTurn2 := "I will try reading earlier lines.\n<action name=\"read_window\">\n<path>README.md</path>\n<start_line>1</start_line>\n<end_line>100</end_line>\n</action>"
+	updated, _ = m.Update(tui.StreamDoneMsg(actionTurn2))
+	m = updated.(tui.Model)
+
+	// Since it's rejected in regulator, it should display security warning
+	content := m.ViewportContent()
+	if !strings.Contains(content, "SECURITY WARNING") || !strings.Contains(content, "rejected by the operator") {
+		t.Errorf("expected security warning indicating operator rejection in viewport, got: %s", content)
+	}
+}
+
+// TestTUI_Presentation_VerbatimLoopIntervention verifies that repeating responses verbatim across turns triggers an intervention.
+func TestTUI_Presentation_VerbatimLoopIntervention(t *testing.T) {
+	mock := NewMockSession()
+	m := tui.NewWithSession(mock, nil, false)
+
+	// Turn 1: User prompt & model response
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("What can you tell me about the current project?")})
+	m = updated.(tui.Model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(tui.Model)
+
+	turn1Response := "Lokol is an autonomous local-first agent engine for developer tools."
+	updated, _ = m.Update(tui.StreamDoneMsg(turn1Response))
+	m = updated.(tui.Model)
+
+	if !strings.Contains(m.ViewportContent(), turn1Response) {
+		t.Fatalf("expected turn 1 response in viewport")
+	}
+
+	// Turn 2: User asks follow-up & model produces exact same response verbatim
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("Can you summarize that the project does?")})
+	m = updated.(tui.Model)
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(tui.Model)
+
+	updated, _ = m.Update(tui.StreamDoneMsg(turn1Response))
+	m = updated.(tui.Model)
+
+	content := m.ViewportContent()
+	if !strings.Contains(content, "Loop Intervention") || !strings.Contains(content, "Verbatim response detected across turns") {
+		t.Errorf("expected loop intervention warning for verbatim repetition across turns, got: %s", content)
+	}
+}
+
+
+
 
 
 
