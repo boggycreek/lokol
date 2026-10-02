@@ -44,6 +44,23 @@ type ActionExecutedMsg string
 type ErrMsg error
 type SlotTickMsg *agent.SlotStatus
 
+// ActionDigestItem represents a single executed operation in the live action stream (lokol-zw4).
+type ActionDigestItem struct {
+	Action   *agent.Action
+	LiveText string
+	Category string // "command", "search", "file", "action"
+	FilePath string
+	Failed   bool
+}
+
+// TurnDigest represents the collapsed and expandable history of a completed turn (lokol-zw4).
+type TurnDigest struct {
+	Items        []ActionDigestItem
+	CollapsedStr string
+	ExpandedStr  string
+	IsExpanded   bool
+}
+
 // Model is the Bubble Tea application state.
 // Bubble Tea requires Model to be passed by value in Update/View,
 // so strings.Builder must NOT be embedded directly as a value field.
@@ -70,11 +87,15 @@ type Model struct {
 	err          error
 
 	// Internalized activity & step tracking
-	stepCount           int
-	lastThought         string
-	lastTool            string
-	consecutiveCommands int
-	lastBadge           string
+	stepCount   int
+	lastThought string
+	lastTool    string
+	lastBadge   string
+
+	// Live action digest stream & collapsed turn summary (lokol-zw4)
+	currentTurnActions     []ActionDigestItem
+	currentTurnDigestLines []string
+	turnDigests            []TurnDigest
 
 	// Loop circuit breaker & repetition tracking
 	lastSig            string
@@ -294,7 +315,7 @@ func NewWithSession(session agent.SessionCore, hw *probe.HardwareProfile, yoloMo
 	}
 
 	ta := textarea.New()
-	ta.Placeholder = fmt.Sprintf("Ask %s to inspect files, write reports, or type /mode, /yolo, /clear...", agentName)
+	ta.Placeholder = fmt.Sprintf("Ask %s to inspect files, write reports, or type /mode, /yolo, /actions, /clear...", agentName)
 	ta.Focus()
 	ta.Prompt = "> "
 	ta.CharLimit = 1000
@@ -464,8 +485,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.stepCount = 0
 				m.lastThought = ""
 				m.lastTool = ""
-				m.consecutiveCommands = 0
 				m.lastBadge = ""
+				m = m.finalizeTurnDigest()
 				m.appendLog("\n[Stream cancelled by user (Ctrl+C). Slot released.]\n")
 				return m, nil
 			}
@@ -485,12 +506,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.stepCount = 0
 				m.lastThought = ""
 				m.lastTool = ""
-				m.consecutiveCommands = 0
 				m.lastBadge = ""
+				m = m.finalizeTurnDigest()
 				m.appendLog("\n[Stream aborted (Esc). Slot released.]\n")
 				return m, nil
 			}
 			return m, nil
+		case tea.KeyCtrlO:
+			m = m.ToggleTurnDigest()
+			return m, nil
+		case tea.KeyTab:
+			if m.state == StateIdle && m.textarea.Value() == "" {
+				m = m.ToggleTurnDigest()
+				return m, nil
+			}
 		case tea.KeyCtrlY:
 			m.yoloMode = !m.yoloMode
 			if m.yoloMode {
@@ -594,6 +623,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.appendLog("🛡️ [SAFE MODE ENGAGED] Manual action approval required.\n\n")
 					}
 					return m, nil
+				} else if input == "/actions" || input == "/expand" {
+					m = m.ToggleTurnDigest()
+					return m, nil
 				} else if input == "/clear" {
 					if m.session != nil {
 						m.session.Reset()
@@ -605,7 +637,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.stepCount = 0
 					m.lastThought = ""
 					m.lastTool = ""
+					m.lastBadge = ""
 					m.lastAssistantReply = ""
+					m.currentTurnActions = nil
+					m.currentTurnDigestLines = nil
+					m.turnDigests = nil
 					m.appendLog("🧹 [Session Cleared] Chat history and conversation context reset.\n\n")
 					return m, nil
 				} else if strings.HasPrefix(input, "/name") {
@@ -616,7 +652,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						if m.session != nil {
 							m.session.SetPersona(newName, m.operatorName)
 						}
-						m.textarea.Placeholder = fmt.Sprintf("Ask %s to inspect files, write reports, or type /mode, /yolo, /clear...", newName)
+						m.textarea.Placeholder = fmt.Sprintf("Ask %s to inspect files, write reports, or type /mode, /yolo, /actions, /clear...", newName)
 						cfg, _ := config.Load()
 						cfg.AgentName = newName
 						_ = config.Save(cfg)
@@ -654,8 +690,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.stepCount = 0
 				m.lastThought = ""
 				m.lastTool = ""
-				m.consecutiveCommands = 0
 				m.lastBadge = ""
+				m.currentTurnActions = nil
+				m.currentTurnDigestLines = nil
 				m.lastSig = ""
 				m.repeatCount = 0
 				m.currentResp = ""
@@ -695,10 +732,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				)
 			case "n", "N":
 				m.state = StateIdle
-				m.consecutiveCommands = 0
 				m.lastBadge = ""
 				m.lastSig = ""
 				m.repeatCount = 0
+				m = m.finalizeTurnDigest()
 				m.appendLog("[Action rejected by user]\n\n")
 				if m.pendingAct != nil {
 					actionPath := m.pendingAct.TargetSummary()
@@ -773,11 +810,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 				if m.repeatCount >= 4 {
 					m.state = StateIdle
-					m.consecutiveCommands = 0
 					m.lastBadge = ""
 					m.pendingAct = nil
 					m.lastSig = ""
 					m.repeatCount = 0
+					m = m.finalizeTurnDigest()
 					m.appendLog(fmt.Sprintf("⚠️  [Loop Circuit Breaker] Action %s repeated %d times consecutively without progress. Halting loop to protect KV cache.\n\n", act.Name, 4))
 					return m, nil
 				}
@@ -833,7 +870,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					)
 				}
 
-				m.consecutiveCommands = 0
 				m.lastBadge = ""
 				m.state = StateWaitingActionApproval
 				warningBadge := ""
@@ -851,7 +887,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.appendLog("\n" + box + "\n")
 			} else if act != nil && act.Name == "task_finish" {
 				m.state = StateIdle
-				m.consecutiveCommands = 0
 				m.lastBadge = ""
 				m.lastSig = ""
 				m.repeatCount = 0
@@ -877,13 +912,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				banner := completeBannerStyle.Render(fmt.Sprintf("✅ Task Complete%s", stepSuffix))
 
+				m = m.finalizeTurnDigest()
+
 				m.appendLog(agentStyle.Render(fmt.Sprintf("%s: ", m.AgentName())) + finalText + "\n\n" + banner + "\n\n")
 				m.stepCount = 0
 				m.lastThought = ""
 				m.lastTool = ""
 			} else {
 				m.state = StateIdle
-				m.consecutiveCommands = 0
 				m.lastBadge = ""
 				m.lastSig = ""
 				m.repeatCount = 0
@@ -892,6 +928,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.appendLog("⚠️  [Loop Intervention] Verbatim response detected across turns. Grounding in repository files is recommended.\n\n")
 				}
 				m.lastAssistantReply = cleanResp
+
+				m = m.finalizeTurnDigest()
+
 				m.appendLog(agentStyle.Render(fmt.Sprintf("%s: ", m.AgentName())) + cleanResp + "\n\n")
 				m.stepCount = 0
 				m.lastThought = ""
@@ -904,51 +943,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		output := string(msg)
 		isError := strings.HasPrefix(output, "[Error: ")
 
-		if m.verbose {
-			if isError {
-				m.appendLog("✗ Execution failed\n\n")
-			} else {
-				m.appendLog("✓ Executed successfully\n\n")
-			}
-		} else if m.pendingAct != nil {
-			if isError {
-				errSummary := output
-				if idx := strings.Index(errSummary, "\n"); idx != -1 {
-					errSummary = errSummary[:idx]
-				}
-				errSummary = strings.TrimPrefix(errSummary, "[Error: ")
-				errSummary = strings.TrimSuffix(errSummary, "]")
-				if len(errSummary) > 60 {
-					errSummary = errSummary[:57] + "..."
-				}
-				badge := fmt.Sprintf("Failed %s (%s) ✗", m.pendingAct.Name, errSummary)
-				badgeStr := toolBadgeStyle.Render(badge) + "\n\n"
-				m.lastBadge = badgeStr
-				m.appendLog(badgeStr)
-			} else {
-				m.consecutiveCommands++
-				if m.consecutiveCommands == 1 {
-					badge := formatCompactAction(m.pendingAct)
-					badgeStr := toolBadgeStyle.Render(badge) + "\n\n"
-					m.lastBadge = badgeStr
-					m.appendLog(badgeStr)
+		if m.pendingAct != nil {
+			item := createActionDigestItem(m.pendingAct, output, isError)
+			m.currentTurnActions = append(m.currentTurnActions, item)
+
+			if m.verbose {
+				if isError {
+					m.appendLog("✗ Execution failed\n\n")
 				} else {
-					newBadge := fmt.Sprintf("Ran %d commands ▸", m.consecutiveCommands)
-					newBadgeStr := toolBadgeStyle.Render(newBadge) + "\n\n"
-					if m.lastBadge != "" && strings.HasSuffix(m.chatLog, m.lastBadge) {
-						m.chatLog = strings.TrimSuffix(m.chatLog, m.lastBadge) + newBadgeStr
-						m.lastBadge = newBadgeStr
-						w := m.viewport.Width
-						if w <= 0 {
-							w = 76
-						}
-						m.viewport.SetContent(wrapContent(m.chatLog, w))
-						m.viewport.GotoBottom()
-					} else {
-						m.lastBadge = newBadgeStr
-						m.appendLog(newBadgeStr)
-					}
+					m.appendLog("✓ Executed successfully\n\n")
 				}
+			} else {
+				lineStr := toolBadgeStyle.Render(item.LiveText) + "\n\n"
+				m.currentTurnDigestLines = append(m.currentTurnDigestLines, lineStr)
+				m.lastBadge = lineStr
+				m.appendLog(lineStr)
 			}
 		}
 
@@ -1176,9 +1185,9 @@ func (m Model) View() string {
 	var hints string
 	switch m.state {
 	case StateIdle:
-		hints = "[Ready] Enter send · [/mode] Switch · [Ctrl+Y] YOLO · [Ctrl+C] Quit"
-		if w >= 100 {
-			hints = "[Ready] Enter send · [/mode] Switch · [PgUp/PgDn] Scroll · [Ctrl+Y] YOLO · [Ctrl+C] Quit"
+		hints = "[Ready] Enter send · [/mode] Switch · [Ctrl+O] Actions · [Ctrl+Y] YOLO · [Ctrl+C] Quit"
+		if w >= 110 {
+			hints = "[Ready] Enter send · [/mode] Switch · [Ctrl+O] Actions · [PgUp/PgDn] Scroll · [Ctrl+Y] YOLO · [Ctrl+C] Quit"
 		}
 	case StateStreaming:
 		hints = "[Thinking] Generating response from local engine... · [Esc] Stop"
@@ -1387,7 +1396,7 @@ func (m *Model) OperatorName() string {
 func (m *Model) SetPersona(agentName, operatorName string) {
 	if strings.TrimSpace(agentName) != "" {
 		m.agentName = strings.TrimSpace(agentName)
-		m.textarea.Placeholder = fmt.Sprintf("Ask %s to inspect files, write reports, or type /mode, /yolo, /clear...", m.agentName)
+		m.textarea.Placeholder = fmt.Sprintf("Ask %s to inspect files, write reports, or type /mode, /yolo, /actions, /clear...", m.agentName)
 	}
 	if strings.TrimSpace(operatorName) != "" {
 		m.operatorName = strings.TrimSpace(operatorName)
@@ -1396,4 +1405,475 @@ func (m *Model) SetPersona(agentName, operatorName string) {
 		m.session.SetPersona(m.agentName, m.operatorName)
 	}
 }
+
+// createActionDigestItem formats an individual operation for the live streaming action digest (lokol-zw4).
+func createActionDigestItem(act *agent.Action, output string, isError bool) ActionDigestItem {
+	if act == nil {
+		return ActionDigestItem{
+			LiveText: "Ran command ▸",
+			Category: "command",
+		}
+	}
+
+	errSummary := output
+	if isError {
+		if idx := strings.Index(errSummary, "\n"); idx != -1 {
+			errSummary = errSummary[:idx]
+		}
+		errSummary = strings.TrimPrefix(errSummary, "[Error: ")
+		errSummary = strings.TrimSuffix(errSummary, "]")
+		if len(errSummary) > 50 {
+			errSummary = errSummary[:47] + "..."
+		}
+	}
+
+	switch act.Name {
+	case "exec_bash":
+		cmdStr := strings.TrimSpace(act.Command)
+		if idx := strings.Index(cmdStr, "\n"); idx != -1 {
+			cmdStr = strings.TrimSpace(cmdStr[:idx])
+		}
+		if len(cmdStr) > 45 {
+			cmdStr = cmdStr[:42] + "..."
+		}
+		if cmdStr == "" {
+			cmdStr = "command"
+		}
+		if isError {
+			return ActionDigestItem{
+				Action:   act,
+				LiveText: fmt.Sprintf("Failed to run %s ▸", cmdStr),
+				Category: "command",
+				Failed:   true,
+			}
+		}
+		return ActionDigestItem{
+			Action:   act,
+			LiveText: fmt.Sprintf("Ran %s ▸", cmdStr),
+			Category: "command",
+			Failed:   false,
+		}
+
+	case "read_window":
+		path := extractTag(act.Command, "path")
+		if path == "" {
+			path = act.TargetSummary()
+		}
+		start := extractTag(act.Command, "start")
+		end := extractTag(act.Command, "end")
+		rangeStr := ""
+		if start != "" && end != "" {
+			rangeStr = fmt.Sprintf("[%s-%s]", start, end)
+		}
+		if isError {
+			failText := fmt.Sprintf("Failed read_window %s ✗", path)
+			if rangeStr != "" {
+				failText = fmt.Sprintf("Failed read_window %s %s ✗", path, rangeStr)
+			}
+			return ActionDigestItem{
+				Action:   act,
+				LiveText: failText,
+				Category: "file",
+				FilePath: path,
+				Failed:   true,
+			}
+		}
+		liveText := fmt.Sprintf("Read %s ▸", path)
+		if rangeStr != "" {
+			liveText = fmt.Sprintf("Read %s %s", path, rangeStr)
+		}
+		return ActionDigestItem{
+			Action:   act,
+			LiveText: liveText,
+			Category: "file",
+			FilePath: path,
+			Failed:   false,
+		}
+
+	case "write_file":
+		path := extractTag(act.Command, "path")
+		if path == "" {
+			path = act.TargetSummary()
+		}
+		if isError {
+			return ActionDigestItem{
+				Action:   act,
+				LiveText: fmt.Sprintf("Failed write_file %s ✗", path),
+				Category: "file",
+				FilePath: path,
+				Failed:   true,
+			}
+		}
+		return ActionDigestItem{
+			Action:   act,
+			LiveText: fmt.Sprintf("Wrote %s ▸", path),
+			Category: "file",
+			FilePath: path,
+			Failed:   false,
+		}
+
+	case "replace_file":
+		path := extractTag(act.Command, "path")
+		if path == "" {
+			path = act.TargetSummary()
+		}
+		if isError {
+			return ActionDigestItem{
+				Action:   act,
+				LiveText: fmt.Sprintf("Failed replace_file %s ✗", path),
+				Category: "file",
+				FilePath: path,
+				Failed:   true,
+			}
+		}
+		return ActionDigestItem{
+			Action:   act,
+			LiveText: fmt.Sprintf("Edited %s ▸", path),
+			Category: "file",
+			FilePath: path,
+			Failed:   false,
+		}
+
+	case "find_files":
+		pattern := extractTag(act.Command, "pattern")
+		if pattern == "" {
+			pattern = act.TargetSummary()
+		}
+		if len(pattern) > 30 {
+			pattern = pattern[:27] + "..."
+		}
+		target := fmt.Sprintf("'%s'", pattern)
+		if pattern == "" {
+			target = "files"
+		}
+		if isError {
+			return ActionDigestItem{
+				Action:   act,
+				LiveText: fmt.Sprintf("Failed searching %s ▸", target),
+				Category: "search",
+				Failed:   true,
+			}
+		}
+		return ActionDigestItem{
+			Action:   act,
+			LiveText: fmt.Sprintf("Searched %s ▸", target),
+			Category: "search",
+			Failed:   false,
+		}
+
+	case "search_code":
+		pattern := extractTag(act.Command, "pattern")
+		if pattern == "" {
+			pattern = act.TargetSummary()
+		}
+		if len(pattern) > 30 {
+			pattern = pattern[:27] + "..."
+		}
+		target := fmt.Sprintf("'%s'", pattern)
+		if pattern == "" {
+			target = "code"
+		}
+		if isError {
+			return ActionDigestItem{
+				Action:   act,
+				LiveText: fmt.Sprintf("Failed searching %s ▸", target),
+				Category: "search",
+				Failed:   true,
+			}
+		}
+		return ActionDigestItem{
+			Action:   act,
+			LiveText: fmt.Sprintf("Searched %s ▸", target),
+			Category: "search",
+			Failed:   false,
+		}
+
+	case "read_outline":
+		path := extractTag(act.Command, "path")
+		if path == "" {
+			path = act.TargetSummary()
+		}
+		if len(path) > 30 {
+			path = path[:27] + "..."
+		}
+		if isError {
+			return ActionDigestItem{
+				Action:   act,
+				LiveText: fmt.Sprintf("Failed reading outline '%s' ▸", path),
+				Category: "search",
+				Failed:   true,
+			}
+		}
+		return ActionDigestItem{
+			Action:   act,
+			LiveText: fmt.Sprintf("Searched outline '%s' ▸", path),
+			Category: "search",
+			Failed:   false,
+		}
+
+	case "get_environment":
+		if isError {
+			return ActionDigestItem{
+				Action:   act,
+				LiveText: "Failed get_environment ✗",
+				Category: "action",
+				Failed:   true,
+			}
+		}
+		return ActionDigestItem{
+			Action:   act,
+			LiveText: "Ran get_environment ▸",
+			Category: "action",
+			Failed:   false,
+		}
+
+	default:
+		target := act.TargetSummary()
+		if len(target) > 30 {
+			target = target[:27] + "..."
+		}
+		if isError {
+			failStr := fmt.Sprintf("Failed %s ✗", act.Name)
+			if target != "" && target != act.Name {
+				failStr = fmt.Sprintf("Failed %s %s ✗", act.Name, target)
+			} else if errSummary != "" {
+				failStr = fmt.Sprintf("Failed %s (%s) ✗", act.Name, errSummary)
+			}
+			return ActionDigestItem{
+				Action:   act,
+				LiveText: failStr,
+				Category: "action",
+				Failed:   true,
+			}
+		}
+		liveStr := fmt.Sprintf("Ran %s ▸", act.Name)
+		if target != "" && target != act.Name {
+			liveStr = fmt.Sprintf("Ran %s %s ▸", act.Name, target)
+		}
+		return ActionDigestItem{
+			Action:   act,
+			LiveText: liveStr,
+			Category: "action",
+			Failed:   false,
+		}
+	}
+}
+
+// formatTurnSummary aggregates operations into a Junie-style multi-category summary (lokol-zw4).
+// Example: 'Ran 22 commands, ran 1 action, 2 searches, explored 1 file, 1 command failed ▾'
+func formatTurnSummary(items []ActionDigestItem, expanded bool) string {
+	if len(items) == 0 {
+		return ""
+	}
+
+	var commands int
+	var actions int
+	var searches int
+	uniqueFiles := make(map[string]bool)
+	var failedCommands int
+	var failedActions int
+
+	for _, it := range items {
+		if it.Failed {
+			if it.Category == "command" {
+				failedCommands++
+			} else {
+				failedActions++
+			}
+		} else {
+			switch it.Category {
+			case "command":
+				commands++
+			case "search":
+				searches++
+			case "file":
+				if it.FilePath != "" {
+					uniqueFiles[it.FilePath] = true
+				} else {
+					uniqueFiles[fmt.Sprintf("file_%d", len(uniqueFiles)+1)] = true
+				}
+			default:
+				actions++
+			}
+		}
+	}
+
+	files := len(uniqueFiles)
+	var parts []string
+
+	if commands > 0 {
+		if commands == 1 {
+			parts = append(parts, "Ran 1 command")
+		} else {
+			parts = append(parts, fmt.Sprintf("Ran %d commands", commands))
+		}
+	}
+
+	if actions > 0 {
+		if len(parts) == 0 {
+			if actions == 1 {
+				parts = append(parts, "Ran 1 action")
+			} else {
+				parts = append(parts, fmt.Sprintf("Ran %d actions", actions))
+			}
+		} else {
+			if actions == 1 {
+				parts = append(parts, "ran 1 action")
+			} else {
+				parts = append(parts, fmt.Sprintf("ran %d actions", actions))
+			}
+		}
+	}
+
+	if searches > 0 {
+		if len(parts) == 0 {
+			if searches == 1 {
+				parts = append(parts, "Ran 1 search")
+			} else {
+				parts = append(parts, fmt.Sprintf("Ran %d searches", searches))
+			}
+		} else {
+			if searches == 1 {
+				parts = append(parts, "1 search")
+			} else {
+				parts = append(parts, fmt.Sprintf("%d searches", searches))
+			}
+		}
+	}
+
+	if files > 0 {
+		if files == 1 {
+			if len(parts) == 0 {
+				parts = append(parts, "Explored 1 file")
+			} else {
+				parts = append(parts, "explored 1 file")
+			}
+		} else {
+			if len(parts) == 0 {
+				parts = append(parts, fmt.Sprintf("Explored %d files", files))
+			} else {
+				parts = append(parts, fmt.Sprintf("explored %d files", files))
+			}
+		}
+	}
+
+	if failedCommands > 0 {
+		if failedCommands == 1 {
+			parts = append(parts, "1 command failed")
+		} else {
+			parts = append(parts, fmt.Sprintf("%d commands failed", failedCommands))
+		}
+	}
+
+	if failedActions > 0 {
+		if failedActions == 1 {
+			parts = append(parts, "1 action failed")
+		} else {
+			parts = append(parts, fmt.Sprintf("%d actions failed", failedActions))
+		}
+	}
+
+	if len(parts) == 0 {
+		parts = append(parts, "Ran actions")
+	}
+
+	summary := strings.Join(parts, ", ")
+	indicator := "▾"
+	if expanded {
+		indicator = "▴"
+	}
+	return summary + " " + indicator
+}
+
+func (m Model) finalizeTurnDigest() Model {
+	if len(m.currentTurnActions) == 0 {
+		return m
+	}
+
+	collapsedSummary := formatTurnSummary(m.currentTurnActions, false)
+	collapsedBadge := toolBadgeStyle.Render(collapsedSummary) + "\n\n"
+
+	expandedSummary := formatTurnSummary(m.currentTurnActions, true)
+	var expandedLines []string
+	expandedLines = append(expandedLines, toolBadgeStyle.Render(expandedSummary))
+	for _, it := range m.currentTurnActions {
+		expandedLines = append(expandedLines, "  "+toolBadgeStyle.Render(it.LiveText))
+	}
+	expandedBadge := strings.Join(expandedLines, "\n") + "\n\n"
+
+	liveBlock := strings.Join(m.currentTurnDigestLines, "")
+	if liveBlock != "" && strings.HasSuffix(m.chatLog, liveBlock) {
+		m.chatLog = strings.TrimSuffix(m.chatLog, liveBlock) + collapsedBadge
+	} else if liveBlock != "" && strings.Contains(m.chatLog, liveBlock) {
+		m.chatLog = strings.Replace(m.chatLog, liveBlock, collapsedBadge, 1)
+	} else {
+		m.chatLog += collapsedBadge
+	}
+
+	w := m.viewport.Width
+	if w <= 0 {
+		w = 76
+	}
+	m.viewport.SetContent(wrapContent(m.chatLog, w))
+	m.viewport.GotoBottom()
+
+	m.turnDigests = append(m.turnDigests, TurnDigest{
+		Items:        m.currentTurnActions,
+		CollapsedStr: collapsedBadge,
+		ExpandedStr:  expandedBadge,
+		IsExpanded:   false,
+	})
+
+	m.currentTurnActions = nil
+	m.currentTurnDigestLines = nil
+	return m
+}
+
+// ToggleTurnDigest toggles the expansion of the most recent turn's action digest (lokol-zw4).
+func (m Model) ToggleTurnDigest() Model {
+	if len(m.turnDigests) == 0 {
+		return m
+	}
+	lastIdx := len(m.turnDigests) - 1
+	td := &m.turnDigests[lastIdx]
+	if !td.IsExpanded {
+		if strings.Contains(m.chatLog, td.CollapsedStr) {
+			m.chatLog = strings.Replace(m.chatLog, td.CollapsedStr, td.ExpandedStr, 1)
+			td.IsExpanded = true
+		}
+	} else {
+		if strings.Contains(m.chatLog, td.ExpandedStr) {
+			m.chatLog = strings.Replace(m.chatLog, td.ExpandedStr, td.CollapsedStr, 1)
+			td.IsExpanded = false
+		}
+	}
+	w := m.viewport.Width
+	if w <= 0 {
+		w = 76
+	}
+	m.viewport.SetContent(wrapContent(m.chatLog, w))
+	m.viewport.GotoBottom()
+	return m
+}
+
+// TurnDigests returns recorded turn summaries for external inspection or tests.
+func (m Model) TurnDigests() []TurnDigest {
+	return m.turnDigests
+}
+
+func extractTag(xml, tag string) string {
+	open := "<" + tag + ">"
+	close := "</" + tag + ">"
+	start := strings.Index(xml, open)
+	if start == -1 {
+		return ""
+	}
+	start += len(open)
+	end := strings.Index(xml[start:], close)
+	if end == -1 {
+		return ""
+	}
+	return strings.TrimSpace(xml[start : start+end])
+}
+
 

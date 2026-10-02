@@ -659,11 +659,8 @@ func TestTUI_Presentation_Ergonomics_JunieLayoutAndToolFolding(t *testing.T) {
 	m = newM.(tui.Model)
 
 	content = m.ViewportContent()
-	if !strings.Contains(content, "Ran 2 commands ▸") {
-		t.Errorf("expected consecutive commands to fold into 'Ran 2 commands ▸', got: %s", content)
-	}
-	if strings.Contains(content, "Ran git status ▸") {
-		t.Errorf("expected previous individual badge to be replaced upon folding, got: %s", content)
+	if !strings.Contains(content, "Ran git status ▸") || !strings.Contains(content, "Ran git diff ▸") {
+		t.Errorf("expected live streaming operations to display individual action digest lines, got: %s", content)
 	}
 
 	// Tool Turn 3: exec_bash go test
@@ -674,24 +671,45 @@ func TestTUI_Presentation_Ergonomics_JunieLayoutAndToolFolding(t *testing.T) {
 	m = newM.(tui.Model)
 
 	content = m.ViewportContent()
-	if !strings.Contains(content, "Ran 3 commands ▸") {
-		t.Errorf("expected 3 consecutive commands to fold into 'Ran 3 commands ▸', got: %s", content)
+	if !strings.Contains(content, "Ran go test ./... ▸") {
+		t.Errorf("expected live stream to contain 3rd command 'Ran go test ./... ▸', got: %s", content)
 	}
 
-	// Task finish
+	// Task finish - collapses live stream into single-line aggregated summary
 	turnDone := "All checks passed.\n<action name=\"task_finish\">\nCodebase is in good health.\n</action>"
 	newM, _ = m.Update(tui.StreamDoneMsg(turnDone))
 	m = newM.(tui.Model)
 
 	finalContent := m.ViewportContent()
-	if !strings.Contains(finalContent, "Ran 3 commands ▸") {
-		t.Errorf("expected collapsed tool summary preserved in final viewport, got: %s", finalContent)
+	if !strings.Contains(finalContent, "Ran 3 commands ▾") {
+		t.Errorf("expected collapsed turn summary 'Ran 3 commands ▾' in final viewport, got: %s", finalContent)
 	}
 	if !strings.Contains(finalContent, "Codebase is in good health.") {
 		t.Errorf("expected final finish answer, got: %s", finalContent)
 	}
 	if !strings.Contains(finalContent, "✅ Task Complete • Resolved in 3 autonomous steps") {
 		t.Errorf("expected 3 autonomous steps in complete banner, got: %s", finalContent)
+	}
+
+	// Toggle expansion with Ctrl+O
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlO})
+	m = newM.(tui.Model)
+
+	expandedContent := m.ViewportContent()
+	if !strings.Contains(expandedContent, "Ran 3 commands ▴") {
+		t.Errorf("expected expanded turn summary 'Ran 3 commands ▴', got: %s", expandedContent)
+	}
+	if !strings.Contains(expandedContent, "Ran git status ▸") || !strings.Contains(expandedContent, "Ran git diff ▸") {
+		t.Errorf("expected expanded view to reveal detailed action history, got: %s", expandedContent)
+	}
+
+	// Toggle collapse back with Ctrl+O
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlO})
+	m = newM.(tui.Model)
+
+	recollapsedContent := m.ViewportContent()
+	if !strings.Contains(recollapsedContent, "Ran 3 commands ▾") {
+		t.Errorf("expected re-collapsed turn summary 'Ran 3 commands ▾', got: %s", recollapsedContent)
 	}
 }
 
@@ -1015,6 +1033,188 @@ func TestTUI_Presentation_VerbatimLoopIntervention(t *testing.T) {
 		t.Errorf("expected loop intervention warning for verbatim repetition across turns, got: %s", content)
 	}
 }
+
+// TestTUI_LiveActionDigest_JunieErgonomicsAndMultiCategorySummary verifies Junie-style ergonomics (lokol-zw4):
+// 1. Live streaming displays single-line summaries per operation as they execute.
+// 2. Post-response collapses into a multi-category summary categorizing operations by type and failure.
+// 3. Hotkey (Ctrl+O) toggles between collapsed (▾) and expanded (▴) states.
+func TestTUI_LiveActionDigest_JunieErgonomicsAndMultiCategorySummary(t *testing.T) {
+	mock := NewMockSession()
+	m := tui.NewWithSession(mock, nil, true) // YOLO mode engaged
+
+	// Submit prompt
+	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("audit workspace")})
+	m = newM.(tui.Model)
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = newM.(tui.Model)
+
+	// Step 1: exec_bash git diff
+	act1 := "<action name=\"exec_bash\">\ngit diff main...feat/regulator-pipeline\n</action>"
+	newM, _ = m.Update(tui.StreamDoneMsg(act1))
+	m = newM.(tui.Model)
+	newM, _ = m.Update(tui.ActionExecutedMsg("diff --git a/foo b/foo"))
+	m = newM.(tui.Model)
+
+	// Step 2: exec_bash git status
+	act2 := "<action name=\"exec_bash\">\ngit status\n</action>"
+	newM, _ = m.Update(tui.StreamDoneMsg(act2))
+	m = newM.(tui.Model)
+	newM, _ = m.Update(tui.ActionExecutedMsg("clean"))
+	m = newM.(tui.Model)
+
+	// Step 3: exec_bash failed command
+	act3 := "<action name=\"exec_bash\">\ngit diff --invalid-flag\n</action>"
+	newM, _ = m.Update(tui.StreamDoneMsg(act3))
+	m = newM.(tui.Model)
+	newM, _ = m.Update(tui.ActionExecutedMsg("[Error: unknown flag --invalid-flag]\n"))
+	m = newM.(tui.Model)
+
+	// Step 4: search_code
+	act4 := "<action name=\"search_code\">\n<pattern>func.*TargetSummary</pattern>\n</action>"
+	newM, _ = m.Update(tui.StreamDoneMsg(act4))
+	m = newM.(tui.Model)
+	newM, _ = m.Update(tui.ActionExecutedMsg("liblokol/agent/tools.go:375: func (a *Action) TargetSummary() string"))
+	m = newM.(tui.Model)
+
+	// Step 5: read_window with range
+	act5 := "<action name=\"read_window\">\n<path>liblokol/agent/tools.go</path>\n<start>360</start>\n<end>461</end>\n</action>"
+	newM, _ = m.Update(tui.StreamDoneMsg(act5))
+	m = newM.(tui.Model)
+	newM, _ = m.Update(tui.ActionExecutedMsg("package agent\n..."))
+	m = newM.(tui.Model)
+
+	// Step 6: get_environment (action)
+	act6 := "<action name=\"get_environment\">\n</action>"
+	newM, _ = m.Update(tui.StreamDoneMsg(act6))
+	m = newM.(tui.Model)
+	newM, _ = m.Update(tui.ActionExecutedMsg("{\"os\":\"linux\"}"))
+	m = newM.(tui.Model)
+
+	// Assert live action stream display before turn finishes
+	liveContent := m.ViewportContent()
+	expectedLive := []string{
+		"Ran git diff main...feat/regulator-pipeline ▸",
+		"Ran git status ▸",
+		"Failed to run git diff --invalid-flag ▸",
+		"Searched 'func.*TargetSummary' ▸",
+		"Read liblokol/agent/tools.go [360-461]",
+		"Ran get_environment ▸",
+	}
+	for _, exp := range expectedLive {
+		if !strings.Contains(liveContent, exp) {
+			t.Errorf("expected live action stream to contain %q, got:\n%s", exp, liveContent)
+		}
+	}
+
+	// Turn completion via task_finish
+	turnFinish := "<action name=\"task_finish\">\nAudit complete. All inspections verified.\n</action>"
+	newM, _ = m.Update(tui.StreamDoneMsg(turnFinish))
+	m = newM.(tui.Model)
+
+	completedContent := m.ViewportContent()
+	// Multi-category summary: 2 commands, 1 action, 1 search, 1 file explored, 1 command failed
+	expectedSummary := "Ran 2 commands, ran 1 action, 1 search, explored 1 file, 1 command failed ▾"
+	if !strings.Contains(completedContent, expectedSummary) {
+		t.Errorf("expected collapsed multi-category summary %q, got:\n%s", expectedSummary, completedContent)
+	}
+
+	// Detailed live lines should be collapsed in default post-response view
+	if strings.Contains(completedContent, "Ran git diff main...feat/regulator-pipeline ▸") {
+		t.Errorf("expected individual live lines to be collapsed on turn completion, got:\n%s", completedContent)
+	}
+
+	// Hotkey expansion with Ctrl+O
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlO})
+	m = newM.(tui.Model)
+
+	expandedContent := m.ViewportContent()
+	expectedExpandedHeader := "Ran 2 commands, ran 1 action, 1 search, explored 1 file, 1 command failed ▴"
+	if !strings.Contains(expandedContent, expectedExpandedHeader) {
+		t.Errorf("expected expanded summary header %q, got:\n%s", expectedExpandedHeader, expandedContent)
+	}
+	for _, exp := range expectedLive {
+		if !strings.Contains(expandedContent, exp) {
+			t.Errorf("expected expanded view to reveal item %q, got:\n%s", exp, expandedContent)
+		}
+	}
+
+	// Hotkey collapse with Ctrl+O
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlO})
+	m = newM.(tui.Model)
+
+	recollapsedContent := m.ViewportContent()
+	if !strings.Contains(recollapsedContent, expectedSummary) {
+		t.Errorf("expected re-collapsed summary %q, got:\n%s", expectedSummary, recollapsedContent)
+	}
+	if strings.Contains(recollapsedContent, "Ran git diff main...feat/regulator-pipeline ▸") {
+		t.Errorf("expected individual live lines hidden again upon re-collapse")
+	}
+}
+
+// TestTUI_LiveActionDigest_SlashCommandsAndTabToggle verifies that /actions, /expand, and Tab toggle turn summaries.
+func TestTUI_LiveActionDigest_SlashCommandsAndTabToggle(t *testing.T) {
+	mock := NewMockSession()
+	m := tui.NewWithSession(mock, nil, true)
+
+	// Turn with a command
+	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("status check")})
+	m = newM.(tui.Model)
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = newM.(tui.Model)
+
+	act := "<action name=\"exec_bash\">\ngit status\n</action>"
+	newM, _ = m.Update(tui.StreamDoneMsg(act))
+	m = newM.(tui.Model)
+	newM, _ = m.Update(tui.ActionExecutedMsg("clean"))
+	m = newM.(tui.Model)
+
+	finish := "<action name=\"task_finish\">\nDone.\n</action>"
+	newM, _ = m.Update(tui.StreamDoneMsg(finish))
+	m = newM.(tui.Model)
+
+	if !strings.Contains(m.ViewportContent(), "Ran 1 command ▾") {
+		t.Fatalf("expected collapsed summary 'Ran 1 command ▾'")
+	}
+
+	// 1. Toggle via /actions
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/actions")})
+	m = newM.(tui.Model)
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = newM.(tui.Model)
+
+	if !strings.Contains(m.ViewportContent(), "Ran 1 command ▴") {
+		t.Errorf("expected /actions to expand summary to 'Ran 1 command ▴', got: %s", m.ViewportContent())
+	}
+
+	// 2. Toggle back via /expand
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/expand")})
+	m = newM.(tui.Model)
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = newM.(tui.Model)
+
+	if !strings.Contains(m.ViewportContent(), "Ran 1 command ▾") {
+		t.Errorf("expected /expand to collapse summary back to 'Ran 1 command ▾', got: %s", m.ViewportContent())
+	}
+
+	// 3. Toggle via Tab key (when textarea is empty)
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	m = newM.(tui.Model)
+
+	if !strings.Contains(m.ViewportContent(), "Ran 1 command ▴") {
+		t.Errorf("expected Tab to expand summary to 'Ran 1 command ▴', got: %s", m.ViewportContent())
+	}
+
+	// 4. /clear resets turn summaries
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/clear")})
+	m = newM.(tui.Model)
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = newM.(tui.Model)
+
+	if len(m.TurnDigests()) != 0 {
+		t.Errorf("expected TurnDigests to be empty after /clear, got: %d", len(m.TurnDigests()))
+	}
+}
+
 
 
 
