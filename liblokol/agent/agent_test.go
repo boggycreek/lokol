@@ -369,6 +369,21 @@ func TestTools_TOCTOUSymlinkMitigation(t *testing.T) {
 	if string(content) != "super_secret_token" {
 		t.Fatalf("secret was overwritten despite symlink protection: %s", string(content))
 	}
+
+	// Attempt replace_file through the symlink (lokol-nok.4)
+	_, err = agent.ExecuteReplaceFile(ctx, fmt.Sprintf("<path>%s</path><target>super_secret_token</target><replacement>pwned_secret</replacement>", symlinkPath), workDir)
+	if err == nil {
+		t.Fatalf("expected ExecuteReplaceFile to fail when replacing through symlink pointing outside workDir")
+	}
+
+	// Confirm outside secret was still NOT modified
+	content, err = os.ReadFile(outsideSecret)
+	if err != nil {
+		t.Fatalf("read failed: %v", err)
+	}
+	if string(content) != "super_secret_token" {
+		t.Fatalf("secret was replaced despite symlink protection: %s", string(content))
+	}
 }
 
 func TestSession_PersonaConfiguration(t *testing.T) {

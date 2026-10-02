@@ -46,14 +46,20 @@ func CheckPathWithinBounds(workDir string, targetPath string) (string, error) {
 		return "", fmt.Errorf("malformed path: null byte detected")
 	}
 
-	// Security: Detect and reject URL-encoded traversal attempts (%2e%2e%2f)
+	// Security: Detect and reject single- or multi-layer URL-encoded traversal attempts (%2e%2e%2f, %252e%252e%252f)
 	if strings.Contains(cleanedTarget, "%") {
-		if unescaped, err := url.QueryUnescape(cleanedTarget); err == nil && unescaped != cleanedTarget {
+		cur := cleanedTarget
+		for i := 0; i < 10; i++ {
+			unescaped, err := url.QueryUnescape(cur)
+			if err != nil || unescaped == cur {
+				break
+			}
 			if strings.Contains(unescaped, "..") {
 				return "", fmt.Errorf("malformed path: encoded traversal sequence detected (%q)", targetPath)
 			}
-			cleanedTarget = unescaped
+			cur = unescaped
 		}
+		cleanedTarget = cur
 	}
 
 	// Expand ~ to user home directory if present
@@ -113,18 +119,35 @@ func ExtractTagContent(payload, tag string) string {
 	return ""
 }
 
+// ResolveActionPath returns the canonical target path for an action candidate,
+// prioritizing an explicit XML <path> tag within Command, falling back to Path (lokol-nok.2).
+func ResolveActionPath(action ActionCandidate) string {
+	if action.Command != "" {
+		if p := strings.TrimSpace(ExtractTagContent(action.Command, "path")); p != "" {
+			return p
+		}
+	}
+	return strings.TrimSpace(action.Path)
+}
+
 // ValidateFilesystemBounds inspects an action and confirms all referenced paths are within the workspace (lokol-gml.4).
 func ValidateFilesystemBounds(workDir string, actionName string, targetPath string, command string) error {
-	path := ""
-	if command != "" {
-		path = strings.TrimSpace(ExtractTagContent(command, "path"))
+	candidate := ActionCandidate{Name: actionName, Command: command, Path: targetPath}
+	path := ResolveActionPath(candidate)
+
+	// If both XML <path> and targetPath (action.Path) are specified and differ,
+	// validate targetPath as well to prevent differential bypass (lokol-nok.2).
+	if command != "" && targetPath != "" {
+		xmlPath := strings.TrimSpace(ExtractTagContent(command, "path"))
+		if xmlPath != "" && xmlPath != strings.TrimSpace(targetPath) {
+			if _, err := CheckPathWithinBounds(workDir, targetPath); err != nil {
+				return err
+			}
+		}
 	}
 
 	switch actionName {
 	case "write_file", "replace_file", "read_window", "read_outline":
-		if path == "" {
-			path = strings.TrimSpace(targetPath)
-		}
 		if path == "" {
 			return fmt.Errorf("action %s missing target file path", actionName)
 		}
@@ -132,8 +155,7 @@ func ValidateFilesystemBounds(workDir string, actionName string, targetPath stri
 		return err
 
 	case "find_files", "search_code":
-		// For search tools, targetPath might be a search pattern (e.g. "*.go" or "TODO");
-		// ONLY validate boundary if an explicit path was defined in XML <path> or targetPath is an absolute or relative directory.
+		// Enforce boundary check if either XML <path> or targetPath is provided (lokol-nok.1)
 		if path != "" {
 			_, err := CheckPathWithinBounds(workDir, path)
 			return err
@@ -141,9 +163,6 @@ func ValidateFilesystemBounds(workDir string, actionName string, targetPath stri
 		return nil
 
 	case "git_diff_summary", "get_environment", "run_test":
-		if path == "" {
-			path = strings.TrimSpace(targetPath)
-		}
 		if path != "" {
 			_, err := CheckPathWithinBounds(workDir, path)
 			return err

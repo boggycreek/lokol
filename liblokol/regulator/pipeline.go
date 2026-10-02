@@ -173,10 +173,7 @@ func NewStructuralStage() Stage {
 		// Parameter presence validation for path-requiring builtins
 		switch action.Name {
 		case "write_file", "replace_file", "read_window", "read_outline":
-			path := strings.TrimSpace(action.Path)
-			if path == "" && action.Command != "" {
-				path = strings.TrimSpace(ExtractTagContent(action.Command, "path"))
-			}
+			path := ResolveActionPath(action)
 			if path == "" {
 				return PermissionResult{
 					Status:      StatusBlocked,
@@ -199,10 +196,7 @@ func NewStructuralStage() Stage {
 func NewBoundaryStage() Stage {
 	return NewNamedStage("boundary", func(ctx context.Context, action ActionCandidate, workDir string) PermissionResult {
 		if err := ValidateFilesystemBounds(workDir, action.Name, action.Path, action.Command); err != nil {
-			targetPath := action.Path
-			if targetPath == "" {
-				targetPath = ExtractTagContent(action.Command, "path")
-			}
+			targetPath := ResolveActionPath(action)
 			return PermissionResult{
 				Status:      StatusBlocked,
 				Reason:      fmt.Sprintf("Filesystem boundary violation: %v", err),
