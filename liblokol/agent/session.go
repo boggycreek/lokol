@@ -168,6 +168,11 @@ func (s *Session) SetMode(mode Mode) {
 	} else {
 		s.History = append([]Message{{Role: "system", Content: systemPrompt}}, s.History...)
 	}
+
+	// Refresh conversation context with explicit mode switch event (lokol-kih.9)
+	desc := ModeDescription(s.Mode)
+	event := fmt.Sprintf("[Mode Switched: Active persona is now %s (%s). Active capabilities and guidelines have been refreshed. Re-evaluate ongoing tasks and conversation through the perspective of %s mode.]", s.Mode, desc, s.Mode)
+	s.History = append(s.History, Message{Role: "user", Content: event})
 }
 
 // AppendUserMessage appends a user message to the session's conversation history,
@@ -179,7 +184,10 @@ func (s *Session) AppendUserMessage(content string) {
 	}
 
 	fullContent := content
-	if catalog.IsProjectSummaryQuery(content) {
+	if catalog.IsContextMetaQuery(content) {
+		agentName, operatorName := s.GetPersona()
+		fullContent = content + fmt.Sprintf("\n[Context Introspection: The operator is inquiring about your context window, system prompt, or session state. DO NOT search the filesystem or call find_files. Your active mode is %q (%s), agent name is %q, operator name is %q. There are %d messages in conversation history. Answer directly by describing your active mode, instructions, and conversation state.]", s.GetMode(), ModeDescription(s.GetMode()), agentName, operatorName, len(s.History))
+	} else if catalog.IsProjectSummaryQuery(content) {
 		fullContent = content + "\n[System Guidance: Ground your answer in actual repository files. Inspect README.md, go.mod, package.json, or primary docs with read_window before synthesizing your project summary.]"
 	}
 
@@ -239,6 +247,8 @@ func (s *Session) ExecuteAction(ctx context.Context, act *Action) (string, error
 		} else if act.Name == "exec_bash" && s.windowCache != nil {
 			// External bash execution may modify files; clear cache
 			s.windowCache.Clear()
+		} else if act.Name == "get_environment" {
+			out += "\n\n[Observation: The execution environment details requested by the operator are provided above in full. Synthesize your final response directly from this environment data now. Do NOT execute tangential file reads (e.g. README.md).]"
 		}
 
 		if s.consecutiveReads >= 2 {

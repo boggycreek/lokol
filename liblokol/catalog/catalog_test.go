@@ -262,5 +262,36 @@ func TestIntentRouter_ConversationalFeedbackAndSummaryQueries(t *testing.T) {
 			t.Errorf("IsProjectSummaryQuery(%q) = %v, want %v", tc.prompt, res, tc.expected)
 		}
 	}
+
+	metaCases := []struct {
+		prompt   string
+		expected bool
+	}{
+		{"Can you show me your context?", true},
+		{"Show me your context", true},
+		{"What is in your context?", true},
+		{"What is your system prompt?", true},
+		{"What are your instructions?", true},
+		{"What mode are you in?", true},
+		{"Show your mode", true},
+		{"What is your persona?", true},
+		// Non-meta queries
+		{"Read README.md", false},
+		{"What does the project do?", false},
+		{"Find all files", false},
+	}
+
+	for _, tc := range metaCases {
+		res := IsContextMetaQuery(tc.prompt)
+		if res != tc.expected {
+			t.Errorf("IsContextMetaQuery(%q) = %v, want %v", tc.prompt, res, tc.expected)
+		}
+	}
+
+	// Meta queries must not inject specialized tools in RouteIntent
+	metaMatched := DefaultRouter.RouteIntent(context.Background(), "Can you show me your context?")
+	if len(metaMatched) != 0 {
+		t.Errorf("expected 0 tools for meta query, got %d", len(metaMatched))
+	}
 }
 
