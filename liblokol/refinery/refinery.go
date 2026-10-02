@@ -10,8 +10,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"go/parser"
-	"go/token"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -178,27 +176,6 @@ var nonCodeBaseNames = map[string]string{
 }
 
 func outlineGoFile(path string) (string, error) {
-	fset := token.NewFileSet()
-	node, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
-	if err != nil {
-		return outlineGenericFile(path)
-	}
-
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("// Outline: %s (package %s)\n", path, node.Name.Name))
-
-	for _, decl := range node.Decls {
-		pos := fset.Position(decl.Pos())
-		// Scan declarations
-		// We format top-level comments and function/type signatures
-		switch d := decl.(type) {
-		case interface{}:
-			_ = d
-		}
-		_ = pos
-	}
-
-	// For clean concise outlines, line-by-line regex over Go AST is fast and robust
 	return outlineGenericFile(path)
 }
 

@@ -187,22 +187,42 @@ func extractTagContent(xml, tag string) string {
 	startTag := "<" + tag + ">"
 	endTag := "</" + tag + ">"
 
-	startIdx := strings.Index(xml, startTag)
-	if startIdx == -1 {
-		startTagPrefix := "<" + tag
-		idx := strings.Index(xml, startTagPrefix)
-		if idx != -1 {
-			closingBracket := strings.Index(xml[idx:], ">")
-			if closingBracket != -1 {
-				startIdx = idx + closingBracket + 1
-			} else {
+	startIdx := -1
+	if idx := strings.Index(xml, startTag); idx != -1 {
+		startIdx = idx + len(startTag)
+	} else {
+		prefix := "<" + tag
+		offset := 0
+		for {
+			idx := strings.Index(xml[offset:], prefix)
+			if idx == -1 {
 				return ""
 			}
-		} else {
-			return ""
+			pos := offset + idx
+			afterTag := pos + len(prefix)
+			if afterTag < len(xml) {
+				nextChar := xml[afterTag]
+				if nextChar == '>' {
+					startIdx = afterTag + 1
+					break
+				}
+				if nextChar == ' ' || nextChar == '\t' || nextChar == '\n' || nextChar == '\r' {
+					closingBracket := strings.Index(xml[afterTag:], ">")
+					if closingBracket != -1 {
+						if closingBracket > 0 && xml[afterTag+closingBracket-1] == '/' {
+							return ""
+						}
+						startIdx = afterTag + closingBracket + 1
+						break
+					}
+				}
+			}
+			offset = pos + len(prefix)
 		}
-	} else {
-		startIdx += len(startTag)
+	}
+
+	if startIdx == -1 {
+		return ""
 	}
 
 	endIdx := strings.Index(xml[startIdx:], endTag)
@@ -285,6 +305,7 @@ func builtinReplaceFile(ctx context.Context, payload string, workDir ...string) 
 	}
 
 	fileContent := string(data)
+	hasCRLF := strings.Contains(fileContent, "\r\n")
 	contentNorm := strings.ReplaceAll(fileContent, "\r\n", "\n")
 	targetNorm := strings.ReplaceAll(target, "\r\n", "\n")
 	replacementNorm := strings.ReplaceAll(replacement, "\r\n", "\n")
@@ -301,6 +322,10 @@ func builtinReplaceFile(ctx context.Context, payload string, workDir ...string) 
 			lineCount := strings.Count(contentNorm, "\n") + 1
 			return "", fmt.Errorf("target string not found in %s (%d lines in file). Please inspect the file with read_window to verify exact content, or use write_file to overwrite the file completely", path, lineCount)
 		}
+	}
+
+	if hasCRLF {
+		newContent = strings.ReplaceAll(strings.ReplaceAll(newContent, "\r\n", "\n"), "\n", "\r\n")
 	}
 
 	if err := os.WriteFile(targetPath, []byte(newContent), 0644); err != nil {

@@ -103,6 +103,7 @@ func ExecuteReplaceFile(ctx context.Context, payload string, workDir ...string) 
 	}
 
 	content = string(data)
+	hasCRLF := strings.Contains(content, "\r\n")
 	contentNorm := strings.ReplaceAll(content, "\r\n", "\n")
 	targetNorm := strings.ReplaceAll(input.Target, "\r\n", "\n")
 	replacementNorm := strings.ReplaceAll(input.Replacement, "\r\n", "\n")
@@ -120,6 +121,10 @@ func ExecuteReplaceFile(ctx context.Context, payload string, workDir ...string) 
 			lineCount := strings.Count(contentNorm, "\n") + 1
 			return "", fmt.Errorf("target string not found in %s (%d lines in file). Please inspect the file with read_window to verify exact content, or use write_file to overwrite the file completely", input.Path, lineCount)
 		}
+	}
+
+	if hasCRLF {
+		newContent = strings.ReplaceAll(strings.ReplaceAll(newContent, "\r\n", "\n"), "\n", "\r\n")
 	}
 
 	if err := validatePreWriteTarget(targetPath, workDir...); err != nil {
@@ -211,23 +216,43 @@ func extractTagContent(xml, tag string) string {
 	startTag := "<" + tag + ">"
 	endTag := "</" + tag + ">"
 
-	startIdx := strings.Index(xml, startTag)
-	if startIdx == -1 {
-		// Also check for tag with attributes, e.g. <tag lang="...">
-		startTagPrefix := "<" + tag
-		idx := strings.Index(xml, startTagPrefix)
-		if idx != -1 {
-			closingBracket := strings.Index(xml[idx:], ">")
-			if closingBracket != -1 {
-				startIdx = idx + closingBracket + 1
-			} else {
+	startIdx := -1
+	if idx := strings.Index(xml, startTag); idx != -1 {
+		startIdx = idx + len(startTag)
+	} else {
+		// Search for <tag with attributes, ensuring tag boundary check (lokol-oxb.1)
+		prefix := "<" + tag
+		offset := 0
+		for {
+			idx := strings.Index(xml[offset:], prefix)
+			if idx == -1 {
 				return ""
 			}
-		} else {
-			return ""
+			pos := offset + idx
+			afterTag := pos + len(prefix)
+			if afterTag < len(xml) {
+				nextChar := xml[afterTag]
+				if nextChar == '>' {
+					startIdx = afterTag + 1
+					break
+				}
+				if nextChar == ' ' || nextChar == '\t' || nextChar == '\n' || nextChar == '\r' {
+					closingBracket := strings.Index(xml[afterTag:], ">")
+					if closingBracket != -1 {
+						if closingBracket > 0 && xml[afterTag+closingBracket-1] == '/' {
+							return ""
+						}
+						startIdx = afterTag + closingBracket + 1
+						break
+					}
+				}
+			}
+			offset = pos + len(prefix)
 		}
-	} else {
-		startIdx += len(startTag)
+	}
+
+	if startIdx == -1 {
+		return ""
 	}
 
 	endIdx := strings.Index(xml[startIdx:], endTag)
