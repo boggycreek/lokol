@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/boggycreek/lokol/liblokol/config"
 	"github.com/boggycreek/lokol/liblokol/probe"
 )
 
@@ -40,6 +41,8 @@ type GitInfo struct {
 
 // EnvironmentInfo provides a comprehensive snapshot of the host execution environment.
 type EnvironmentInfo struct {
+	AgentName        string            `json:"agent_name"`
+	OperatorName     string            `json:"operator_name"`
 	WorkingDirectory string            `json:"working_directory"`
 	OS               string            `json:"os"`
 	Arch             string            `json:"arch"`
@@ -119,7 +122,11 @@ func GetEnvironment(workDir string) (*EnvironmentInfo, error) {
 		}
 	}
 
+	cfg, _ := config.Load()
+
 	return &EnvironmentInfo{
+		AgentName:        cfg.GetAgentName(),
+		OperatorName:     cfg.GetOperatorName(),
 		WorkingDirectory: workDir,
 		OS:               runtime.GOOS,
 		Arch:             runtime.GOARCH,

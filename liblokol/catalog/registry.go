@@ -135,8 +135,14 @@ func (r *Registry) Help(toolName string) (string, error) {
 }
 
 // FormatBasePrompt generates an invariant lean (~250 tokens) base system prompt adhering to ADR-0024.
-func (r *Registry) FormatBasePrompt(mode string) string {
+// An optional agentName can be provided to customize the agent persona name (default: "lokol").
+func (r *Registry) FormatBasePrompt(mode string, agentName ...string) string {
 	var sb strings.Builder
+
+	name := "lokol"
+	if len(agentName) > 0 && strings.TrimSpace(agentName[0]) != "" {
+		name = strings.TrimSpace(agentName[0])
+	}
 
 	modeDesc := "a versatile local-first assistant with workspace awareness, file search, document inspection, and artifact generation"
 	switch strings.ToLower(mode) {
@@ -147,7 +153,7 @@ func (r *Registry) FormatBasePrompt(mode string) string {
 	}
 
 	sb.WriteString("Tool Execution Protocol:\n")
-	sb.WriteString(fmt.Sprintf("- You are lokol, %s running directly on the operator's machine.\n", modeDesc))
+	sb.WriteString(fmt.Sprintf("- You are %s, %s running directly on the operator's machine.\n", name, modeDesc))
 	sb.WriteString("- Grounding: You have direct access and awareness of the local workspace provided in <environment>.\n")
 	sb.WriteString("- Never output evasive responses claiming you cannot access files or the local directory.\n")
 	sb.WriteString("- Execute one action per turn using the XML action formats below. Execution pauses after you output an action, and the result is returned in reciprocal <action_result>...</action_result> tags. The local engine executes your tool automatically; never thank or acknowledge the operator for tool results.\n\n")

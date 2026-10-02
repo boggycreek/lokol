@@ -10,8 +10,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/boggycreek/lokol/liblokol/catalog"
+	"github.com/boggycreek/lokol/liblokol/config"
 	"github.com/boggycreek/lokol/liblokol/refinery"
 	"github.com/boggycreek/lokol/liblokol/regulator"
 )
@@ -31,6 +33,8 @@ type SessionCore interface {
 	GetMode() Mode
 	SetMode(mode Mode)
 	GetWorkDir() string
+	GetPersona() (agentName, operatorName string)
+	SetPersona(agentName, operatorName string)
 }
 
 // Session represents a stateful conversational agent session.
@@ -41,6 +45,8 @@ type Session struct {
 	WorkDir         string
 	Mode            Mode
 	CodebaseContext string
+	AgentName       string
+	OperatorName    string
 	History         []Message
 	consecutiveReads int
 }
@@ -84,6 +90,8 @@ func NewSessionWithMode(client *Client, workDir string, mode Mode, codebaseCtxOp
 		WorkDir:         workDir,
 		Mode:            mode,
 		CodebaseContext: codebaseCtx,
+		AgentName:       env.AgentName,
+		OperatorName:    env.OperatorName,
 		History: []Message{
 			{Role: "system", Content: systemPrompt},
 		},
@@ -98,6 +106,43 @@ func (s *Session) GetMode() Mode {
 	return s.Mode
 }
 
+// GetPersona returns the configured or active agent persona name and operator name.
+func (s *Session) GetPersona() (string, string) {
+	agentName := s.AgentName
+	if agentName == "" {
+		agentName = config.DefaultAgentName
+	}
+	operatorName := s.OperatorName
+	if operatorName == "" {
+		operatorName = config.DefaultOperatorName
+	}
+	return agentName, operatorName
+}
+
+// SetPersona dynamically changes the persona name and operator name and recalculates the system prompt.
+func (s *Session) SetPersona(agentName, operatorName string) {
+	if strings.TrimSpace(agentName) != "" {
+		s.AgentName = strings.TrimSpace(agentName)
+	}
+	if strings.TrimSpace(operatorName) != "" {
+		s.OperatorName = strings.TrimSpace(operatorName)
+	}
+	env := DetectHostEnvironment(s.WorkDir)
+	if s.AgentName != "" {
+		env.AgentName = s.AgentName
+	}
+	if s.OperatorName != "" {
+		env.OperatorName = s.OperatorName
+	}
+	systemPrompt := BuildSystemPromptForMode(s.GetMode(), env, s.CodebaseContext)
+
+	if len(s.History) > 0 && s.History[0].Role == "system" {
+		s.History[0].Content = systemPrompt
+	} else {
+		s.History = append([]Message{{Role: "system", Content: systemPrompt}}, s.History...)
+	}
+}
+
 // SetMode dynamically changes the operational mode of the session and recalculates the system prompt.
 func (s *Session) SetMode(mode Mode) {
 	if mode == "" {
@@ -108,6 +153,12 @@ func (s *Session) SetMode(mode Mode) {
 		s.CodebaseContext = refinery.LoadCodebaseContext(s.WorkDir)
 	}
 	env := DetectHostEnvironment(s.WorkDir)
+	if s.AgentName != "" {
+		env.AgentName = s.AgentName
+	}
+	if s.OperatorName != "" {
+		env.OperatorName = s.OperatorName
+	}
 	systemPrompt := BuildSystemPromptForMode(s.Mode, env, s.CodebaseContext)
 
 	if len(s.History) > 0 && s.History[0].Role == "system" {

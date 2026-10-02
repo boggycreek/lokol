@@ -58,11 +58,17 @@ var MoESystemPromptBase = catalog.DefaultRegistry.FormatBasePrompt("moe")
 // - ModeCoding ingests repository guidelines (AGENTS.md / CLAUDE.md) into <codebase_context>.
 // - ModeGeneral and ModeMoE omit AGENTS.md to protect the context window for natural language and general tasks.
 func BuildSystemPromptForMode(mode Mode, env HostEnvironment, codebaseContext string) string {
+	agentName := env.AgentName
+	if agentName == "" {
+		agentName = "lokol"
+	}
+
 	switch mode {
 	case ModeCoding:
-		prompt := fmt.Sprintf("You are lokol, a local-first autonomous coding agent.\nSolve coding tasks by inspecting files, writing code, and testing.\n\n%s\n\n%s",
+		prompt := fmt.Sprintf("You are %s, a local-first autonomous coding agent.\nSolve coding tasks by inspecting files, writing code, and testing.\n\n%s\n\n%s",
+			agentName,
 			env.FormatEnvironmentTag(),
-			SystemPromptBase,
+			catalog.DefaultRegistry.FormatBasePrompt("coding", agentName),
 		)
 		codebaseContext = strings.TrimSpace(codebaseContext)
 		if codebaseContext != "" {
@@ -71,11 +77,11 @@ func BuildSystemPromptForMode(mode Mode, env HostEnvironment, codebaseContext st
 		return prompt
 
 	case ModeMoE:
-		return fmt.Sprintf("%s\n\n%s", env.FormatEnvironmentTag(), MoESystemPromptBase)
+		return fmt.Sprintf("%s\n\n%s", env.FormatEnvironmentTag(), catalog.DefaultRegistry.FormatBasePrompt("moe", agentName))
 
 	case ModeGeneral:
 		fallthrough
 	default:
-		return fmt.Sprintf("%s\n\n%s", env.FormatEnvironmentTag(), GeneralSystemPromptBase)
+		return fmt.Sprintf("%s\n\n%s", env.FormatEnvironmentTag(), catalog.DefaultRegistry.FormatBasePrompt("general", agentName))
 	}
 }

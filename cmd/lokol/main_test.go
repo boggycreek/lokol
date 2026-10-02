@@ -105,3 +105,51 @@ func TestLokol_Run_ExecMissingPrompt(t *testing.T) {
 		t.Errorf("expected 'prompt required for exec' in stderr, got: %s", errStr)
 	}
 }
+
+func TestLokol_Run_ConfigCommands(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
+
+	// 1. Show config (defaults)
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"lokol", "config", "show"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("expected exit code 0 for config show, got %d, stderr: %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "agent_name") || !strings.Contains(stdout.String(), "lokol") {
+		t.Errorf("expected default agent_name in config show, got: %s", stdout.String())
+	}
+
+	// 2. Set agent name
+	stdout.Reset()
+	stderr.Reset()
+	code = run([]string{"lokol", "config", "set-name", "Aria"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("expected exit code 0 for set-name, got %d, stderr: %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Aria") {
+		t.Errorf("expected confirmation of Aria, got: %s", stdout.String())
+	}
+
+	// 3. Set operator name
+	stdout.Reset()
+	stderr.Reset()
+	code = run([]string{"lokol", "config", "set-operator", "Alice"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("expected exit code 0 for set-operator, got %d, stderr: %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Alice") {
+		t.Errorf("expected confirmation of Alice, got: %s", stdout.String())
+	}
+
+	// 4. Verify config show reflects new values
+	stdout.Reset()
+	stderr.Reset()
+	code = run([]string{"lokol", "config"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("expected exit code 0 for config, got %d, stderr: %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "Aria") || !strings.Contains(stdout.String(), "Alice") {
+		t.Errorf("expected Aria and Alice in config, got: %s", stdout.String())
+	}
+}

@@ -271,6 +271,54 @@ func TestTUI_Presentation_ActionApprovalFlow(t *testing.T) {
 	}
 }
 
+// TestTUI_Presentation_ParameterlessActionFormatting verifies parameterless tools display (no arguments)
+// and format cleanly without tautological badges like 'Ran get_environment environment'.
+func TestTUI_Presentation_ParameterlessActionFormatting(t *testing.T) {
+	mock := NewMockSession()
+	mock.ExecuteActionFunc = func(ctx context.Context, act *agent.Action) (string, error) {
+		return "OS: linux\nArch: amd64", nil
+	}
+
+	m := tui.NewWithSession(mock, nil, false) // Safe mode
+
+	// Step 0: User inputs message
+	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("check environment")})
+	m = newM.(tui.Model)
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = newM.(tui.Model)
+
+	// Step 1: Model proposes get_environment action without command arguments
+	actionTurn := "I will check the environment.\n<action name=\"get_environment\">\n</action>"
+	newM, _ = m.Update(tui.StreamDoneMsg(actionTurn))
+	m = newM.(tui.Model)
+
+	if m.State() != tui.StateWaitingActionApproval {
+		t.Fatalf("expected StateWaitingActionApproval, got %v", m.State())
+	}
+
+	// Viewport must present the proposed action box with (no arguments)
+	content := m.ViewportContent()
+	if !strings.Contains(content, "PROPOSED ACTION: get_environment") {
+		t.Fatalf("expected PROPOSED ACTION: get_environment, got: %q", content)
+	}
+	if !strings.Contains(content, "Payload:") || !strings.Contains(content, "(no arguments)") {
+		t.Fatalf("expected 'Payload:' and '(no arguments)' payload placeholder, got: %q", content)
+	}
+
+	// User approves with 'y'
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	m = newM.(tui.Model)
+
+	// Status line should indicate execution cleanly without tautological target: "Executing get_environment locally..."
+	viewStr := m.View()
+	if strings.Contains(viewStr, "get_environment: environment") {
+		t.Fatalf("expected non-tautological execution line, got: %s", viewStr)
+	}
+	if !strings.Contains(viewStr, "Executing get_environment locally...") {
+		t.Fatalf("expected 'Executing get_environment locally...', got: %s", viewStr)
+	}
+}
+
 // TestTUI_Presentation_ActionRejectionFlow verifies interactive rejection of proposed actions.
 func TestTUI_Presentation_ActionRejectionFlow(t *testing.T) {
 	mock := NewMockSession()
@@ -817,6 +865,77 @@ func TestTUI_Presentation_SlashCommands_YoloAndClear(t *testing.T) {
 		t.Errorf("expected old log to be purged from viewport after /clear")
 	}
 }
+
+// TestTUI_Presentation_ConfigurablePersona verifies custom agent persona and operator names.
+func TestTUI_Presentation_ConfigurablePersona(t *testing.T) {
+	mock := NewMockSession()
+	m := tui.NewWithSession(mock, nil, false, "Aria", "Alice")
+
+	if m.AgentName() != "Aria" {
+		t.Errorf("expected agent name Aria, got %s", m.AgentName())
+	}
+	if m.OperatorName() != "Alice" {
+		t.Errorf("expected operator name Alice, got %s", m.OperatorName())
+	}
+
+	content := m.ViewportContent()
+	if !strings.Contains(content, "Welcome to Aria") {
+		t.Errorf("expected Welcome to Aria in initial greeting, got: %s", content)
+	}
+
+	// Submit user input
+	m = m.WithInitialPrompt("hello there")
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(tui.Model)
+
+	content = m.ViewportContent()
+	if !strings.Contains(content, "Alice: hello there") {
+		t.Errorf("expected 'Alice: hello there' in chat log, got: %s", content)
+	}
+
+	// Stream done response
+	updated, _ = m.Update(tui.StreamDoneMsg("Hello Alice, I am ready."))
+	m = updated.(tui.Model)
+
+	content = m.ViewportContent()
+	if !strings.Contains(content, "Aria: Hello Alice") {
+		t.Errorf("expected 'Aria: Hello Alice' in chat log, got: %s", content)
+	}
+}
+
+// TestTUI_Presentation_PersonaSlashCommands verifies /name and /operator runtime switching.
+func TestTUI_Presentation_PersonaSlashCommands(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
+
+	mock := NewMockSession()
+	m := tui.NewWithSession(mock, nil, false)
+
+	// Test /name Nova
+	m = m.WithInitialPrompt("/name Nova")
+	updated, _ := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(tui.Model)
+
+	if m.AgentName() != "Nova" {
+		t.Errorf("expected agent name Nova after /name, got %s", m.AgentName())
+	}
+	if !strings.Contains(m.ViewportContent(), "Persona Updated") || !strings.Contains(m.ViewportContent(), "Nova") {
+		t.Errorf("expected Persona Updated confirmation in viewport, got: %s", m.ViewportContent())
+	}
+
+	// Test /operator Bob
+	m = m.WithInitialPrompt("/operator Bob")
+	updated, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = updated.(tui.Model)
+
+	if m.OperatorName() != "Bob" {
+		t.Errorf("expected operator name Bob after /operator, got %s", m.OperatorName())
+	}
+	if !strings.Contains(m.ViewportContent(), "Operator Updated") || !strings.Contains(m.ViewportContent(), "Bob") {
+		t.Errorf("expected Operator Updated confirmation in viewport, got: %s", m.ViewportContent())
+	}
+}
+
 
 
 

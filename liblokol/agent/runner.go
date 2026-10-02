@@ -21,6 +21,8 @@ type Runner struct {
 	WorkDir         string // Current working directory for host environment and prompt context
 	Mode            Mode   // Operational mode (defaults to ModeCoding for autonomous execution)
 	CodebaseContext string // Optional pre-loaded codebase context
+	AgentName       string // Optional persona name override
+	OperatorName    string // Optional operator name override
 	Session         *Session
 	Regulator       *regulator.Regulator // Persistent regulator instance across turns (lokol-gml.9)
 	OnOutput        func(role, content string)
@@ -51,6 +53,9 @@ func (r *Runner) Run(ctx context.Context, initialPrompt string) (string, error) 
 			mode = ModeCoding
 		}
 		session = NewSessionWithMode(r.Client, workDir, mode, r.CodebaseContext)
+		if r.AgentName != "" || r.OperatorName != "" {
+			session.SetPersona(r.AgentName, r.OperatorName)
+		}
 	}
 	session.AppendUserMessage(initialPrompt)
 

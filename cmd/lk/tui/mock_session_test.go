@@ -23,9 +23,11 @@ type MockSession struct {
 	GetSlotStatusFunc func(ctx context.Context) (*agent.SlotStatus, error)
 	ResetFunc         func()
 
-	// Mode tracking
-	CurrentMode agent.Mode
-	WorkDir     string
+	// Mode and Persona tracking
+	CurrentMode  agent.Mode
+	WorkDir      string
+	AgentName    string
+	OperatorName string
 
 	// Recorded interactions for test assertions
 	UserMessages      []string
@@ -143,5 +145,30 @@ func (m *MockSession) GetWorkDir() string {
 		return "."
 	}
 	return m.WorkDir
+}
+
+func (m *MockSession) GetPersona() (string, string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	agentName := m.AgentName
+	if agentName == "" {
+		agentName = "lokol"
+	}
+	operatorName := m.OperatorName
+	if operatorName == "" {
+		operatorName = "User"
+	}
+	return agentName, operatorName
+}
+
+func (m *MockSession) SetPersona(agentName, operatorName string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if agentName != "" {
+		m.AgentName = agentName
+	}
+	if operatorName != "" {
+		m.OperatorName = operatorName
+	}
 }
 

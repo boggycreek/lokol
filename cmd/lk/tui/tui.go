@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/boggycreek/lokol/liblokol/agent"
+	"github.com/boggycreek/lokol/liblokol/config"
 	"github.com/boggycreek/lokol/liblokol/regulator"
 	"github.com/boggycreek/lokol/liblokol/model"
 	"github.com/boggycreek/lokol/liblokol/probe"
@@ -50,6 +51,8 @@ type SlotTickMsg *agent.SlotStatus
 type Model struct {
 	session      agent.SessionCore
 	hardware     *probe.HardwareProfile
+	agentName    string
+	operatorName string
 	state        State
 	viewport     viewport.Model
 	textarea     textarea.Model
@@ -262,9 +265,35 @@ func (m *Model) updateViewportDimensions() {
 }
 
 // NewWithSession creates and initializes the TUI model with an existing agent SessionCore.
-func NewWithSession(session agent.SessionCore, hw *probe.HardwareProfile, yoloMode bool) Model {
+// Optional persona parameters (agentName, operatorName) can override the persistent configuration.
+func NewWithSession(session agent.SessionCore, hw *probe.HardwareProfile, yoloMode bool, persona ...string) Model {
+	cfg, _ := config.Load()
+	agentName := cfg.GetAgentName()
+	operatorName := cfg.GetOperatorName()
+
+	if session != nil {
+		sessAgent, sessOp := session.GetPersona()
+		if sessAgent != "" {
+			agentName = sessAgent
+		}
+		if sessOp != "" {
+			operatorName = sessOp
+		}
+	}
+
+	if len(persona) > 0 && strings.TrimSpace(persona[0]) != "" {
+		agentName = strings.TrimSpace(persona[0])
+	}
+	if len(persona) > 1 && strings.TrimSpace(persona[1]) != "" {
+		operatorName = strings.TrimSpace(persona[1])
+	}
+
+	if session != nil {
+		session.SetPersona(agentName, operatorName)
+	}
+
 	ta := textarea.New()
-	ta.Placeholder = "Ask lokol to inspect files, write reports, or type /mode, /yolo, /clear..."
+	ta.Placeholder = fmt.Sprintf("Ask %s to inspect files, write reports, or type /mode, /yolo, /clear...", agentName)
 	ta.Focus()
 	ta.Prompt = "> "
 	ta.CharLimit = 1000
@@ -277,7 +306,7 @@ func NewWithSession(session agent.SessionCore, hw *probe.HardwareProfile, yoloMo
 	s.Style = lipgloss.NewStyle().Foreground(lipgloss.Color("#BD93F9"))
 
 	vp := viewport.New(80, 20)
-	initialText := "⚡ Welcome to lokol. Local-first autonomous AI agent.\nType your request below and press Enter to begin.\n\n"
+	initialText := fmt.Sprintf("⚡ Welcome to %s. Local-first autonomous AI agent.\nType your request below and press Enter to begin.\n\n", agentName)
 	if yoloMode {
 		initialText += "⚡ [YOLO MODE ENGAGED] Autonomous command execution without confirmation.\n\n"
 	}
@@ -289,16 +318,18 @@ func NewWithSession(session agent.SessionCore, hw *probe.HardwareProfile, yoloMo
 	}
 
 	m := Model{
-		session:   session,
-		hardware:  hw,
-		state:     StateIdle,
-		viewport:  vp,
-		textarea:  ta,
-		spinner:   s,
-		tokenChan: make(chan string, 100),
-		yoloMode:  yoloMode,
-		chatLog:   initialText,
-		regulator: regulator.New(workDir),
+		session:      session,
+		hardware:     hw,
+		agentName:    agentName,
+		operatorName: operatorName,
+		state:        StateIdle,
+		viewport:     vp,
+		textarea:     ta,
+		spinner:      s,
+		tokenChan:    make(chan string, 100),
+		yoloMode:     yoloMode,
+		chatLog:      initialText,
+		regulator:    regulator.New(workDir),
 	}
 	if session != nil {
 		m.regulator.SetSlotStatusProvider(regulator.SlotStatusFunc(func(ctx context.Context) (*regulator.SlotMetrics, error) {
@@ -572,9 +603,42 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.lastTool = ""
 					m.appendLog("🧹 [Session Cleared] Chat history and conversation context reset.\n\n")
 					return m, nil
+				} else if strings.HasPrefix(input, "/name") {
+					parts := strings.Fields(input)
+					if len(parts) > 1 {
+						newName := strings.TrimSpace(strings.TrimPrefix(input, parts[0]))
+						m.agentName = newName
+						if m.session != nil {
+							m.session.SetPersona(newName, m.operatorName)
+						}
+						m.textarea.Placeholder = fmt.Sprintf("Ask %s to inspect files, write reports, or type /mode, /yolo, /clear...", newName)
+						cfg, _ := config.Load()
+						cfg.AgentName = newName
+						_ = config.Save(cfg)
+						m.appendLog(fmt.Sprintf("✨ [Persona Updated] Agent persona name is now: %s\n\n", newName))
+					} else {
+						m.appendLog(fmt.Sprintf("ℹ️ [Current Agent Name] %s (use '/name <new-name>' to change)\n\n", m.AgentName()))
+					}
+					return m, nil
+				} else if strings.HasPrefix(input, "/operator") {
+					parts := strings.Fields(input)
+					if len(parts) > 1 {
+						newName := strings.TrimSpace(strings.TrimPrefix(input, parts[0]))
+						m.operatorName = newName
+						if m.session != nil {
+							m.session.SetPersona(m.agentName, newName)
+						}
+						cfg, _ := config.Load()
+						cfg.OperatorName = newName
+						_ = config.Save(cfg)
+						m.appendLog(fmt.Sprintf("✨ [Operator Updated] Operator name is now: %s\n\n", newName))
+					} else {
+						m.appendLog(fmt.Sprintf("ℹ️ [Current Operator Name] %s (use '/operator <new-name>' to change)\n\n", m.OperatorName()))
+					}
+					return m, nil
 				}
 
-				m.appendLog(userStyle.Render("User: ") + input + "\n\n")
+				m.appendLog(userStyle.Render(fmt.Sprintf("%s: ", m.OperatorName())) + input + "\n\n")
 				if m.session != nil {
 					m.session.AppendUserMessage(input)
 				}
@@ -646,7 +710,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					displayStr = strings.TrimSpace(displayStr[:idx])
 				}
 				if displayStr != "" {
-					m.viewport.SetContent(wrapContent(m.chatLog+agentStyle.Render("lokol: ")+displayStr, m.viewport.Width))
+					m.viewport.SetContent(wrapContent(m.chatLog+agentStyle.Render(fmt.Sprintf("%s: ", m.AgentName()))+displayStr, m.viewport.Width))
 				}
 				m.viewport.GotoBottom()
 			}
@@ -692,7 +756,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 
 				if m.verbose && act.CleanThought != "" {
-					m.appendLog(agentStyle.Render("lokol: ") + act.CleanThought + "\n")
+					m.appendLog(agentStyle.Render(fmt.Sprintf("%s: ", m.AgentName())) + act.CleanThought + "\n")
 				}
 
 				if m.regulator == nil {
@@ -749,9 +813,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if perm.Status != regulator.StatusAllowed {
 					warningBadge = fmt.Sprintf("⚠️  SECURITY WARNING: %s\n\n", perm.Reason)
 				}
+				payloadText := act.Command
+				if strings.TrimSpace(payloadText) == "" {
+					payloadText = "(no arguments)"
+				}
 				box := actionBoxStyle.Render(fmt.Sprintf(
 					"%sPROPOSED ACTION: %s\nPayload:\n%s\n\nPress [Enter] or [Y] to approve, [N] to reject | [Ctrl+Y] Auto-approve all",
-					warningBadge, act.Name, act.Command,
+					warningBadge, act.Name, payloadText,
 				))
 				m.appendLog("\n" + box + "\n")
 			} else if act != nil && act.Name == "task_finish" {
@@ -782,7 +850,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				banner := completeBannerStyle.Render(fmt.Sprintf("✅ Task Complete%s", stepSuffix))
 
-				m.appendLog(agentStyle.Render("lokol: ") + finalText + "\n\n" + banner + "\n\n")
+				m.appendLog(agentStyle.Render(fmt.Sprintf("%s: ", m.AgentName())) + finalText + "\n\n" + banner + "\n\n")
 				m.stepCount = 0
 				m.lastThought = ""
 				m.lastTool = ""
@@ -792,7 +860,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.lastBadge = ""
 				m.lastSig = ""
 				m.repeatCount = 0
-				m.appendLog(agentStyle.Render("lokol: ") + strings.TrimSpace(response) + "\n\n")
+				m.appendLog(agentStyle.Render(fmt.Sprintf("%s: ", m.AgentName())) + strings.TrimSpace(response) + "\n\n")
 				m.stepCount = 0
 				m.lastThought = ""
 				m.lastTool = ""
@@ -1266,3 +1334,34 @@ func formatCompactAction(act *agent.Action) string {
 	}
 	return fmt.Sprintf("Ran %s ▸", act.Name)
 }
+
+// AgentName returns the active persona name displayed to the model and user.
+func (m *Model) AgentName() string {
+	if m.agentName == "" {
+		return config.DefaultAgentName
+	}
+	return m.agentName
+}
+
+// OperatorName returns the active operator name displayed in conversation logs.
+func (m *Model) OperatorName() string {
+	if m.operatorName == "" {
+		return config.DefaultOperatorName
+	}
+	return m.operatorName
+}
+
+// SetPersona updates the agent persona name and operator name.
+func (m *Model) SetPersona(agentName, operatorName string) {
+	if strings.TrimSpace(agentName) != "" {
+		m.agentName = strings.TrimSpace(agentName)
+		m.textarea.Placeholder = fmt.Sprintf("Ask %s to inspect files, write reports, or type /mode, /yolo, /clear...", m.agentName)
+	}
+	if strings.TrimSpace(operatorName) != "" {
+		m.operatorName = strings.TrimSpace(operatorName)
+	}
+	if m.session != nil {
+		m.session.SetPersona(m.agentName, m.operatorName)
+	}
+}
+

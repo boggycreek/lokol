@@ -102,27 +102,79 @@ func ReadOutline(path string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to stat file %s: %w", path, err)
 	}
+	cleanPath := filepath.Clean(path)
+	cwd, _ := os.Getwd()
+	cleanCwd := filepath.Clean(cwd)
+	rel, err := filepath.Rel(cleanCwd, cleanPath)
+	displayPath := path
+	if err == nil && !strings.HasPrefix(rel, "..") {
+		displayPath = rel
+	}
+
 	if fi.IsDir() {
-		cleanPath := filepath.Clean(path)
-		cwd, _ := os.Getwd()
-		cleanCwd := filepath.Clean(cwd)
 		if cleanPath == "." || cleanPath == "./" || cleanPath == cleanCwd {
 			return "", fmt.Errorf("current directory is a directory, not a file. To discover files in this workspace, use <action name=\"find_files\"><pattern>*</pattern></action>")
-		}
-		rel, err := filepath.Rel(cleanCwd, cleanPath)
-		displayPath := path
-		if err == nil && !strings.HasPrefix(rel, "..") {
-			displayPath = rel
 		}
 		return "", fmt.Errorf("%q is a directory, not a file. To discover files in this directory, use <action name=\"find_files\"><path>%s</path><pattern>*</pattern></action>", displayPath, displayPath)
 	}
 
-	ext := filepath.Ext(path)
+	ext := strings.ToLower(filepath.Ext(path))
+	base := strings.ToLower(filepath.Base(path))
+
+	var desc string
+	if d, ok := nonCodeFileExtensions[ext]; ok {
+		desc = d
+	} else if d, ok := nonCodeBaseNames[base]; ok {
+		desc = d
+	}
+
+	if desc != "" {
+		return "", fmt.Errorf("%q is a %s file, not a source code file with function or type declarations. To read its content, use <action name=\"read_window\"><path>%s</path><start>1</start><end>100</end></action>", displayPath, desc, displayPath)
+	}
+
 	if ext == ".go" {
 		return outlineGoFile(path)
 	}
 	// Generic regex fallback for other languages (Python, JS, Rust)
 	return outlineGenericFile(path)
+}
+
+var nonCodeFileExtensions = map[string]string{
+	".md":       "Markdown documentation",
+	".markdown": "Markdown documentation",
+	".mdown":    "Markdown documentation",
+	".txt":      "plain text",
+	".text":     "plain text",
+	".json":     "JSON data",
+	".yaml":     "YAML configuration",
+	".yml":      "YAML configuration",
+	".toml":     "TOML configuration",
+	".csv":      "CSV data",
+	".tsv":      "TSV data",
+	".xml":      "XML document",
+	".html":     "HTML document",
+	".htm":      "HTML document",
+	".css":      "CSS stylesheet",
+	".scss":     "SCSS stylesheet",
+	".sass":     "SASS stylesheet",
+	".less":     "LESS stylesheet",
+	".sql":      "SQL query",
+	".log":      "log",
+	".ini":      "INI configuration",
+	".cfg":      "configuration",
+	".conf":     "configuration",
+	".env":      "environment configuration",
+}
+
+var nonCodeBaseNames = map[string]string{
+	"readme":       "documentation",
+	"license":      "legal/license",
+	"copying":      "legal/license",
+	"changelog":    "changelog documentation",
+	"contributing": "contributing documentation",
+	"authors":      "author documentation",
+	".gitignore":   "Git ignore",
+	".dockerignore": "Docker ignore",
 }
 
 func outlineGoFile(path string) (string, error) {
@@ -196,7 +248,7 @@ func outlineGenericFile(path string) (string, error) {
 	}
 
 	if !foundAny {
-		sb.WriteString("(No top-level functions or types detected)\n")
+		sb.WriteString("(No top-level functions, classes, or types detected. Use read_window to inspect file contents.)\n")
 	}
 
 	return sb.String(), nil
@@ -310,10 +362,19 @@ func RunTestVerifier(ctx context.Context, command string, workDir ...string) (*T
 func ParseReadWindowPayload(payload string) (*ReadWindowInput, error) {
 	path := extractTag(payload, "path")
 	if path == "" {
+		path = extractTag(payload, "file")
+	}
+	if path == "" {
 		return nil, fmt.Errorf("missing <path>")
 	}
 	startStr := extractTag(payload, "start")
+	if startStr == "" {
+		startStr = extractTag(payload, "start_line")
+	}
 	endStr := extractTag(payload, "end")
+	if endStr == "" {
+		endStr = extractTag(payload, "end_line")
+	}
 
 	start := 1
 	end := 50
