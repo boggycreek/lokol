@@ -35,6 +35,8 @@ type SessionCore interface {
 	GetWorkDir() string
 	GetPersona() (agentName, operatorName string)
 	SetPersona(agentName, operatorName string)
+	PruneToolOutputs(preserveRecent int) int
+	CompactHistory(summaryLedger string, preserveRecent int)
 }
 
 // Session represents a stateful conversational agent session.
@@ -322,4 +324,19 @@ func (s *Session) GetWorkDir() string {
 	}
 	return s.WorkDir
 }
+
+// PruneToolOutputs triggers micro-compaction on older conversation turns, stripping verbose observation outputs
+// while preserving recent turns intact. It returns the number of characters reclaimed.
+func (s *Session) PruneToolOutputs(preserveRecent int) int {
+	pruned, reclaimed := PruneStaleToolOutputs(s.History, preserveRecent)
+	s.History = pruned
+	return reclaimed
+}
+
+// CompactHistory triggers macro-compaction, compressing older turns into a structured summary ledger
+// while preserving the system prompt, initial user objective, and recent turns intact.
+func (s *Session) CompactHistory(summaryLedger string, preserveRecent int) {
+	s.History = CompactHistory(s.History, summaryLedger, preserveRecent)
+}
+
 

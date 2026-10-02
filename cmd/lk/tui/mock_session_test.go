@@ -172,3 +172,11 @@ func (m *MockSession) SetPersona(agentName, operatorName string) {
 	}
 }
 
+func (m *MockSession) PruneToolOutputs(preserveRecent int) int {
+	return 0
+}
+
+func (m *MockSession) CompactHistory(summaryLedger string, preserveRecent int) {
+}
+
+
