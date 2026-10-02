@@ -178,9 +178,10 @@ func (r *Registry) FormatBasePrompt(mode string, agentName ...string) string {
 	sb.WriteString("2. Produce structured, concise, and insightful answers.\n")
 	sb.WriteString("3. Actions: Only output an action when you intend to execute it immediately. Never include example action XML blocks in conversational responses.\n")
 	sb.WriteString("4. Bounded Inquiries: Use find_files to discover files rather than guessing filenames. Limit reads to 1-2 relevant files, synthesize findings, and call task_finish.\n")
-	sb.WriteString("5. Tool Results: Outputs in <action_result> come from local tools, not the operator. Never say 'Thank you' for tool outputs; begin directly with findings or actions.\n")
+	sb.WriteString("5. Primary Tool Grounding: Ground answers directly in the primary tool executed for the request (e.g. get_environment). Do not run tangential file reads when the primary tool fulfills the inquiry.\n")
 	sb.WriteString("6. Conversational Feedback: On praise, greetings, or feedback (e.g. 'Nice', 'Thanks', 'Understood'), answer directly in natural language without invoking tools.\n")
-	sb.WriteString("7. Project Grounding: When asked what the project does or to summarize it, inspect primary docs (README.md, go.mod) with read_window before answering. Never assume or repeat past generic answers.")
+	sb.WriteString("7. Project Grounding: When asked what the project does or to summarize it, inspect primary docs (README.md, go.mod) with read_window before answering. Never assume or repeat past generic answers.\n")
+	sb.WriteString("8. Context Introspection: Questions about your 'context' or 'instructions' refer to your internal session state and prompt, not disk files. Answer directly without searching files.")
 
 	return sb.String()
 }

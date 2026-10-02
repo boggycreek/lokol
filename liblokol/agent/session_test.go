@@ -285,3 +285,65 @@ func TestAction_PresentationHelpers(t *testing.T) {
 		})
 	}
 }
+
+func TestSession_ModeSwitch_ContextRefresh(t *testing.T) {
+	s := NewSession(nil, t.TempDir())
+	if s.GetMode() != ModeGeneral {
+		t.Fatalf("expected initial ModeGeneral, got %s", s.GetMode())
+	}
+
+	// Switch to coding mode
+	s.SetMode(ModeCoding)
+	if s.GetMode() != ModeCoding {
+		t.Fatalf("expected ModeCoding, got %s", s.GetMode())
+	}
+
+	// History should now contain the mode switch event (lokol-kih.9)
+	lastMsg := s.History[len(s.History)-1]
+	if lastMsg.Role != "user" || !strings.Contains(lastMsg.Content, "Mode Switched: Active persona is now coding") {
+		t.Fatalf("expected mode switch event in session history, got: %+v", lastMsg)
+	}
+	if !strings.Contains(lastMsg.Content, "Re-evaluate ongoing tasks") {
+		t.Errorf("expected re-evaluation directive in mode switch event, got: %s", lastMsg.Content)
+	}
+}
+
+func TestSession_ContextMetaQuery_Introspection(t *testing.T) {
+	s := NewSession(nil, t.TempDir())
+
+	// Meta query about context window
+	s.AppendUserMessage("Can you show me your context?")
+	lastMsg := s.History[len(s.History)-1]
+	if !strings.Contains(lastMsg.Content, "Context Introspection:") {
+		t.Fatalf("expected Context Introspection guidance in message, got: %s", lastMsg.Content)
+	}
+	if !strings.Contains(lastMsg.Content, "DO NOT search the filesystem") {
+		t.Errorf("expected instruction not to search filesystem in message, got: %s", lastMsg.Content)
+	}
+	if !strings.Contains(lastMsg.Content, "general") {
+		t.Errorf("expected mode in introspection guidance, got: %s", lastMsg.Content)
+	}
+}
+
+func TestSession_PrimaryToolGrounding_GetEnvironment(t *testing.T) {
+	s := NewSession(nil, t.TempDir())
+	ctx := context.Background()
+
+	act := &Action{
+		Name:    "get_environment",
+		Command: "",
+	}
+
+	out, err := s.ExecuteAction(ctx, act)
+	if err != nil {
+		t.Fatalf("ExecuteAction failed for get_environment: %v", err)
+	}
+
+	if !strings.Contains(out, "Observation: The execution environment details requested by the operator are provided above in full") {
+		t.Errorf("expected primary tool grounding observation in output, got: %s", out)
+	}
+	if !strings.Contains(out, "Do NOT execute tangential file reads") {
+		t.Errorf("expected anti-tangential read directive, got: %s", out)
+	}
+}
+

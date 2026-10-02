@@ -45,6 +45,20 @@ func ParseMode(s string) (Mode, error) {
 	}
 }
 
+// ModeDescription returns a concise human-readable description of a mode's capabilities (lokol-kih.9).
+func ModeDescription(mode Mode) string {
+	switch mode {
+	case ModeCoding:
+		return "autonomous coding agent with AST inspection, targeted file editing, and test verification"
+	case ModeMoE:
+		return "analytical Mixture-of-Experts routing for multi-perspective problem decomposition"
+	case ModeGeneral:
+		fallthrough
+	default:
+		return "versatile assistant for natural conversation, documents, and lightweight file exploration"
+	}
+}
+
 // GeneralSystemPromptBase defines instructions for natural conversation, document inspection,
 // artifact generation, and host environment grounding adhering to ADR-0024.
 var GeneralSystemPromptBase = catalog.DefaultRegistry.FormatBasePrompt("general")

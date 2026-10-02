@@ -35,6 +35,11 @@ func (r *IntentRouter) RouteIntent(ctx context.Context, prompt string) []Tool {
 		return nil
 	}
 
+	// Suppress specialized tools on context introspection and meta-queries (lokol-kih.1)
+	if IsContextMetaQuery(prompt) {
+		return nil
+	}
+
 	lower := strings.ToLower(prompt)
 	words := strings.Fields(lower)
 
@@ -139,6 +144,49 @@ func IsProjectSummaryQuery(prompt string) bool {
 	}
 
 	for _, pat := range summaryPatterns {
+		if strings.Contains(p, pat) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// IsContextMetaQuery detects queries asking about the agent's internal context window, system prompt, or session state (lokol-kih.1).
+func IsContextMetaQuery(prompt string) bool {
+	p := strings.TrimSpace(strings.ToLower(prompt))
+	if p == "" {
+		return false
+	}
+
+	metaPatterns := []string{
+		"show me your context",
+		"show your context",
+		"what is your context",
+		"what's in your context",
+		"what is in your context",
+		"whats in your context",
+		"see your context",
+		"inspect your context",
+		"show your system prompt",
+		"show me your system prompt",
+		"what is your system prompt",
+		"what are your instructions",
+		"show me your instructions",
+		"what instructions do you have",
+		"what are your system instructions",
+		"what mode are you in",
+		"show your mode",
+		"which mode are you in",
+		"active mode",
+		"what is your persona",
+		"what are your active tools",
+		"what tools do you have",
+		"session state",
+		"context window",
+	}
+
+	for _, pat := range metaPatterns {
 		if strings.Contains(p, pat) {
 			return true
 		}

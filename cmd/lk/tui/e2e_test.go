@@ -370,12 +370,11 @@ func TestTUI_E2E_RealSession_SlashCommands(t *testing.T) {
 		t.Errorf("expected active [YOLO] dash light in view, got: %s", m.View())
 	}
 
-	// 3. Slash command: /clear
-	// Add messages to real session history
+	// Add messages to real session history (system prompt + mode switch event + 2 messages = 4)
 	session.AppendUserMessage("History item 1")
 	session.AppendAssistantMessage("History item 2")
-	if len(session.History) != 3 {
-		t.Fatalf("expected 3 history entries before clear, got: %d", len(session.History))
+	if len(session.History) != 4 {
+		t.Fatalf("expected 4 history entries before clear, got: %d", len(session.History))
 	}
 
 	m = m.WithInitialPrompt("/clear")
