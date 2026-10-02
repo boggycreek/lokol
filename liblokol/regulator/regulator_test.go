@@ -101,6 +101,102 @@ func TestValidateFilesystemBounds(t *testing.T) {
 	}
 }
 
+func TestResolveActionPath(t *testing.T) {
+	// 1. XML <path> takes priority
+	act1 := regulator.ActionCandidate{
+		Name:    "write_file",
+		Path:    "fallback.go",
+		Command: "<path>primary.go</path><content>data</content>",
+	}
+	if got := regulator.ResolveActionPath(act1); got != "primary.go" {
+		t.Errorf("expected primary.go, got %q", got)
+	}
+
+	// 2. Fallback to action.Path when XML is empty
+	act2 := regulator.ActionCandidate{
+		Name:    "read_window",
+		Path:    "fallback.go",
+		Command: "<start>1</start><end>10</end>",
+	}
+	if got := regulator.ResolveActionPath(act2); got != "fallback.go" {
+		t.Errorf("expected fallback.go, got %q", got)
+	}
+
+	// 3. Both empty
+	act3 := regulator.ActionCandidate{
+		Name:    "get_environment",
+		Path:    "",
+		Command: "",
+	}
+	if got := regulator.ResolveActionPath(act3); got != "" {
+		t.Errorf("expected empty string, got %q", got)
+	}
+}
+
+func TestValidateFilesystemBounds_DifferentialPathsAndFindFiles(t *testing.T) {
+	workDir := t.TempDir()
+
+	// 1. Both XML <path> and action.Path specified and differ:
+	// If action.Path traverses outside while XML is safe, it must be blocked (lokol-nok.2)
+	if err := regulator.ValidateFilesystemBounds(workDir, "write_file", "../../etc/passwd", "<path>safe.go</path>"); err == nil {
+		t.Errorf("expected differential bypass with escaping action.Path to be blocked, but succeeded")
+	}
+
+	// If XML traverses outside while action.Path is safe, it must be blocked
+	if err := regulator.ValidateFilesystemBounds(workDir, "write_file", "safe.go", "<path>../../etc/passwd</path>"); err == nil {
+		t.Errorf("expected differential bypass with escaping XML path to be blocked, but succeeded")
+	}
+
+	// Both safe and different relative paths inside workspace -> allowed
+	if err := regulator.ValidateFilesystemBounds(workDir, "write_file", "sub/a.go", "<path>sub/b.go</path>"); err != nil {
+		t.Errorf("expected both valid paths inside workspace to be allowed, got: %v", err)
+	}
+
+	// 2. find_files / search_code with action.Path escaping when XML is empty (lokol-nok.1)
+	if err := regulator.ValidateFilesystemBounds(workDir, "find_files", "../../outside", ""); err == nil {
+		t.Errorf("expected find_files with escaping action.Path to be blocked, but succeeded")
+	}
+	if err := regulator.ValidateFilesystemBounds(workDir, "search_code", "/etc", ""); err == nil {
+		t.Errorf("expected search_code with escaping action.Path to be blocked, but succeeded")
+	}
+	// Safe action.Path for find_files
+	if err := regulator.ValidateFilesystemBounds(workDir, "find_files", "sub", ""); err != nil {
+		t.Errorf("expected find_files with safe sub dir to pass, got: %v", err)
+	}
+}
+
+func TestCheckPathWithinBounds_RecursiveURLDecoding(t *testing.T) {
+	workDir := t.TempDir()
+
+	// Single encoded traversal
+	singleEncoded := "%2e%2e%2fetc%2fpasswd"
+	if _, err := regulator.CheckPathWithinBounds(workDir, singleEncoded); err == nil {
+		t.Errorf("expected single-encoded traversal to fail, but succeeded")
+	}
+
+	// Double encoded traversal: %252e -> %2e -> . (lokol-nok.3)
+	doubleEncoded := "%252e%252e%252fetc%252fpasswd"
+	if _, err := regulator.CheckPathWithinBounds(workDir, doubleEncoded); err == nil {
+		t.Errorf("expected double-encoded traversal to fail, but succeeded")
+	}
+
+	// Triple encoded traversal
+	tripleEncoded := "%25252e%25252e%25252fetc"
+	if _, err := regulator.CheckPathWithinBounds(workDir, tripleEncoded); err == nil {
+		t.Errorf("expected triple-encoded traversal to fail, but succeeded")
+	}
+
+	// Valid URL encoded spaces in file names should not trigger false positives
+	validEncoded := "my%20file.txt"
+	resolved, err := regulator.CheckPathWithinBounds(workDir, validEncoded)
+	if err != nil {
+		t.Errorf("expected valid url-encoded file name to pass, got: %v", err)
+	}
+	if !strings.HasSuffix(resolved, "my file.txt") {
+		t.Errorf("expected decoded file name 'my file.txt', got %q", resolved)
+	}
+}
+
 func TestInspectShellRisk(t *testing.T) {
 	workDir := t.TempDir()
 

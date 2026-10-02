@@ -56,6 +56,20 @@ func resolveSafePath(path string, workDir ...string) (string, error) {
 	return regulator.CheckPathWithinBounds(wd, path)
 }
 
+// validatePreWriteTarget verifies that the target path is not a symlink pointing outside the workspace (lokol-nok.4).
+func validatePreWriteTarget(targetPath string, workDir ...string) error {
+	if fi, err := os.Lstat(targetPath); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+		wd := "."
+		if len(workDir) > 0 && workDir[0] != "" {
+			wd = workDir[0]
+		}
+		if _, err := regulator.CheckPathWithinBounds(wd, targetPath); err != nil {
+			return fmt.Errorf("symlink target escapes workspace bounds: %w", err)
+		}
+	}
+	return nil
+}
+
 // ExecuteReplaceFile performs an exact in-place string replacement in the specified file.
 func ExecuteReplaceFile(ctx context.Context, payload string, workDir ...string) (string, error) {
 	// If the model mistakenly used <content> instead of <target>/<replacement> to write or create a file:
@@ -102,6 +116,10 @@ func ExecuteReplaceFile(ctx context.Context, payload string, workDir ...string) 
 			lineCount := strings.Count(contentNorm, "\n") + 1
 			return "", fmt.Errorf("target string not found in %s (%d lines in file). Please inspect the file with read_window to verify exact content, or use write_file to overwrite the file completely", input.Path, lineCount)
 		}
+	}
+
+	if err := validatePreWriteTarget(targetPath, workDir...); err != nil {
+		return "", err
 	}
 
 	if err := os.WriteFile(targetPath, []byte(newContent), 0644); err != nil {
@@ -174,14 +192,8 @@ func ExecuteWriteFile(ctx context.Context, payload string, workDir ...string) (s
 	}
 
 	// TOCTOU mitigation: verify target file is not a symlink pointing outside bounds
-	if fi, err := os.Lstat(targetPath); err == nil && fi.Mode()&os.ModeSymlink != 0 {
-		wd := "."
-		if len(workDir) > 0 && workDir[0] != "" {
-			wd = workDir[0]
-		}
-		if _, err := regulator.CheckPathWithinBounds(wd, targetPath); err != nil {
-			return "", fmt.Errorf("symlink target escapes workspace bounds: %w", err)
-		}
+	if err := validatePreWriteTarget(targetPath, workDir...); err != nil {
+		return "", err
 	}
 
 	if err := os.WriteFile(targetPath, []byte(input.Content), 0644); err != nil {
