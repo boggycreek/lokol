@@ -34,7 +34,13 @@ description: >-
 ## Explicit Context Clearing & Engine Slot Purge Protocol
 - **Deterministic VRAM Reclamation**: Explicit context clearing (interactive `/clear`, `Ctrl+L`/`Ctrl+K`, or headless sub-task boundaries) dispatches a slot cache purge (`action=erase`) to `llama-server`, resetting KV cache token pressure to zero without restarting the engine ([ADR 0028](../adr/0028-explicit-context-clearing-and-state-retention-invariants.md)).
 - **State Retention Invariants**: Preserves host environment discovery, working directory, operational mode, active persona/operator identities, and foundational tool schemas while wiping conversational trajectories and temporary read caches.
-- **Explicit Reset vs Automatic Compaction**: Explicit clearing creates a true clean slate between discrete milestones; automatic compaction ([ADR 0026](../adr/0026-inference-slot-pressure-and-context-budget-regulation.md)) governs in-flight execution under token window pressure.
+- **Explicit Reset vs Automatic Compaction**: Explicit clearing creates a true clean slate between discrete milestones; automatic compaction ([ADR 0026](../adr/0026-inference-slot-pressure-and-context-budget-regulation.md), [ADR 0029](../adr/0029-dynamic-context-compaction-and-attention-pruning.md)) governs in-flight execution under token window pressure.
+
+## Dynamic Context Compaction & Attention Pruning
+- **Dual-Tier Reduction Pipeline**: Progressive compaction balancing token savings with attention retention ([ADR 0029](../adr/0029-dynamic-context-compaction-and-attention-pruning.md)).
+  - **Tier 1 (Micro-Pruning at 60%–75% slot pressure)**: Truncates obsolete inspection outputs (`read_window`, `read_outline`, verbose command logs) into compact stubs once successors succeed.
+  - **Tier 2 (Macro-Compaction at ≥75% slot pressure)**: Condenses older turn history into a structured semantic ledger while strictly preserving prompt grounding and recent turns.
+- **Attention Preservation**: Protects small local models (3B–8B) from attention dilution and "lost in the middle" degradation during multi-turn refactoring.
 
 Further reading:
 - [ADR 0002 — Hardware Probing and Tiering Matrix](../adr/0002-hardware-tiering-and-constrained-vram.md)
@@ -44,3 +50,4 @@ Further reading:
 - [ADR 0024 — Progressive Tool Disclosure and Catalog Architecture](../adr/0024-progressive-tool-disclosure-and-catalog-architecture.md)
 - [ADR 0026 — Inference Slot Pressure and Context Budget Regulation](../adr/0026-inference-slot-pressure-and-context-budget-regulation.md)
 - [ADR 0028 — Explicit Context Clearing and State Retention Invariants](../adr/0028-explicit-context-clearing-and-state-retention-invariants.md)
+- [ADR 0029 — Dynamic Context Compaction and Attention Pruning Architecture](../adr/0029-dynamic-context-compaction-and-attention-pruning.md)

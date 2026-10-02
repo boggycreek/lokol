@@ -2,7 +2,7 @@
 
 This directory documents the foundational architectural decisions governing the **lokol** local agentic coding ecosystem for the **v0.1.0-alpha** release.
 
-Records are numbered serially (`0001` through `0028`) and organized by topic domain to reflect the current **as-built** architecture. Each decision record includes machine-readable YAML front matter (with standardized thematic markers, tags, and executive summaries) for consumption by automated agents and tooling.
+Records are numbered serially (`0001` through `0029`) and organized by topic domain to reflect the current **as-built** architecture. Each decision record includes machine-readable YAML front matter (with standardized thematic markers, tags, and executive summaries) for consumption by automated agents and tooling.
 
 ---
 
@@ -46,6 +46,8 @@ Records are numbered serially (`0001` through `0028`) and organized by topic dom
   *Executive Summary:* Regulates execution cadence and triggers proactive context compaction based on inference slot memory utilization and token window pressure.
 - **[ADR 0028 — Explicit Context Clearing and State Retention Invariants](0028-explicit-context-clearing-and-state-retention-invariants.md)**  
   *Executive Summary:* Establishes explicit context clearing protocols, retention invariants, and inference slot cache purges across interactive and headless execution boundaries.
+- **[ADR 0029 — Dynamic Context Compaction and Attention Pruning Architecture](0029-dynamic-context-compaction-and-attention-pruning.md)**  
+  *Executive Summary:* Establishes a dual-tier dynamic context compaction strategy combining deterministic observation pruning and semantic history summarization triggered by real-time inference slot pressure.
 
 ### Protocols, Catalog & Governance (`THEME-AGENT`)
 - **[ADR 0003 — Deterministic Agent Protocol vs JSON Schema Tool Calling](0003-deterministic-agent-protocol.md)**  
