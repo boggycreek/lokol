@@ -2,7 +2,7 @@
 
 This directory documents the foundational architectural decisions governing the **lokol** local agentic coding ecosystem for the **v0.1.0-alpha** release.
 
-Records are numbered serially (`0001` through `0027`) and organized by topic domain to reflect the current **as-built** architecture. Each decision record includes machine-readable YAML front matter (with standardized thematic markers, tags, and executive summaries) for consumption by automated agents and tooling.
+Records are numbered serially (`0001` through `0028`) and organized by topic domain to reflect the current **as-built** architecture. Each decision record includes machine-readable YAML front matter (with standardized thematic markers, tags, and executive summaries) for consumption by automated agents and tooling.
 
 ---
 
@@ -11,7 +11,7 @@ Records are numbered serially (`0001` through `0027`) and organized by topic dom
 | Theme Code | Topic Domain | Scope |
 | :--- | :--- | :--- |
 | **`THEME-CORE`** | Foundations & Architecture | Pure Go systems architecture, managed `llama-server` process isolation, XDG specification, presentation decoupling, monorepo workspace isolation, zero-Python production runtime policy. |
-| **`THEME-INFERENCE`** | Hardware, Models & VRAM | Hardware tiering (12GB down to 4GB), single-slot 100% VRAM allocation, baseline general-purpose persona, dynamic MoE sparse expert offloading, CPU AVX2 decision model offload. |
+| **`THEME-INFERENCE`** | Hardware, Models & VRAM | Hardware tiering (12GB down to 4GB), single-slot 100% VRAM allocation, baseline general-purpose persona, dynamic MoE sparse expert offloading, CPU AVX2 decision model offload, explicit context clearing & slot purge. |
 | **`THEME-AGENT`** | Protocols, Catalog & Governance | Strict XML deterministic action protocol, in-repo MCP server facades, `AGENTS.md` context ingestion, functional regulator action-gating pipeline, progressive tool disclosure catalog. |
 | **`THEME-MEMORY`** | Memory & Retrieval | Structured persistent memory across XDG state/data, local embedded vector database for semantic indexing. |
 | **`THEME-SECURITY`** | Security, Boundary & Sandboxing | Filesystem boundary containment, command risk inspection, unprivileged rootless Podman container test sandboxing. |
@@ -44,6 +44,8 @@ Records are numbered serially (`0001` through `0027`) and organized by topic dom
   *Executive Summary:* Directs auxiliary decision models to execute exclusively on host CPU cores via AVX2/AVX-512 instructions, reserving 100% of GPU VRAM for the primary generative LLM context.
 - **[ADR 0026 — Inference Slot Pressure and Context Budget Regulation](0026-inference-slot-pressure-and-context-budget-regulation.md)**  
   *Executive Summary:* Regulates execution cadence and triggers proactive context compaction based on inference slot memory utilization and token window pressure.
+- **[ADR 0028 — Explicit Context Clearing and State Retention Invariants](0028-explicit-context-clearing-and-state-retention-invariants.md)**  
+  *Executive Summary:* Establishes explicit context clearing protocols, retention invariants, and inference slot cache purges across interactive and headless execution boundaries.
 
 ### Protocols, Catalog & Governance (`THEME-AGENT`)
 - **[ADR 0003 — Deterministic Agent Protocol vs JSON Schema Tool Calling](0003-deterministic-agent-protocol.md)**  

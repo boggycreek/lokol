@@ -1215,6 +1215,61 @@ func TestTUI_LiveActionDigest_SlashCommandsAndTabToggle(t *testing.T) {
 	}
 }
 
+// TestTUI_ExplicitClear_KeybindingsCtrlLAndCtrlK verifies that Ctrl+L and Ctrl+K purge conversation history
+// and reset session state explicitly (lokol-m7s).
+func TestTUI_ExplicitClear_KeybindingsCtrlLAndCtrlK(t *testing.T) {
+	mock := NewMockSession()
+	m := tui.NewWithSession(mock, nil, false)
+
+	// User types and submits prompt
+	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("hello")})
+	m = newM.(tui.Model)
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = newM.(tui.Model)
+
+	// Assistant responds
+	newM, _ = m.Update(tui.StreamDoneMsg("Hello there!"))
+	m = newM.(tui.Model)
+
+	if !strings.Contains(m.ViewportContent(), "Hello there!") {
+		t.Fatalf("expected assistant response in viewport")
+	}
+
+	// 1. Press Ctrl+L to clear
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlL})
+	m = newM.(tui.Model)
+
+	clearedContent := m.ViewportContent()
+	if strings.Contains(clearedContent, "Hello there!") {
+		t.Errorf("expected chat log purged after Ctrl+L, got:\n%s", clearedContent)
+	}
+	if !strings.Contains(clearedContent, "🧹 [Session Cleared]") {
+		t.Errorf("expected session cleared confirmation banner after Ctrl+L, got:\n%s", clearedContent)
+	}
+
+	// Add more conversation
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("another prompt")})
+	m = newM.(tui.Model)
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = newM.(tui.Model)
+
+	newM, _ = m.Update(tui.StreamDoneMsg("Another response."))
+	m = newM.(tui.Model)
+
+	// 2. Press Ctrl+K to clear
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyCtrlK})
+	m = newM.(tui.Model)
+
+	clearedContent2 := m.ViewportContent()
+	if strings.Contains(clearedContent2, "Another response.") {
+		t.Errorf("expected chat log purged after Ctrl+K, got:\n%s", clearedContent2)
+	}
+	if !strings.Contains(clearedContent2, "🧹 [Session Cleared]") {
+		t.Errorf("expected session cleared confirmation banner after Ctrl+K, got:\n%s", clearedContent2)
+	}
+}
+
+
 
 
 

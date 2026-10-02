@@ -7,7 +7,10 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -346,4 +349,101 @@ func TestSession_PrimaryToolGrounding_GetEnvironment(t *testing.T) {
 		t.Errorf("expected anti-tangential read directive, got: %s", out)
 	}
 }
+
+// TestSession_Reset_RetentionInvariantsAndSlotPurge verifies explicit context clearing invariants (lokol-m7s):
+// 1. Conversation history is purged and restored to single system prompt.
+// 2. Custom persona and operator names are retained.
+// 3. Operational mode and codebase context are retained.
+// 4. Working directory is retained.
+// 5. Window read cache is cleared and consecutive reads counter reset.
+// 6. Slot purge (action=erase) is dispatched to the engine.
+func TestSession_Reset_RetentionInvariantsAndSlotPurge(t *testing.T) {
+	var slotErased bool
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/slots") {
+			if r.Method == http.MethodGet {
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode([]SlotInfo{
+					{ID: 0, NCtx: 4096, NPromptTokens: 1200, IsProcessing: false},
+				})
+				return
+			}
+			if r.Method == http.MethodPost && (strings.Contains(r.URL.RawQuery, "action=erase") || strings.Contains(r.URL.RawQuery, "action=release")) {
+				slotErased = true
+				w.WriteHeader(http.StatusOK)
+				return
+			}
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	client := NewClient(ts.URL)
+	workDir := t.TempDir()
+	s := NewSessionWithMode(client, workDir, ModeCoding, "## Project Overview\nCustom codebase context.")
+	s.SetPersona("CustomAgent", "CustomOperator")
+
+	// Create a test file in workDir and record read in windowCache
+	testFile := filepath.Join(workDir, "foo.txt")
+	_ = os.WriteFile(testFile, []byte("line 1\nline 2\nline 3\n"), 0644)
+	s.windowCache.RecordRead("foo.txt", 1, 3, workDir)
+
+	// Simulate conversation turns
+	s.AppendUserMessage("Hello agent")
+	s.AppendAssistantMessage("Hello user")
+	s.consecutiveReads = 3
+
+	if len(s.History) <= 1 {
+		t.Fatalf("expected conversation turns in history, got %d", len(s.History))
+	}
+	redundantBefore, _, err := s.windowCache.CheckRedundant("foo.txt", 1, 3, workDir)
+	if err != nil || !redundantBefore {
+		t.Fatalf("expected window cache populated and redundant before reset: %v", err)
+	}
+
+	// Trigger explicit Reset (lokol-m7s)
+	s.Reset()
+
+	// 1. History purged to single system prompt
+	if len(s.History) != 1 || s.History[0].Role != "system" {
+		t.Fatalf("expected history purged to single system prompt, got %d messages: %+v", len(s.History), s.History)
+	}
+
+	// 2. Configured persona & operator preserved in system prompt
+	sysPrompt := s.History[0].Content
+	if !strings.Contains(sysPrompt, "CustomAgent") {
+		t.Errorf("expected custom agent persona retained in system prompt, got: %s", sysPrompt)
+	}
+	if !strings.Contains(sysPrompt, "CustomOperator") {
+		t.Errorf("expected custom operator retained in system prompt, got: %s", sysPrompt)
+	}
+
+	// 3. Mode and codebase context preserved
+	if s.GetMode() != ModeCoding {
+		t.Errorf("expected ModeCoding preserved, got: %s", s.GetMode())
+	}
+	if !strings.Contains(sysPrompt, "Custom codebase context") {
+		t.Errorf("expected codebase context preserved in system prompt, got: %s", sysPrompt)
+	}
+
+	// 4. Working directory preserved
+	if s.GetWorkDir() != workDir {
+		t.Errorf("expected workDir %q preserved, got: %q", workDir, s.GetWorkDir())
+	}
+
+	// 5. Window cache cleared & consecutive reads reset
+	if s.consecutiveReads != 0 {
+		t.Errorf("expected consecutiveReads reset to 0, got %d", s.consecutiveReads)
+	}
+	redundantAfter, _, err := s.windowCache.CheckRedundant("foo.txt", 1, 3, workDir)
+	if err != nil || redundantAfter {
+		t.Errorf("expected window cache cleared and redundant=false after reset, got redundant=%v", redundantAfter)
+	}
+
+	// 6. Slot purge dispatched to engine
+	if !slotErased {
+		t.Errorf("expected slot purge (action=erase) to be dispatched to engine")
+	}
+}
+
 

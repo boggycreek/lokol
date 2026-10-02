@@ -520,6 +520,26 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m = m.ToggleTurnDigest()
 				return m, nil
 			}
+		case tea.KeyCtrlL, tea.KeyCtrlK:
+			if m.state == StateIdle {
+				if m.session != nil {
+					m.session.Reset()
+				}
+				if m.regulator != nil {
+					m.regulator.ClearRejections()
+				}
+				m.chatLog = ""
+				m.stepCount = 0
+				m.lastThought = ""
+				m.lastTool = ""
+				m.lastBadge = ""
+				m.lastAssistantReply = ""
+				m.currentTurnActions = nil
+				m.currentTurnDigestLines = nil
+				m.turnDigests = nil
+				m.appendLog("🧹 [Session Cleared] Chat history and conversation context reset.\n\n")
+				return m, nil
+			}
 		case tea.KeyCtrlY:
 			m.yoloMode = !m.yoloMode
 			if m.yoloMode {

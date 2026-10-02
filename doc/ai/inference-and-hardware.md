@@ -31,9 +31,16 @@ description: >-
   - `architect` / `planning`: High-parameter or long-context reasoning model for project decomposition.
   - `moe`: Sparse MoE architecture leveraging selective expert offload ([ADR 0008](../adr/0008-dynamic-moe-expert-routing.md)).
 
+## Explicit Context Clearing & Engine Slot Purge Protocol
+- **Deterministic VRAM Reclamation**: Explicit context clearing (interactive `/clear`, `Ctrl+L`/`Ctrl+K`, or headless sub-task boundaries) dispatches a slot cache purge (`action=erase`) to `llama-server`, resetting KV cache token pressure to zero without restarting the engine ([ADR 0028](../adr/0028-explicit-context-clearing-and-state-retention-invariants.md)).
+- **State Retention Invariants**: Preserves host environment discovery, working directory, operational mode, active persona/operator identities, and foundational tool schemas while wiping conversational trajectories and temporary read caches.
+- **Explicit Reset vs Automatic Compaction**: Explicit clearing creates a true clean slate between discrete milestones; automatic compaction ([ADR 0026](../adr/0026-inference-slot-pressure-and-context-budget-regulation.md)) governs in-flight execution under token window pressure.
+
 Further reading:
 - [ADR 0002 — Hardware Probing and Tiering Matrix](../adr/0002-hardware-tiering-and-constrained-vram.md)
 - [ADR 0007 — General-Purpose Assistant as Default Operational Persona](../adr/0007-general-purpose-default-persona.md)
 - [ADR 0008 — Dynamic Mixture of Experts (MoE) Routing for Constrained VRAM](../adr/0008-dynamic-moe-expert-routing.md)
 - [ADR 0020 — CPU AVX2 Offload Strategy for Auxiliary Decision Models](../adr/0020-cpu-avx2-offload-strategy-for-auxiliary-decision-models.md)
 - [ADR 0024 — Progressive Tool Disclosure and Catalog Architecture](../adr/0024-progressive-tool-disclosure-and-catalog-architecture.md)
+- [ADR 0026 — Inference Slot Pressure and Context Budget Regulation](../adr/0026-inference-slot-pressure-and-context-budget-regulation.md)
+- [ADR 0028 — Explicit Context Clearing and State Retention Invariants](../adr/0028-explicit-context-clearing-and-state-retention-invariants.md)
