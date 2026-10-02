@@ -221,12 +221,14 @@ func TestBuildSystemPrompt(t *testing.T) {
 
 	t.Run("custom HostEnvironment", func(t *testing.T) {
 		env := agent.HostEnvironment{
-			Cwd:   "/workspace/repo",
-			OS:    "linux",
-			Shell: "/bin/bash",
+			AgentName:    "lokol",
+			OperatorName: "User",
+			Cwd:          "/workspace/repo",
+			OS:           "linux",
+			Shell:        "/bin/bash",
 		}
 		prompt := agent.BuildSystemPromptWithEnv(env)
-		expectedTag := "<environment>\n<cwd>/workspace/repo</cwd>\n<os>linux</os>\n<shell>/bin/bash</shell>\n</environment>"
+		expectedTag := "<environment>\n<agent_name>lokol</agent_name>\n<operator_name>User</operator_name>\n<cwd>/workspace/repo</cwd>\n<os>linux</os>\n<shell>/bin/bash</shell>\n</environment>"
 		if !strings.Contains(prompt, expectedTag) {
 			t.Errorf("expected prompt to contain formatted environment tag:\n%s\ngot:\n%s", expectedTag, prompt[:300])
 		}
@@ -366,6 +368,36 @@ func TestTools_TOCTOUSymlinkMitigation(t *testing.T) {
 	}
 	if string(content) != "super_secret_token" {
 		t.Fatalf("secret was overwritten despite symlink protection: %s", string(content))
+	}
+}
+
+func TestSession_PersonaConfiguration(t *testing.T) {
+	tmpDir := t.TempDir()
+	client := agent.NewClient("http://127.0.0.1:8080")
+	s := agent.NewSession(client, tmpDir)
+
+	agentName, opName := s.GetPersona()
+	if agentName == "" || opName == "" {
+		t.Fatalf("expected non-empty default persona, got agent=%q op=%q", agentName, opName)
+	}
+
+	// Dynamic persona reconfiguration
+	s.SetPersona("Aria", "Alice")
+	newAgent, newOp := s.GetPersona()
+	if newAgent != "Aria" || newOp != "Alice" {
+		t.Errorf("expected Aria/Alice, got %s/%s", newAgent, newOp)
+	}
+
+	// Check system prompt was updated with new persona and tags
+	if len(s.History) == 0 || s.History[0].Role != "system" {
+		t.Fatalf("expected system message in history")
+	}
+	sysPrompt := s.History[0].Content
+	if !strings.Contains(sysPrompt, "You are Aria") {
+		t.Errorf("expected updated prompt with 'You are Aria', got:\n%s", sysPrompt[:200])
+	}
+	if !strings.Contains(sysPrompt, "<agent_name>Aria</agent_name>") || !strings.Contains(sysPrompt, "<operator_name>Alice</operator_name>") {
+		t.Errorf("expected persona XML tags in environment block, got:\n%s", sysPrompt[:300])
 	}
 }
 

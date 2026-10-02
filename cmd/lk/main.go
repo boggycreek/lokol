@@ -39,6 +39,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	flags.BoolVar(verboseFlag, "v", false, "Display internal reasoning (shorthand)")
 	promptFlag := flags.String("prompt", "", "Initial prompt to execute (alias: -p)")
 	flags.StringVar(promptFlag, "p", "", "Initial prompt to execute (shorthand)")
+	nameFlag := flags.String("name", "", "Agent persona name (overrides persistent config)")
+	operatorFlag := flags.String("operator", "", "Operator name (overrides persistent config)")
 	versionFlag := flags.Bool("version", false, "Display version information and exit")
 
 	flags.Usage = func() {
@@ -80,7 +82,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	session := agent.NewSessionWithMode(client, cwd, mode)
 
 	hw, _ := probe.Detect()
-	model := tui.NewWithSession(session, hw, *yoloFlag)
+	model := tui.NewWithSession(session, hw, *yoloFlag, *nameFlag, *operatorFlag)
 	model.SetVerbose(*verboseFlag)
 
 	// If prompt passed via flags or positional arguments, pre-populate

@@ -7,6 +7,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -17,6 +18,7 @@ import (
 	"syscall"
 
 	"github.com/boggycreek/lokol/liblokol/agent"
+	"github.com/boggycreek/lokol/liblokol/config"
 	"github.com/boggycreek/lokol/liblokol/model"
 	"github.com/boggycreek/lokol/liblokol/probe"
 	"github.com/boggycreek/lokol/liblokol/setup"
@@ -37,6 +39,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	topFlags.StringVar(promptFlag, "p", "", "Run prompt directly in headless mode (shorthand)")
 	topMode := topFlags.String("mode", "general", "Operational mode: general (default), coding, or moe (alias: -m)")
 	topFlags.StringVar(topMode, "m", "general", "Operational mode (shorthand)")
+	topName := topFlags.String("name", "", "Agent persona name (overrides persistent config)")
+	topOperator := topFlags.String("operator", "", "Operator name (overrides persistent config)")
 	topEngine := topFlags.String("engine", "http://127.0.0.1:8080", "URL of local llama-server engine")
 	topMaxTurns := topFlags.Int("max-turns", 15, "Max turns for agent loop in headless mode")
 	topVerbose := topFlags.Bool("verbose", false, "Display internal reasoning tokens and verbose tool activity")
@@ -60,6 +64,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	execEngine := execCmd.String("engine", "http://127.0.0.1:8080", "URL of local llama-server engine")
 	execMode := execCmd.String("mode", "coding", "Operational mode: coding (default for exec), general, or moe (alias: -m)")
 	execCmd.StringVar(execMode, "m", "coding", "Operational mode (shorthand)")
+	execName := execCmd.String("name", "", "Agent persona name (overrides persistent config)")
+	execOperator := execCmd.String("operator", "", "Operator name (overrides persistent config)")
 	execMaxTurns := execCmd.Int("max-turns", 15, "Max turns for agent loop")
 	execVerbose := execCmd.Bool("verbose", false, "Display internal reasoning tokens and verbose tool activity")
 	execCmd.BoolVar(execVerbose, "v", false, "Display internal reasoning tokens (shorthand)")
@@ -96,11 +102,13 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 		if *promptFlag != "" {
 			m, _ := agent.ParseMode(*topMode)
-			return runExec(*topEngine, *topMaxTurns, *promptFlag, *topVerbose, m, stdout, stderr)
+			return runExec(*topEngine, *topMaxTurns, *promptFlag, *topVerbose, m, stdout, stderr, *topName, *topOperator)
 		}
 		// If remaining arguments exist after parsing flags
 		if topFlags.NArg() > 0 {
 			switch topFlags.Arg(0) {
+			case "config":
+				return runConfig(topFlags.Args()[1:], stdout, stderr)
 			case "setup":
 				if err := setupCmd.Parse(topFlags.Args()[1:]); err != nil {
 					if errors.Is(err, flag.ErrHelp) {
@@ -131,7 +139,15 @@ func run(args []string, stdout, stderr io.Writer) int {
 					return 1
 				}
 				m, _ := agent.ParseMode(*execMode)
-				return runExec(*execEngine, *execMaxTurns, prompt, *execVerbose || *topVerbose, m, stdout, stderr)
+				nameArg := *execName
+				if nameArg == "" {
+					nameArg = *topName
+				}
+				opArg := *execOperator
+				if opArg == "" {
+					opArg = *topOperator
+				}
+				return runExec(*execEngine, *execMaxTurns, prompt, *execVerbose || *topVerbose, m, stdout, stderr, nameArg, opArg)
 			case "update":
 				if err := updateCmd.Parse(topFlags.Args()[1:]); err != nil {
 					if errors.Is(err, flag.ErrHelp) {
@@ -150,6 +166,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 
 	switch args[1] {
+	case "config":
+		return runConfig(args[2:], stdout, stderr)
 	case "setup":
 		if err := setupCmd.Parse(args[2:]); err != nil {
 			if errors.Is(err, flag.ErrHelp) {
@@ -180,7 +198,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		m, _ := agent.ParseMode(*execMode)
-		return runExec(*execEngine, *execMaxTurns, prompt, *execVerbose, m, stdout, stderr)
+		return runExec(*execEngine, *execMaxTurns, prompt, *execVerbose, m, stdout, stderr, *execName, *execOperator)
 	case "update":
 		if err := updateCmd.Parse(args[2:]); err != nil {
 			if errors.Is(err, flag.ErrHelp) {
@@ -202,16 +220,70 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "lokol - Local-first autonomous AI agent for consumer GPUs")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Usage:")
-	fmt.Fprintln(w, "  lokol exec   [--engine=...] [-m general|coding|moe] [-v] <prompt>  Run autonomous agent in headless mode")
+	fmt.Fprintln(w, "  lokol exec   [--engine=...] [-m general|coding|moe] [--name=...] [--operator=...] [-v] <prompt>  Run autonomous agent in headless mode")
 	fmt.Fprintln(w, "  lokol setup  [--download-model] [--install-llama]                  Bootstrap environment, probe hardware & check dependencies")
 	fmt.Fprintln(w, "  lokol probe  [--simulate-vram-gib=X] [-m general|coding|moe]       Probe host capabilities and compute optimal model tier")
+	fmt.Fprintln(w, "  lokol config [show | set-name <name> | set-operator <name>]        Inspect or update persistent agent persona configuration")
 	fmt.Fprintln(w, "  lokol update [--pre] [--version=vX]                                Update to latest release from GitHub (or specific version)")
 	fmt.Fprintln(w, "  lokol update --list                                                List all published releases available on GitHub")
 	fmt.Fprintln(w, "  lokol [-p | --prompt] \"<prompt>\" [-m mode] [-v]                     Run agent in headless mode directly")
 	fmt.Fprintln(w, "  lokol version                                                     Display version")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Interactive TUI:")
-	fmt.Fprintln(w, "  lk           [--engine=...] [-m general|coding|moe] [--yolo] [-v]  Launch interactive Bubble Tea TUI agent")
+	fmt.Fprintln(w, "  lk           [--engine=...] [-m general|coding|moe] [--name=...] [--operator=...] [--yolo] [-v]  Launch interactive Bubble Tea TUI agent")
+}
+
+func runConfig(args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 || args[0] == "show" {
+		cfg, err := config.Load()
+		if err != nil {
+			fmt.Fprintf(stderr, "Error loading config: %v\n", err)
+			return 1
+		}
+		data, err := json.MarshalIndent(cfg, "", "  ")
+		if err != nil {
+			fmt.Fprintf(stderr, "Error marshaling config: %v\n", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, string(data))
+		return 0
+	}
+
+	switch args[0] {
+	case "set-name":
+		if len(args) < 2 || strings.TrimSpace(args[1]) == "" {
+			fmt.Fprintf(stderr, "Error: missing name argument. Usage: lokol config set-name <agent-name>\n")
+			return 1
+		}
+		name := strings.TrimSpace(args[1])
+		cfg, _ := config.Load()
+		cfg.AgentName = name
+		if err := config.Save(cfg); err != nil {
+			fmt.Fprintf(stderr, "Error saving config: %v\n", err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "Agent persona name set to %q in %s\n", name, config.ConfigPath())
+		return 0
+
+	case "set-operator":
+		if len(args) < 2 || strings.TrimSpace(args[1]) == "" {
+			fmt.Fprintf(stderr, "Error: missing operator argument. Usage: lokol config set-operator <operator-name>\n")
+			return 1
+		}
+		op := strings.TrimSpace(args[1])
+		cfg, _ := config.Load()
+		cfg.OperatorName = op
+		if err := config.Save(cfg); err != nil {
+			fmt.Fprintf(stderr, "Error saving config: %v\n", err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "Operator name set to %q in %s\n", op, config.ConfigPath())
+		return 0
+
+	default:
+		fmt.Fprintf(stderr, "Unknown config command %q. Usage: lokol config [show | set-name <name> | set-operator <name>]\n", args[0])
+		return 1
+	}
 }
 
 func runUpdate(allowPre bool, targetVersion string, listOnly bool, stdout, stderr io.Writer) int {
@@ -240,18 +312,28 @@ func runSetup(downloadModel bool, simVRAM float64, installLlama bool, stdout, st
 	return 0
 }
 
-func runExec(engineURL string, maxTurns int, prompt string, verbose bool, mode agent.Mode, stdout, stderr io.Writer) int {
+func runExec(engineURL string, maxTurns int, prompt string, verbose bool, mode agent.Mode, stdout, stderr io.Writer, persona ...string) int {
 	workDir, _ := os.Getwd()
 	client := agent.NewClient(engineURL)
 	stepCount := 0
 	finished := false
 
+	var agentName, operatorName string
+	if len(persona) > 0 {
+		agentName = persona[0]
+	}
+	if len(persona) > 1 {
+		operatorName = persona[1]
+	}
+
 	runner := &agent.Runner{
-		Client:   client,
-		MaxTurns: maxTurns,
-		YOLO:     true,
-		WorkDir:  workDir,
-		Mode:     mode,
+		Client:       client,
+		MaxTurns:     maxTurns,
+		YOLO:         true,
+		WorkDir:      workDir,
+		Mode:         mode,
+		AgentName:    agentName,
+		OperatorName: operatorName,
 		OnOutput: func(role, content string) {
 			if verbose {
 				switch role {

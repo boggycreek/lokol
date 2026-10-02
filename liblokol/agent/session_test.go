@@ -237,7 +237,7 @@ func TestAction_PresentationHelpers(t *testing.T) {
 				Name:    "get_environment",
 				Command: "",
 			},
-			wantTarget:  "environment",
+			wantTarget:  "",
 			wantVerbose: "⚡ Inspecting Environment",
 		},
 		{

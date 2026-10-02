@@ -401,7 +401,7 @@ func (a *Action) TargetSummary() string {
 	case "exec_bash", "run_test":
 		return strings.TrimSpace(a.Command)
 	case "get_environment":
-		return "environment"
+		return ""
 	case "find_files":
 		if input, _ := refinery.ParseFindFilesPayload(a.Command); input != nil && input.Pattern != "" {
 			return input.Pattern

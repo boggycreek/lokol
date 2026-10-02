@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/boggycreek/lokol/liblokol/catalog"
+	"github.com/boggycreek/lokol/liblokol/config"
 	"github.com/boggycreek/lokol/liblokol/regulator"
 )
 
@@ -33,10 +34,12 @@ type Message struct {
 
 // HostEnvironment represents the active host environment details injected into the system prompt.
 type HostEnvironment struct {
-	Cwd   string
-	OS    string
-	Shell string
-	Files []string
+	AgentName    string
+	OperatorName string
+	Cwd          string
+	OS           string
+	Shell        string
+	Files        []string
 }
 
 // DetectHostEnvironment resolves the active host environment using the given working directory.
@@ -82,11 +85,15 @@ func DetectHostEnvironment(workDir string) HostEnvironment {
 		}
 	}
 
+	cfg, _ := config.Load()
+
 	return HostEnvironment{
-		Cwd:   cwd,
-		OS:    runtime.GOOS,
-		Shell: shell,
-		Files: files,
+		AgentName:    cfg.GetAgentName(),
+		OperatorName: cfg.GetOperatorName(),
+		Cwd:          cwd,
+		OS:           runtime.GOOS,
+		Shell:        shell,
+		Files:        files,
 	}
 }
 
@@ -113,12 +120,20 @@ func (env HostEnvironment) FormatEnvironmentTag() string {
 			shell = "/bin/bash"
 		}
 	}
+	agentName := env.AgentName
+	if agentName == "" {
+		agentName = config.DefaultAgentName
+	}
+	operatorName := env.OperatorName
+	if operatorName == "" {
+		operatorName = config.DefaultOperatorName
+	}
 	var filesBlock string
 	if len(env.Files) > 0 {
 		filesBlock = fmt.Sprintf("\n<files>%s</files>", strings.Join(env.Files, ", "))
 	}
 
-	return fmt.Sprintf("<environment>\n<cwd>%s</cwd>\n<os>%s</os>\n<shell>%s</shell>%s\n</environment>", cwd, osName, shell, filesBlock)
+	return fmt.Sprintf("<environment>\n<agent_name>%s</agent_name>\n<operator_name>%s</operator_name>\n<cwd>%s</cwd>\n<os>%s</os>\n<shell>%s</shell>%s\n</environment>", agentName, operatorName, cwd, osName, shell, filesBlock)
 }
 
 // SystemPromptBase provides lean instructions tailored for 7B/3B models adhering to ADR-0024.
@@ -132,9 +147,14 @@ var SystemPrompt = "You are lokol, a local-first autonomous coding agent.\nSolve
 
 // BuildSystemPromptWithEnv returns the full system prompt with host environment context injected.
 func BuildSystemPromptWithEnv(env HostEnvironment) string {
-	return fmt.Sprintf("You are lokol, a local-first autonomous coding agent.\nSolve coding tasks by inspecting files, writing code, and testing.\n\n%s\n\n%s",
+	agentName := env.AgentName
+	if agentName == "" {
+		agentName = config.DefaultAgentName
+	}
+	return fmt.Sprintf("You are %s, a local-first autonomous coding agent.\nSolve coding tasks by inspecting files, writing code, and testing.\n\n%s\n\n%s",
+		agentName,
 		env.FormatEnvironmentTag(),
-		SystemPromptBase,
+		catalog.DefaultRegistry.FormatBasePrompt("coding", agentName),
 	)
 }
 

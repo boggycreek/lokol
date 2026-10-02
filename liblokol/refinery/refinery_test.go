@@ -100,6 +100,58 @@ func (s *Service) Login(user, pass string) (string, error) {
 	if !strings.Contains(dirErr.Error(), "is a directory, not a file") {
 		t.Errorf("expected directory rejection guidance, got: %v", dirErr)
 	}
+
+	// Verify non-code file rejection (Markdown, JSON, TXT, YAML)
+	readmeFile := filepath.Join(tmpDir, "README.md")
+	if err := os.WriteFile(readmeFile, []byte("# Project\nThis is a readme"), 0644); err != nil {
+		t.Fatalf("failed to write test README.md: %v", err)
+	}
+	_, mdErr := refinery.ReadOutline(readmeFile)
+	if mdErr == nil {
+		t.Fatalf("expected ReadOutline on README.md to fail, got nil")
+	}
+	if !strings.Contains(mdErr.Error(), "Markdown documentation file") || !strings.Contains(mdErr.Error(), "read_window") {
+		t.Errorf("expected actionable read_window guidance for README.md, got: %v", mdErr)
+	}
+
+	jsonFile := filepath.Join(tmpDir, "config.json")
+	if err := os.WriteFile(jsonFile, []byte(`{"key": "value"}`), 0644); err != nil {
+		t.Fatalf("failed to write test config.json: %v", err)
+	}
+	_, jsonErr := refinery.ReadOutline(jsonFile)
+	if jsonErr == nil {
+		t.Fatalf("expected ReadOutline on config.json to fail, got nil")
+	}
+	if !strings.Contains(jsonErr.Error(), "JSON data file") || !strings.Contains(jsonErr.Error(), "read_window") {
+		t.Errorf("expected actionable read_window guidance for config.json, got: %v", jsonErr)
+	}
+
+	// Verify empty code file outline guidance
+	emptyPy := filepath.Join(tmpDir, "constants.py")
+	if err := os.WriteFile(emptyPy, []byte("X = 1\nY = 2\n"), 0644); err != nil {
+		t.Fatalf("failed to write test constants.py: %v", err)
+	}
+	pyOutline, err := refinery.ReadOutline(emptyPy)
+	if err != nil {
+		t.Fatalf("unexpected error on constants.py: %v", err)
+	}
+	if !strings.Contains(pyOutline, "No top-level functions, classes, or types detected. Use read_window to inspect file contents.") {
+		t.Errorf("expected guidance on empty outline, got: %s", pyOutline)
+	}
+}
+
+func TestParseReadWindowPayload_Fallbacks(t *testing.T) {
+	// Standard <path>, <start>, <end>
+	p1, err := refinery.ParseReadWindowPayload("<path>main.go</path><start>5</start><end>25</end>")
+	if err != nil || p1.Path != "main.go" || p1.StartLine != 5 || p1.EndLine != 25 {
+		t.Fatalf("unexpected parse result: %+v, err: %v", p1, err)
+	}
+
+	// Fallback tags: <file>, <start_line>, <end_line>
+	p2, err := refinery.ParseReadWindowPayload("<file>lib/test.go</file><start_line>10</start_line><end_line>40</end_line>")
+	if err != nil || p2.Path != "lib/test.go" || p2.StartLine != 10 || p2.EndLine != 40 {
+		t.Fatalf("unexpected fallback parse result: %+v, err: %v", p2, err)
+	}
 }
 
 func TestRunTestVerifier(t *testing.T) {
@@ -146,6 +198,12 @@ func TestGetEnvironment(t *testing.T) {
 	if env.Shell == "" {
 		t.Errorf("expected non-empty Shell")
 	}
+	if env.AgentName == "" {
+		t.Errorf("expected non-empty AgentName")
+	}
+	if env.OperatorName == "" {
+		t.Errorf("expected non-empty OperatorName")
+	}
 	if env.Git.IsRepo {
 		t.Errorf("expected Git.IsRepo to be false in temp dir, got true")
 	}
@@ -155,8 +213,8 @@ func TestGetEnvironment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FormatJSON failed: %v", err)
 	}
-	if !strings.Contains(jsonStr, "\"working_directory\"") || !strings.Contains(jsonStr, "\"os\"") {
-		t.Errorf("expected JSON to contain working_directory and os keys, got:\n%s", jsonStr)
+	if !strings.Contains(jsonStr, "\"working_directory\"") || !strings.Contains(jsonStr, "\"os\"") || !strings.Contains(jsonStr, "\"agent_name\"") || !strings.Contains(jsonStr, "\"operator_name\"") {
+		t.Errorf("expected JSON to contain working_directory, os, agent_name, and operator_name keys, got:\n%s", jsonStr)
 	}
 
 	// 3. Test git detection
