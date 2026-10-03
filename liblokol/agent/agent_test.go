@@ -101,6 +101,22 @@ func TestParseAction(t *testing.T) {
 			wantCommand: "<path>example.txt</path>\n<content>To run a command, use: <action name=\"exec_bash\">ls</action_example></content>",
 			wantThought: "Adding code example.",
 		},
+		{
+			name: "nested markdown code fences with triple backticks inside write_file",
+			input: "Writing markdown document.\n<action name=\"write_file\">\n<path>README.md</path>\n<content>\n```go\nfunc main() {}\n```\n</content>\n</action>",
+			wantAction: true,
+			wantName: "write_file",
+			wantCommand: "<path>README.md</path>\n<content>\n```go\nfunc main() {}\n```\n</content>",
+			wantThought: "Writing markdown document.",
+		},
+		{
+			name: "action enclosed in markdown code fences without closing action tag",
+			input: "I will run tests.\n```xml\n<action name=\"exec_bash\">\ngo test ./...\n```",
+			wantAction: true,
+			wantName: "exec_bash",
+			wantCommand: "go test ./...",
+			wantThought: "I will run tests.",
+		},
 		// --- Edge Cases: Malformed XML handling (lokol-f78.1) ---
 		{
 			name:        "malformed XML missing name attribute",

@@ -342,11 +342,20 @@ type Action struct {
 	CleanThought string // Prose explanation before the action tag
 }
 
-var actionRegex = regexp.MustCompile(`(?s)(?:` + "```" + `(?:xml)?\s*)?<action\s+name=["']?([a-zA-Z0-9_-]+)["']?\s*>(.*?)(?:</action>|` + "```" + `|$)`)
+var (
+	// actionWithCloseRegex extracts an action when a formal closing </action> is present.
+	// This ensures inner markdown code blocks or backticks within payloads do not prematurely truncate the action.
+	actionWithCloseRegex = regexp.MustCompile(`(?s)(?:` + "```" + `(?:xml)?\s*)?<action\s+name=["']?([a-zA-Z0-9_-]+)["']?\s*>(.*?)</action>`)
+	// actionUnclosedRegex handles edge cases where the LLM omitted the closing </action> tag and terminated on EOF or markdown fences.
+	actionUnclosedRegex = regexp.MustCompile(`(?s)(?:` + "```" + `(?:xml)?\s*)?<action\s+name=["']?([a-zA-Z0-9_-]+)["']?\s*>(.*?)(?:` + "```" + `|$)`)
+)
 
 // ParseAction extracts <action name="...">...</action> or fallback JSON actions from agent text.
 func ParseAction(text string) *Action {
-	loc := actionRegex.FindStringSubmatchIndex(text)
+	loc := actionWithCloseRegex.FindStringSubmatchIndex(text)
+	if loc == nil {
+		loc = actionUnclosedRegex.FindStringSubmatchIndex(text)
+	}
 	if loc != nil {
 		thought := strings.TrimSpace(text[:loc[0]])
 		thought = strings.TrimSuffix(thought, "```xml")
