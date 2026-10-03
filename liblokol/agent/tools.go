@@ -104,27 +104,49 @@ func ExecuteReplaceFile(ctx context.Context, payload string, workDir ...string) 
 
 	content = string(data)
 	hasCRLF := strings.Contains(content, "\r\n")
-	contentNorm := strings.ReplaceAll(content, "\r\n", "\n")
+	hasBareLF := strings.Contains(strings.ReplaceAll(content, "\r\n", ""), "\n")
+	isUniformCRLF := hasCRLF && !hasBareLF
+
 	targetNorm := strings.ReplaceAll(input.Target, "\r\n", "\n")
 	replacementNorm := strings.ReplaceAll(input.Replacement, "\r\n", "\n")
 
 	var newContent string
-	if strings.Contains(contentNorm, targetNorm) {
-		newContent = strings.Replace(contentNorm, targetNorm, replacementNorm, 1)
-	} else {
-		// Fallback: check if trimming leading/trailing empty lines matches uniquely
-		trimmedTarget := strings.Trim(targetNorm, "\n")
-		trimmedReplacement := strings.Trim(replacementNorm, "\n")
-		if trimmedTarget != "" && strings.Contains(contentNorm, trimmedTarget) && strings.Count(contentNorm, trimmedTarget) == 1 {
-			newContent = strings.Replace(contentNorm, trimmedTarget, trimmedReplacement, 1)
-		} else {
-			lineCount := strings.Count(contentNorm, "\n") + 1
-			return "", fmt.Errorf("target string not found in %s (%d lines in file). Please inspect the file with read_window to verify exact content, or use write_file to overwrite the file completely", input.Path, lineCount)
+	replaced := false
+
+	// If the file is uniformly CRLF, adapt target and replacement to CRLF and match directly.
+	// This preserves all untouched content byte-identically without full-file re-expansion.
+	if isUniformCRLF {
+		targetCRLF := strings.ReplaceAll(targetNorm, "\n", "\r\n")
+		replacementCRLF := strings.ReplaceAll(replacementNorm, "\n", "\r\n")
+		if strings.Contains(content, targetCRLF) {
+			newContent = strings.Replace(content, targetCRLF, replacementCRLF, 1)
+			replaced = true
 		}
+	} else if strings.Contains(content, input.Target) {
+		// Exact match in file with LF or mixed endings as-is
+		newContent = strings.Replace(content, input.Target, input.Replacement, 1)
+		replaced = true
 	}
 
-	if hasCRLF {
-		newContent = strings.ReplaceAll(strings.ReplaceAll(newContent, "\r\n", "\n"), "\n", "\r\n")
+	if !replaced {
+		contentNorm := strings.ReplaceAll(content, "\r\n", "\n")
+		if strings.Contains(contentNorm, targetNorm) {
+			newContent = strings.Replace(contentNorm, targetNorm, replacementNorm, 1)
+		} else {
+			// Fallback: check if trimming leading/trailing empty lines matches uniquely
+			trimmedTarget := strings.Trim(targetNorm, "\n")
+			trimmedReplacement := strings.Trim(replacementNorm, "\n")
+			if trimmedTarget != "" && strings.Contains(contentNorm, trimmedTarget) && strings.Count(contentNorm, trimmedTarget) == 1 {
+				newContent = strings.Replace(contentNorm, trimmedTarget, trimmedReplacement, 1)
+			} else {
+				lineCount := strings.Count(contentNorm, "\n") + 1
+				return "", fmt.Errorf("target string not found in %s (%d lines in file). Please inspect the file with read_window to verify exact content, or use write_file to overwrite the file completely", input.Path, lineCount)
+			}
+		}
+
+		if isUniformCRLF {
+			newContent = strings.ReplaceAll(newContent, "\n", "\r\n")
+		}
 	}
 
 	if err := validatePreWriteTarget(targetPath, workDir...); err != nil {
@@ -212,65 +234,9 @@ func ExecuteWriteFile(ctx context.Context, payload string, workDir ...string) (s
 	return fmt.Sprintf("Successfully wrote %d bytes to %s", len(input.Content), input.Path), nil
 }
 
+// extractTagContent delegates to catalog.ExtractTagContent for single-source-of-truth XML tag extraction.
 func extractTagContent(xml, tag string) string {
-	startTag := "<" + tag + ">"
-	endTag := "</" + tag + ">"
-
-	startIdx := -1
-	if idx := strings.Index(xml, startTag); idx != -1 {
-		startIdx = idx + len(startTag)
-	} else {
-		// Search for <tag with attributes, ensuring tag boundary check (lokol-oxb.1)
-		prefix := "<" + tag
-		offset := 0
-		for {
-			idx := strings.Index(xml[offset:], prefix)
-			if idx == -1 {
-				return ""
-			}
-			pos := offset + idx
-			afterTag := pos + len(prefix)
-			if afterTag < len(xml) {
-				nextChar := xml[afterTag]
-				if nextChar == '>' {
-					startIdx = afterTag + 1
-					break
-				}
-				if nextChar == ' ' || nextChar == '\t' || nextChar == '\n' || nextChar == '\r' {
-					closingBracket := strings.Index(xml[afterTag:], ">")
-					if closingBracket != -1 {
-						if closingBracket > 0 && xml[afterTag+closingBracket-1] == '/' {
-							return ""
-						}
-						startIdx = afterTag + closingBracket + 1
-						break
-					}
-				}
-			}
-			offset = pos + len(prefix)
-		}
-	}
-
-	if startIdx == -1 {
-		return ""
-	}
-
-	endIdx := strings.Index(xml[startIdx:], endTag)
-	if endIdx == -1 {
-		// Tag was not closed explicitly; take remainder of xml up to </action> or end
-		val := xml[startIdx:]
-		if actEnd := strings.Index(val, "</action>"); actEnd != -1 {
-			val = val[:actEnd]
-		}
-		val = strings.TrimPrefix(val, "\n")
-		val = strings.TrimSuffix(val, "\n")
-		return val
-	}
-
-	val := xml[startIdx : startIdx+endIdx]
-	val = strings.TrimPrefix(val, "\n")
-	val = strings.TrimSuffix(val, "\n")
-	return val
+	return catalog.ExtractTagContent(xml, tag)
 }
 
 // ExecuteReadOutline returns the outline of types and function signatures for a file.

@@ -164,6 +164,21 @@ func TestExecuteReplaceFile(t *testing.T) {
 	if string(dataLF) != expectedLF {
 		t.Errorf("got %q, want %q", string(dataLF), expectedLF)
 	}
+
+	// Test that mixed-ending files do not have unaffected LF converted to CRLF
+	mixedFilePath := tmpDir + "/test_mixed.txt"
+	if err := os.WriteFile(mixedFilePath, []byte("crlf_line\r\nlf_line1\nlf_line2\n"), 0644); err != nil {
+		t.Fatalf("failed to write mixed file: %v", err)
+	}
+	payloadMixed := fmt.Sprintf("<path>%s</path>\n<target>crlf_line</target>\n<replacement>new_crlf_line</replacement>", mixedFilePath)
+	if _, err := agent.ExecuteReplaceFile(context.Background(), payloadMixed, tmpDir); err != nil {
+		t.Fatalf("replace mixed failed: %v", err)
+	}
+	dataMixed, _ := os.ReadFile(mixedFilePath)
+	expectedMixed := "new_crlf_line\r\nlf_line1\nlf_line2\n"
+	if string(dataMixed) != expectedMixed {
+		t.Errorf("got %q, want %q", string(dataMixed), expectedMixed)
+	}
 }
 
 func TestExecuteWriteFile(t *testing.T) {
@@ -505,6 +520,3 @@ func TestStreamResponse_SSEWithoutSpace(t *testing.T) {
 		t.Errorf("expected %q, got %q", expected, fullContent)
 	}
 }
-
-
-
