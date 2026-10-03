@@ -310,3 +310,41 @@ func TestPipeline_CustomStageExtensibility(t *testing.T) {
 		t.Errorf("expected policy reason, got: %s", res.Reason)
 	}
 }
+
+func TestPipeline_BoundaryViolationsTripCircuitBreaker(t *testing.T) {
+	workDir := t.TempDir()
+	p := regulator.DefaultPipeline(workDir)
+
+	action := regulator.ActionCandidate{
+		Name:    "read_window",
+		Path:    "../../etc/passwd",
+		Command: "<path>../../etc/passwd</path>",
+	}
+
+	// Turn 1: Boundary blocks
+	res1 := p.Regulate(context.Background(), action)
+	if res1.Status != regulator.StatusBlocked || res1.Stage != "boundary" {
+		t.Fatalf("turn 1: expected StatusBlocked from boundary, got status=%s stage=%s", res1.Status, res1.Stage)
+	}
+
+	// Turn 2: Boundary blocks (circuit breaker warning is medium, boundary blocks with higher precedence)
+	res2 := p.Regulate(context.Background(), action)
+	if res2.Status != regulator.StatusBlocked || res2.Stage != "boundary" {
+		t.Fatalf("turn 2: expected StatusBlocked from boundary, got status=%s stage=%s", res2.Status, res2.Stage)
+	}
+
+	// Turn 3: Circuit breaker intervenes with high risk warning directive
+	res3 := p.Regulate(context.Background(), action)
+	if res3.Status != regulator.StatusWarning || res3.Stage != "loop_circuit_breaker" || res3.RiskLevel != regulator.RiskLevelHigh {
+		t.Fatalf("turn 3: expected StatusWarning from circuit breaker, got status=%s stage=%s risk=%s", res3.Status, res3.Stage, res3.RiskLevel)
+	}
+
+	// Turn 4: Circuit breaker trips and halts the loop
+	res4 := p.Regulate(context.Background(), action)
+	if res4.Status != regulator.StatusBlocked || res4.Stage != "loop_circuit_breaker" || res4.RiskLevel != regulator.RiskLevelCritical {
+		t.Fatalf("turn 4: expected StatusBlocked from circuit breaker, got status=%s stage=%s risk=%s", res4.Status, res4.Stage, res4.RiskLevel)
+	}
+	if !strings.Contains(res4.Reason, "Circuit breaker tripped") {
+		t.Errorf("turn 4: expected circuit breaker tripped reason, got: %s", res4.Reason)
+	}
+}

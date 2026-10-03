@@ -193,8 +193,11 @@ func TestSlotGovernor_ZeroAndNegativeContext(t *testing.T) {
 
 	stage := regulator.NewInferenceSlotGovernorStage(provider)
 	res := stage.Evaluate(context.Background(), regulator.ActionCandidate{Name: "read_window"}, ".")
-	if res.Status != regulator.StatusAllowed {
-		t.Errorf("expected StatusAllowed for NCtx=0, got: %s", res.Status)
+	if res.Status != regulator.StatusWarning {
+		t.Errorf("expected StatusWarning for NCtx=0, got: %s", res.Status)
+	}
+	if !strings.Contains(res.Reason, "Slot metrics unavailable (NCtx=0)") {
+		t.Errorf("expected caution reason for NCtx=0, got: %s", res.Reason)
 	}
 }
 

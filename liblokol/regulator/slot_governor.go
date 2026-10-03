@@ -122,9 +122,12 @@ func (s *InferenceSlotGovernorStage) Evaluate(ctx context.Context, action Action
 
 	if metrics == nil || metrics.NCtx <= 0 {
 		return PermissionResult{
-			Status:    StatusAllowed,
-			RiskLevel: RiskLevelNone,
-			Stage:     s.Name(),
+			Status:      StatusWarning,
+			Reason:      "Slot metrics unavailable (NCtx=0), proceeding with caution",
+			RiskLevel:   RiskLevelLow,
+			Target:      action.Name,
+			Stage:       s.Name(),
+			Remediation: "Engine slot reported zero or unavailable context window. Verify inference engine initialization if unexpected.",
 		}
 	}
 
