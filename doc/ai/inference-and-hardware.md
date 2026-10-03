@@ -11,9 +11,10 @@ description: >-
 - **The Single-Slot Rule**: Lokol dedicates 100% of GPU VRAM to a single inference slot (`-np 1`) ([ADR 0002](../adr/0002-hardware-tiering-and-constrained-vram.md)).
 - **Zero Host RAM Thrashing**: On consumer hardware (4GB–12GB VRAM), splitting slots leads to KV cache spillover into system RAM, collapsing generation throughput from ~30 tok/s to <2 tok/s.
 - **Hardware Tiering Policy**:
-  - **Tier 1 (12GB+ VRAM, e.g. RTX 3060/4070)**: 7B–14B models (Q4_K_M / Q5_K_M) with 32k–64k context windows.
-  - **Tier 2 (8GB VRAM, e.g. RTX 3070/4060)**: 7B–8B models (Q4_K_M) with 16k–32k context windows.
-  - **Tier 3 (4GB–6GB VRAM, e.g. GTX 1650)**: 3B models (Q4_K_M) or compact MoE architectures with 8k–16k context windows.
+  - **Tier 1 (High VRAM ≥ 12GB, e.g. RTX 3060/4070)**: 7B–14B models (Q4_K_M / Q5_K_M) with 32k–64k context windows.
+  - **Tier 2 (Mid VRAM 6GB–10GB, e.g. RTX 2060/3050/4050/4060)**: 7B–8B models (Q4_K_M) with 16k–32k context windows, or 3B models with 64k context.
+  - **Tier 3 (Constrained GPU 4GB–6GB, e.g. GTX 1650 Max-Q)**: 3B models (Q4_K_M) with 16k–32k context windows offloaded 100% to VRAM, or compact MoE architectures.
+  - **Tier 4 (CPU Fallback < 4GB VRAM or No Dedicated GPU)**: Pure host RAM execution with AVX2/AVX-512 vector acceleration, compact 1.5B–3B models with 8k–16k context, ensuring functional capability on any standard workstation.
 
 ## Dynamic Mixture of Experts (MoE) Routing
 - **Sparse Activation on Local Hardware**: High total parameter counts (e.g. 14B–16B) with low active parameter counts (2.4B–3B per token) ([ADR 0008](../adr/0008-dynamic-moe-expert-routing.md)).

@@ -24,14 +24,19 @@ lokol/
 │       ├── Makefile        # Subproject Makefile
 │       └── test/           # Local test harness (data/ & tmp/ isolated)
 ├── doc/
-│   └── adr/                # Architecture Decision Records (ADR-0001 – ADR-0018)
+│   ├── adr/                # Architecture Decision Records (ADR-0001 – ADR-0029)
+│   ├── ai/                 # Architecture & topic guides for autonomous agents
+│   └── research/           # Research notes & design explorations
 ├── liblokol/               # Core agent engine SDK (0 external dependencies)
 │   ├── Makefile            # Subproject Makefile
 │   ├── agent/              # Deterministic agent loop, SSE streaming & action parser
+│   ├── catalog/            # Progressive tool disclosure, tier filtering & action execution
+│   ├── config/             # Persistent configuration loading & validation
 │   ├── mcp/                # Pure-Go MCP JSON-RPC protocol implementation
 │   ├── model/              # Hardware sizing & VRAM-tier model selection matrix
 │   ├── probe/              # Pure Go hardware & GPU capability prober
 │   ├── refinery/           # Context refinery: bounded reads, AST outlines, test filtering
+│   ├── regulator/          # Safety pipeline, circuit breakers & heuristic risk scoring
 │   ├── setup/              # Environment auditing, dependency bootstrap & weight verifier
 │   ├── update/             # Release updater: GitHub release fetching, semver targets
 │   ├── version/            # Build-time version metadata (injected via ldflags)

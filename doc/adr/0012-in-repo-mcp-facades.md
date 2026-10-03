@@ -36,7 +36,7 @@ Running local models (e.g. 7B and 3B parameter models) as autonomous agents requ
 We need an overarching architectural policy governing all tools and services maintained within this repository.
 
 ## Decision
-We adopt the **Facade Pattern across ALL Model Context Protocol (MCP) servers** maintained within the `lokol` repository (`lokol-mcp`, `lokol-memory`, etc.):
+We adopt the **Facade Pattern across ALL Model Context Protocol (MCP) servers** maintained within the `lokol` repository (`lokol-mcp` as the active context refinery facade, with domain-specific facades such as `lokol-memory` planned as future work):
 
 ```mermaid
 flowchart TD
@@ -47,8 +47,8 @@ flowchart TD
     end
 
     subgraph MCPFacades ["In-Repo MCP Facades (Maintained in this Repo)"]
-        Refinery["lokol-mcp (Context Refinery)\nTools: read_outline, read_window, run_test"]
-        MemoryFacade["lokol-memory (Memory Facade)\nTools: remember, recall, search_code"]
+        Refinery["lokol-mcp (Active Context Refinery)\nTools: read_outline, read_window, run_test"]
+        MemoryFacade["lokol-memory (Planned Future Work)\nTools: remember, recall, search_code"]
     end
 
     subgraph VolatileBackends ["Volatile / Noisy Backends (Encapsulated)"]
@@ -81,7 +81,7 @@ The in-repo MCP servers are explicitly responsible for **mechanical pre-filterin
 - `read_outline`: Filters raw source code down to struct/function signatures, preventing the LLM from ingesting whole files.
 - `read_window`: Strictly bounds reading to <= 100 lines.
 - `run_test`: Intercepts raw test runner stdout; suppresses thousands of lines of passing noise and stack traces, returning only the failing assertion line.
-- `recall` / `search_code`: Queries the local vector database and extracts only the top 3–5 exact chunks (<500 tokens), preventing raw vector dumps.
+- `recall` / `search_code` (Planned): Queries the local vector database and extracts only the top 3–5 exact chunks (<500 tokens), preventing raw vector dumps.
 
 ### 3. Encapsulation & Backend Replaceability
 Because the MCP servers act as facades:
@@ -97,5 +97,5 @@ Because the MCP servers act as facades:
 - **Total Decoupling**: Underlying libraries, compilers, and vector databases can be upgraded or replaced without breaking prompt contracts or agent control flow.
 
 ### Negative / Trade-offs
-- Each capability domain requires maintaining its companion MCP facade binary (`lokol-mcp`, `lokol-memory`).
+- Each capability domain requires maintaining its companion MCP facade binary (`lokol-mcp` currently, with future facades such as `lokol-memory` planned).
 - Communication introduces minor loopback stdio JSON-RPC IPC overhead (<1ms, negligible compared to LLM generation).
