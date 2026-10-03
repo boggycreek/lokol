@@ -121,3 +121,21 @@ func (c *Config) GetOperatorName() string {
 	}
 	return DefaultOperatorName
 }
+
+// DataDir returns the root directory for persistent lokol data ($XDG_DATA_HOME/lokol or ~/.local/share/lokol) per ADR-0006.
+func DataDir() string {
+	if dir := os.Getenv("XDG_DATA_HOME"); dir != "" {
+		return filepath.Join(dir, "lokol")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return filepath.Join(".", ".local", "share", "lokol")
+	}
+	return filepath.Join(home, ".local", "share", "lokol")
+}
+
+// MemoryDir returns the root directory for persistent partitioned memories per ADR-0010.
+func MemoryDir() string {
+	return filepath.Join(DataDir(), "memory")
+}
+

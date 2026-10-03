@@ -5,7 +5,7 @@ topic: "Memory & Retrieval"
 theme: "THEME-MEMORY"
 status: "accepted"
 version: "v0.1.0-alpha"
-as_built: false
+as_built: true
 tags:
   - memory
   - persistence
@@ -18,10 +18,7 @@ executive_summary: "Stores long-term agent memories and learned preferences acro
 # ADR 0010: Persistent Memory Storage Architecture in XDG State and Data Directories
 
 ## Status
-Accepted (Implementation Pending)
-
-> [!NOTE]
-> The architectural decision specifying filesystem paths in the XDG hierarchy is accepted, but persistent memory subsystem implementation in `liblokol/` has not yet been built on `main` (tracked in backlog). The `as_built` flag reflects production code availability on `main`.
+Accepted
 
 ## Date
 2026-09-20
