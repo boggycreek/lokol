@@ -373,6 +373,14 @@ func NewWithSession(session agent.SessionCore, hw *probe.HardwareProfile, yoloMo
 				IsProcessing:  slot.IsProcessing,
 			}, nil
 		}))
+		m.regulator.SetCompactor(regulator.CompactorFunc(func(ctx context.Context, metrics *regulator.SlotMetrics) error {
+			reclaimed := session.PruneToolOutputs(2)
+			if reclaimed > 0 {
+				return nil
+			}
+			session.CompactHistory("Older interaction turns summarized due to slot capacity constraints.", 2)
+			return nil
+		}))
 	}
 	return m
 }

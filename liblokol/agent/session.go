@@ -339,4 +339,14 @@ func (s *Session) CompactHistory(summaryLedger string, preserveRecent int) {
 	s.History = CompactHistory(s.History, summaryLedger, preserveRecent)
 }
 
+// Compact implements regulator.Compactor for Session (lokol-f78.5).
+func (s *Session) Compact(ctx context.Context, metrics *regulator.SlotMetrics) error {
+	reclaimed := s.PruneToolOutputs(2)
+	if reclaimed > 0 {
+		return nil
+	}
+	s.CompactHistory("Older interaction turns summarized due to slot capacity constraints.", 2)
+	return nil
+}
+
 

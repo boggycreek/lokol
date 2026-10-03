@@ -42,6 +42,7 @@ type Regulator struct {
 	WorkDir            string
 	SemanticEvaluator  SemanticEvaluator
 	SlotStatusProvider SlotStatusProvider
+	Compactor          Compactor
 	pipeline           *Pipeline
 }
 
@@ -76,7 +77,7 @@ func NewWithSlotProvider(workDir string, evaluator SemanticEvaluator, slotProvid
 func (r *Regulator) Pipeline() *Pipeline {
 	if r.pipeline == nil {
 		if r.SlotStatusProvider != nil {
-			r.pipeline = DefaultPipelineWithSlot(r.WorkDir, r.SemanticEvaluator, r.SlotStatusProvider)
+			r.pipeline = DefaultPipelineWithSlot(r.WorkDir, r.SemanticEvaluator, r.SlotStatusProvider, r.Compactor)
 		} else {
 			r.pipeline = DefaultPipeline(r.WorkDir, r.SemanticEvaluator)
 		}
@@ -93,7 +94,7 @@ func (r *Regulator) SetPipeline(p *Pipeline) {
 func (r *Regulator) SetSemanticEvaluator(evaluator SemanticEvaluator) {
 	r.SemanticEvaluator = evaluator
 	if r.SlotStatusProvider != nil {
-		r.pipeline = DefaultPipelineWithSlot(r.WorkDir, evaluator, r.SlotStatusProvider)
+		r.pipeline = DefaultPipelineWithSlot(r.WorkDir, evaluator, r.SlotStatusProvider, r.Compactor)
 	} else {
 		r.pipeline = DefaultPipeline(r.WorkDir, evaluator)
 	}
@@ -103,9 +104,17 @@ func (r *Regulator) SetSemanticEvaluator(evaluator SemanticEvaluator) {
 func (r *Regulator) SetSlotStatusProvider(provider SlotStatusProvider) {
 	r.SlotStatusProvider = provider
 	if provider != nil {
-		r.pipeline = DefaultPipelineWithSlot(r.WorkDir, r.SemanticEvaluator, provider)
+		r.pipeline = DefaultPipelineWithSlot(r.WorkDir, r.SemanticEvaluator, provider, r.Compactor)
 	} else {
 		r.pipeline = DefaultPipeline(r.WorkDir, r.SemanticEvaluator)
+	}
+}
+
+// SetCompactor configures an active context compactor to be triggered in the Compaction Band (lokol-f78.5).
+func (r *Regulator) SetCompactor(c Compactor) {
+	r.Compactor = c
+	if r.SlotStatusProvider != nil {
+		r.pipeline = DefaultPipelineWithSlot(r.WorkDir, r.SemanticEvaluator, r.SlotStatusProvider, c)
 	}
 }
 

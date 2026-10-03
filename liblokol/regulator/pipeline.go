@@ -285,7 +285,7 @@ func DefaultPipeline(workDir string, evaluator ...SemanticEvaluator) *Pipeline {
 
 // DefaultPipelineWithSlot constructs the standard cost-ordered regulator pipeline including an
 // inference slot governor stage (ADR 0023, ADR 0025, ADR 0026).
-func DefaultPipelineWithSlot(workDir string, evaluator SemanticEvaluator, slotProvider SlotStatusProvider) *Pipeline {
+func DefaultPipelineWithSlot(workDir string, evaluator SemanticEvaluator, slotProvider SlotStatusProvider, compactor ...Compactor) *Pipeline {
 	if evaluator == nil {
 		evaluator = NewNativeCPUEvaluator()
 	}
@@ -299,7 +299,11 @@ func DefaultPipelineWithSlot(workDir string, evaluator SemanticEvaluator, slotPr
 	}
 
 	if slotProvider != nil {
-		stages = append(stages, NewInferenceSlotGovernorStage(slotProvider))
+		var opts []SlotGovernorOption
+		if len(compactor) > 0 && compactor[0] != nil {
+			opts = append(opts, WithCompactor(compactor[0]))
+		}
+		stages = append(stages, NewInferenceSlotGovernorStage(slotProvider, opts...))
 	}
 
 	stages = append(stages, NewSemanticStage(evaluator))
