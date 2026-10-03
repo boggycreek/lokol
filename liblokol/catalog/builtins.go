@@ -183,26 +183,47 @@ func resolveSafePath(path string, workDir ...string) (string, error) {
 	return regulator.CheckPathWithinBounds(wd, path)
 }
 
-func extractTagContent(xml, tag string) string {
+// ExtractTagContent parses the inner text of an XML tag, supporting attributes and whitespace (lokol-oxb.1).
+func ExtractTagContent(xml, tag string) string {
 	startTag := "<" + tag + ">"
 	endTag := "</" + tag + ">"
 
-	startIdx := strings.Index(xml, startTag)
-	if startIdx == -1 {
-		startTagPrefix := "<" + tag
-		idx := strings.Index(xml, startTagPrefix)
-		if idx != -1 {
-			closingBracket := strings.Index(xml[idx:], ">")
-			if closingBracket != -1 {
-				startIdx = idx + closingBracket + 1
-			} else {
+	startIdx := -1
+	if idx := strings.Index(xml, startTag); idx != -1 {
+		startIdx = idx + len(startTag)
+	} else {
+		prefix := "<" + tag
+		offset := 0
+		for {
+			idx := strings.Index(xml[offset:], prefix)
+			if idx == -1 {
 				return ""
 			}
-		} else {
-			return ""
+			pos := offset + idx
+			afterTag := pos + len(prefix)
+			if afterTag < len(xml) {
+				nextChar := xml[afterTag]
+				if nextChar == '>' {
+					startIdx = afterTag + 1
+					break
+				}
+				if nextChar == ' ' || nextChar == '\t' || nextChar == '\n' || nextChar == '\r' {
+					closingBracket := strings.Index(xml[afterTag:], ">")
+					if closingBracket != -1 {
+						if closingBracket > 0 && xml[afterTag+closingBracket-1] == '/' {
+							return ""
+						}
+						startIdx = afterTag + closingBracket + 1
+						break
+					}
+				}
+			}
+			offset = pos + len(prefix)
 		}
-	} else {
-		startIdx += len(startTag)
+	}
+
+	if startIdx == -1 {
+		return ""
 	}
 
 	endIdx := strings.Index(xml[startIdx:], endTag)
@@ -221,6 +242,8 @@ func extractTagContent(xml, tag string) string {
 	val = strings.TrimSuffix(val, "\n")
 	return val
 }
+
+var extractTagContent = ExtractTagContent
 
 func builtinFindFiles(ctx context.Context, payload string, workDir ...string) (string, error) {
 	wd := ""
@@ -285,21 +308,48 @@ func builtinReplaceFile(ctx context.Context, payload string, workDir ...string) 
 	}
 
 	fileContent := string(data)
-	contentNorm := strings.ReplaceAll(fileContent, "\r\n", "\n")
+	hasCRLF := strings.Contains(fileContent, "\r\n")
+	hasBareLF := strings.Contains(strings.ReplaceAll(fileContent, "\r\n", ""), "\n")
+	isUniformCRLF := hasCRLF && !hasBareLF
+
 	targetNorm := strings.ReplaceAll(target, "\r\n", "\n")
 	replacementNorm := strings.ReplaceAll(replacement, "\r\n", "\n")
 
 	var newContent string
-	if strings.Contains(contentNorm, targetNorm) {
-		newContent = strings.Replace(contentNorm, targetNorm, replacementNorm, 1)
-	} else {
-		trimmedTarget := strings.Trim(targetNorm, "\n")
-		trimmedReplacement := strings.Trim(replacementNorm, "\n")
-		if trimmedTarget != "" && strings.Contains(contentNorm, trimmedTarget) && strings.Count(contentNorm, trimmedTarget) == 1 {
-			newContent = strings.Replace(contentNorm, trimmedTarget, trimmedReplacement, 1)
+	replaced := false
+
+	// If the file is uniformly CRLF, adapt target and replacement to CRLF and match directly.
+	// This preserves all untouched content byte-identically without full-file re-expansion.
+	if isUniformCRLF {
+		targetCRLF := strings.ReplaceAll(targetNorm, "\n", "\r\n")
+		replacementCRLF := strings.ReplaceAll(replacementNorm, "\n", "\r\n")
+		if strings.Contains(fileContent, targetCRLF) {
+			newContent = strings.Replace(fileContent, targetCRLF, replacementCRLF, 1)
+			replaced = true
+		}
+	} else if strings.Contains(fileContent, target) {
+		// Exact match in file with LF or mixed endings as-is
+		newContent = strings.Replace(fileContent, target, replacement, 1)
+		replaced = true
+	}
+
+	if !replaced {
+		contentNorm := strings.ReplaceAll(fileContent, "\r\n", "\n")
+		if strings.Contains(contentNorm, targetNorm) {
+			newContent = strings.Replace(contentNorm, targetNorm, replacementNorm, 1)
 		} else {
-			lineCount := strings.Count(contentNorm, "\n") + 1
-			return "", fmt.Errorf("target string not found in %s (%d lines in file). Please inspect the file with read_window to verify exact content, or use write_file to overwrite the file completely", path, lineCount)
+			trimmedTarget := strings.Trim(targetNorm, "\n")
+			trimmedReplacement := strings.Trim(replacementNorm, "\n")
+			if trimmedTarget != "" && strings.Contains(contentNorm, trimmedTarget) && strings.Count(contentNorm, trimmedTarget) == 1 {
+				newContent = strings.Replace(contentNorm, trimmedTarget, trimmedReplacement, 1)
+			} else {
+				lineCount := strings.Count(contentNorm, "\n") + 1
+				return "", fmt.Errorf("target string not found in %s (%d lines in file). Please inspect the file with read_window to verify exact content, or use write_file to overwrite the file completely", path, lineCount)
+			}
+		}
+
+		if isUniformCRLF {
+			newContent = strings.ReplaceAll(newContent, "\n", "\r\n")
 		}
 	}
 

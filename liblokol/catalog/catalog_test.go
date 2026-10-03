@@ -295,3 +295,62 @@ func TestIntentRouter_ConversationalFeedbackAndSummaryQueries(t *testing.T) {
 	}
 }
 
+func TestExtractTagContent(t *testing.T) {
+	// Standard tag
+	xml := "<target>hello world</target>"
+	if got := ExtractTagContent(xml, "target"); got != "hello world" {
+		t.Errorf("expected 'hello world', got %q", got)
+	}
+
+	// Tag prefix collision (<target_dir> before <target>)
+	payload := "<target_dir>/some/dir</target_dir>\n<target>exact_target</target>"
+	if got := ExtractTagContent(payload, "target"); got != "exact_target" {
+		t.Errorf("expected 'exact_target', got %q", got)
+	}
+
+	// Colliding tag only, target missing
+	payloadMissing := "<target_dir>/some/dir</target_dir>"
+	if got := ExtractTagContent(payloadMissing, "target"); got != "" {
+		t.Errorf("expected empty string when tag missing, got %q", got)
+	}
+
+	// Tag with attributes
+	payloadAttr := `<target lang="en" priority="1">attr_target</target>`
+	if got := ExtractTagContent(payloadAttr, "target"); got != "attr_target" {
+		t.Errorf("expected 'attr_target', got %q", got)
+	}
+}
+
+func TestBuiltinReplaceFile_CRLFAndMixed(t *testing.T) {
+	tmpDir := t.TempDir()
+	tool, ok := DefaultRegistry.Get("replace_file")
+	if !ok {
+		t.Fatalf("replace_file tool not found")
+	}
+
+	// 1. Uniform CRLF preservation
+	crlfPath := filepath.Join(tmpDir, "crlf.txt")
+	_ = os.WriteFile(crlfPath, []byte("line1\r\nline2\r\nline3\r\n"), 0644)
+	payloadCRLF := "<path>" + crlfPath + "</path>\n<target>line2</target>\n<replacement>new_line2</replacement>"
+	if _, err := tool.Execute(context.Background(), payloadCRLF, tmpDir); err != nil {
+		t.Fatalf("execute failed: %v", err)
+	}
+	dataCRLF, _ := os.ReadFile(crlfPath)
+	expectedCRLF := "line1\r\nnew_line2\r\nline3\r\n"
+	if string(dataCRLF) != expectedCRLF {
+		t.Errorf("got %q, want %q", string(dataCRLF), expectedCRLF)
+	}
+
+	// 2. Mixed line endings: bare LFs must not be converted to CRLF
+	mixedPath := filepath.Join(tmpDir, "mixed.txt")
+	_ = os.WriteFile(mixedPath, []byte("crlf_line\r\nlf_line1\nlf_line2\n"), 0644)
+	payloadMixed := "<path>" + mixedPath + "</path>\n<target>crlf_line</target>\n<replacement>updated_crlf</replacement>"
+	if _, err := tool.Execute(context.Background(), payloadMixed, tmpDir); err != nil {
+		t.Fatalf("execute failed: %v", err)
+	}
+	dataMixed, _ := os.ReadFile(mixedPath)
+	expectedMixed := "updated_crlf\r\nlf_line1\nlf_line2\n"
+	if string(dataMixed) != expectedMixed {
+		t.Errorf("got %q, want %q", string(dataMixed), expectedMixed)
+	}
+}

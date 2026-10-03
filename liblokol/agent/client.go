@@ -311,10 +311,11 @@ func (c *Client) StreamResponse(ctx context.Context, history []Message, tokenCha
 		}
 
 		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, "data: ") {
+		if !strings.HasPrefix(line, "data:") {
 			continue
 		}
-		dataStr := strings.TrimPrefix(line, "data: ")
+		dataStr := strings.TrimPrefix(line, "data:")
+		dataStr = strings.TrimPrefix(dataStr, " ")
 		if dataStr == "[DONE]" {
 			break
 		}
@@ -624,7 +625,7 @@ func (c *Client) AbortSlot(ctx context.Context, slotID int) error {
 	}
 	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
-		return nil
+		return err
 	}
 	defer resp.Body.Close()
 

@@ -8,6 +8,8 @@ package agent_test
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -102,15 +104,15 @@ func TestParseAction(t *testing.T) {
 }
 
 func TestExecuteReplaceFile(t *testing.T) {
-	// Create a temp file
+	// Create a temp file with CRLF
 	tmpDir := t.TempDir()
-	filePath := tmpDir + "/test.txt"
+	filePath := tmpDir + "/test_crlf.txt"
 	initialContent := "Hello world\r\nFoo bar baz\r\nEnding line"
 	if err := os.WriteFile(filePath, []byte(initialContent), 0644); err != nil {
 		t.Fatalf("failed to write temp file: %v", err)
 	}
 
-	// Test CRLF normalization and exact match
+	// Test CRLF normalization, exact match, and CRLF preservation
 	payload := fmt.Sprintf("<path>%s</path>\n<target>Foo bar baz</target>\n<replacement>Quik replaced this</replacement>", filePath)
 	out, err := agent.ExecuteReplaceFile(context.Background(), payload, tmpDir)
 	if err != nil {
@@ -124,13 +126,13 @@ func TestExecuteReplaceFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to read updated file: %v", err)
 	}
-	expected := "Hello world\nQuik replaced this\nEnding line"
+	expected := "Hello world\r\nQuik replaced this\r\nEnding line"
 	if string(updated) != expected {
 		t.Errorf("got %q, want %q", string(updated), expected)
 	}
 
-	// Test whitespace-trimmed fallback matching
-	targetWithPadding := "\n\nQuik replaced this\n\n"
+	// Test whitespace-trimmed fallback matching with CRLF preservation
+	targetWithPadding := "\n\n\nQuik replaced this\n\n\n"
 	payloadFallback := fmt.Sprintf("<path>%s</path>\n<target>%s</target>\n<replacement>Fallback matched</replacement>", filePath, targetWithPadding)
 	out2, err := agent.ExecuteReplaceFile(context.Background(), payloadFallback, tmpDir)
 	if err != nil {
@@ -138,6 +140,44 @@ func TestExecuteReplaceFile(t *testing.T) {
 	}
 	if !strings.Contains(out2, "Successfully replaced") {
 		t.Errorf("unexpected output: %s", out2)
+	}
+	updated2, err := os.ReadFile(filePath)
+	if err != nil {
+		t.Fatalf("failed to read updated file: %v", err)
+	}
+	expected2 := "Hello world\r\nFallback matched\r\nEnding line"
+	if string(updated2) != expected2 {
+		t.Errorf("got %q, want %q", string(updated2), expected2)
+	}
+
+	// Test that LF files preserve LF endings
+	lfFilePath := tmpDir + "/test_lf.txt"
+	if err := os.WriteFile(lfFilePath, []byte("line1\nline2\nline3"), 0644); err != nil {
+		t.Fatalf("failed to write lf file: %v", err)
+	}
+	payloadLF := fmt.Sprintf("<path>%s</path>\n<target>line2</target>\n<replacement>updated line2</replacement>", lfFilePath)
+	if _, err := agent.ExecuteReplaceFile(context.Background(), payloadLF, tmpDir); err != nil {
+		t.Fatalf("replace LF failed: %v", err)
+	}
+	dataLF, _ := os.ReadFile(lfFilePath)
+	expectedLF := "line1\nupdated line2\nline3"
+	if string(dataLF) != expectedLF {
+		t.Errorf("got %q, want %q", string(dataLF), expectedLF)
+	}
+
+	// Test that mixed-ending files do not have unaffected LF converted to CRLF
+	mixedFilePath := tmpDir + "/test_mixed.txt"
+	if err := os.WriteFile(mixedFilePath, []byte("crlf_line\r\nlf_line1\nlf_line2\n"), 0644); err != nil {
+		t.Fatalf("failed to write mixed file: %v", err)
+	}
+	payloadMixed := fmt.Sprintf("<path>%s</path>\n<target>crlf_line</target>\n<replacement>new_crlf_line</replacement>", mixedFilePath)
+	if _, err := agent.ExecuteReplaceFile(context.Background(), payloadMixed, tmpDir); err != nil {
+		t.Fatalf("replace mixed failed: %v", err)
+	}
+	dataMixed, _ := os.ReadFile(mixedFilePath)
+	expectedMixed := "new_crlf_line\r\nlf_line1\nlf_line2\n"
+	if string(dataMixed) != expectedMixed {
+		t.Errorf("got %q, want %q", string(dataMixed), expectedMixed)
 	}
 }
 
@@ -416,4 +456,67 @@ func TestSession_PersonaConfiguration(t *testing.T) {
 	}
 }
 
+func TestExtractTagContent_Boundaries(t *testing.T) {
+	// Case 1: Tag prefix collision (<target_dir> before <target>)
+	payload := "<path>test.txt</path>\n<target_dir>/some/dir</target_dir>\n<target>exact_target</target>\n<replacement>new_val</replacement>"
+	input, err := agent.ParseReplaceFileInput(payload)
+	if err != nil {
+		t.Fatalf("expected successful parse, got: %v", err)
+	}
+	if input.Target != "exact_target" {
+		t.Errorf("expected Target to be %q, got %q (tag boundary collision)", "exact_target", input.Target)
+	}
 
+	// Case 2: Only colliding tag exists, target does not
+	payloadMissing := "<path>test.txt</path>\n<target_dir>/some/dir</target_dir>\n<replacement>new_val</replacement>"
+	_, err = agent.ParseReplaceFileInput(payloadMissing)
+	if err == nil {
+		t.Fatalf("expected error when <target> is missing and only <target_dir> exists, got nil")
+	}
+
+	// Case 3: Tag with attributes
+	payloadAttr := "<path>test.txt</path>\n<target_file>wrong.txt</target_file>\n<target lang=\"en\">matched_with_attr</target>\n<replacement>bar</replacement>"
+	inputAttr, err := agent.ParseReplaceFileInput(payloadAttr)
+	if err != nil {
+		t.Fatalf("expected successful parse with attribute tag, got: %v", err)
+	}
+	if inputAttr.Target != "matched_with_attr" {
+		t.Errorf("expected Target %q, got %q", "matched_with_attr", inputAttr.Target)
+	}
+}
+
+func TestAbortSlot_ConnectionFailure(t *testing.T) {
+	// Use an invalid/unreachable address to ensure HTTPClient.Do returns an error
+	client := agent.NewClient("http://127.0.0.1:0")
+	err := client.AbortSlot(context.Background(), 0)
+	if err == nil {
+		t.Errorf("expected AbortSlot to return error on connection failure, got nil (lokol-oxb.2)")
+	}
+}
+
+func TestStreamResponse_SSEWithoutSpace(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		// SSE spec allows "data:payload" without a space after colon
+		_, _ = fmt.Fprint(w, "data:{\"choices\":[{\"delta\":{\"content\":\"Hello \"}}]}\n\n")
+		_, _ = fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"World\"}}]}\n\n")
+		_, _ = fmt.Fprint(w, "data:[DONE]\n\n")
+	}))
+	defer server.Close()
+
+	client := agent.NewClient(server.URL)
+	tokenChan := make(chan string, 10)
+	history := []agent.Message{
+		{Role: "user", Content: "Hi"},
+	}
+
+	fullContent, err := client.StreamResponse(context.Background(), history, tokenChan)
+	if err != nil {
+		t.Fatalf("StreamResponse failed: %v", err)
+	}
+	expected := "Hello World"
+	if fullContent != expected {
+		t.Errorf("expected %q, got %q", expected, fullContent)
+	}
+}
