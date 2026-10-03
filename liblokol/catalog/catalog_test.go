@@ -7,6 +7,7 @@ package catalog
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -352,5 +353,80 @@ func TestBuiltinReplaceFile_CRLFAndMixed(t *testing.T) {
 	expectedMixed := "updated_crlf\r\nlf_line1\nlf_line2\n"
 	if string(dataMixed) != expectedMixed {
 		t.Errorf("got %q, want %q", string(dataMixed), expectedMixed)
+	}
+}
+
+func TestTruncateOutputAtLine(t *testing.T) {
+	// 1. Output within budget
+	short := "line 1\nline 2\nline 3\n"
+	if res := TruncateOutputAtLine(short, 100); res != short {
+		t.Errorf("expected short output unchanged, got: %q", res)
+	}
+
+	// 2. Output exceeding budget with newlines
+	lines := make([]string, 20)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("line %02d: detailed log content", i)
+	}
+	longOutput := strings.Join(lines, "\n") + "\n"
+	budget := 100
+	truncated := TruncateOutputAtLine(longOutput, budget)
+
+	if len(truncated) == 0 {
+		t.Fatalf("expected non-empty truncated output")
+	}
+	if !strings.Contains(truncated, "[truncated") || !strings.Contains(truncated, "more lines]") {
+		t.Errorf("expected truncation marker, got: %s", truncated)
+	}
+
+	// Must end on a clean line boundary before marker
+	parts := strings.Split(truncated, "\n[truncated")
+	body := parts[0]
+	lastLine := body[strings.LastIndex(body, "\n")+1:]
+	if !strings.HasPrefix(lastLine, "line ") {
+		t.Errorf("expected clean line cut, got: %q", lastLine)
+	}
+}
+
+func TestExecBash_LineTruncationAndStderr(t *testing.T) {
+	ctx := context.Background()
+	tool, ok := DefaultRegistry.Get("exec_bash")
+	if !ok {
+		t.Fatal("exec_bash not found in DefaultRegistry")
+	}
+
+	// 1. Test line-based truncation on large stdout
+	largeCmd := "seq 1 2000"
+	out, err := tool.Execute(ctx, largeCmd)
+	if err != nil {
+		t.Fatalf("unexpected error executing bash: %v", err)
+	}
+	if !strings.Contains(out, "[truncated") || !strings.Contains(out, "more lines]") {
+		t.Errorf("expected line truncation marker in large output, got: %s", out)
+	}
+
+	// Verify no split number mid-line before truncation marker
+	lines := strings.Split(out, "\n")
+	for _, l := range lines {
+		if strings.HasPrefix(l, "[truncated") {
+			break
+		}
+		// Each line before truncation should be a valid number
+		if strings.TrimSpace(l) != "" {
+			var n int
+			if _, err := fmt.Sscanf(strings.TrimSpace(l), "%d", &n); err != nil {
+				t.Errorf("expected integer line, got broken line: %q", l)
+			}
+		}
+	}
+
+	// 2. Test stderr preservation when stdout exceeds budget
+	largeWithStderrCmd := "seq 1 2000\necho \"STDERR_DIAGNOSTIC_MARKER\" >&2"
+	outWithStderr, err := tool.Execute(ctx, largeWithStderrCmd)
+	if err != nil {
+		t.Fatalf("unexpected error executing bash with stderr: %v", err)
+	}
+	if !strings.Contains(outWithStderr, "STDERR_DIAGNOSTIC_MARKER") {
+		t.Errorf("expected stderr diagnostic marker preserved when stdout is large, got: %s", outWithStderr)
 	}
 }

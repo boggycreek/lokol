@@ -406,6 +406,37 @@ func builtinWriteFile(ctx context.Context, payload string, workDir ...string) (s
 	return fmt.Sprintf("Successfully wrote %d bytes to %s", len(content), path), nil
 }
 
+// MaxExecOutputChars defines the maximum output budget before truncation in exec_bash (4000 chars).
+const MaxExecOutputChars = 4000
+
+// TruncateOutputAtLine cuts output at the last complete newline within maxChars
+// and appends a "[truncated N more lines]" indicator.
+func TruncateOutputAtLine(output string, maxChars int) string {
+	if len(output) <= maxChars {
+		return output
+	}
+	lastNL := strings.LastIndex(output[:maxChars], "\n")
+	var truncated string
+	var remainingLines int
+	if lastNL != -1 {
+		truncated = output[:lastNL]
+		remainingLines = strings.Count(output[lastNL+1:], "\n")
+		if !strings.HasSuffix(output, "\n") {
+			remainingLines++
+		}
+	} else {
+		truncated = output[:maxChars]
+		remainingLines = strings.Count(output[maxChars:], "\n")
+		if !strings.HasSuffix(output, "\n") {
+			remainingLines++
+		}
+	}
+	if remainingLines <= 0 {
+		remainingLines = 1
+	}
+	return truncated + fmt.Sprintf("\n[truncated %d more lines]", remainingLines)
+}
+
 func builtinExecBash(ctx context.Context, command string, workDir ...string) (string, error) {
 	if inner := extractTagContent(command, "command"); inner != "" {
 		command = inner
@@ -448,16 +479,13 @@ func builtinExecBash(ctx context.Context, command string, workDir ...string) (st
 	cmd.Stderr = &stderr
 
 	execErr := cmd.Run()
-	output := stdout.String()
+	output := TruncateOutputAtLine(stdout.String(), MaxExecOutputChars)
 	if stderr.Len() > 0 {
+		stderrStr := TruncateOutputAtLine(stderr.String(), MaxExecOutputChars)
 		if output != "" {
 			output += "\n"
 		}
-		output += stderr.String()
-	}
-
-	if len(output) > 4000 {
-		output = output[:4000] + "\n...[output truncated by lokol for context hygiene]"
+		output += stderrStr
 	}
 
 	if execErr != nil {
