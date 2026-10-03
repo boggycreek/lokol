@@ -143,7 +143,7 @@ func TestTUI_Presentation_InternalizedAndCleanFinalPresentation(t *testing.T) {
 	}
 
 	// Step 2: Action completes
-	newM, _ = m.Update(tui.ActionExecutedMsg("main.go\ncalc.go"))
+	newM, _ = m.Update(tui.ActionExecutedMsg{Output: "main.go\ncalc.go"})
 	m = newM.(tui.Model)
 
 	// Tool completion message must NOT pollute the chat viewport
@@ -643,7 +643,7 @@ func TestTUI_Presentation_Ergonomics_JunieLayoutAndToolFolding(t *testing.T) {
 	turn1 := "Checking status.\n<action name=\"exec_bash\">\ngit status\n</action>"
 	newM, _ = m.Update(tui.StreamDoneMsg(turn1))
 	m = newM.(tui.Model)
-	newM, _ = m.Update(tui.ActionExecutedMsg("On branch main\nnothing to commit"))
+	newM, _ = m.Update(tui.ActionExecutedMsg{Output: "On branch main\nnothing to commit"})
 	m = newM.(tui.Model)
 
 	content := m.ViewportContent()
@@ -655,7 +655,7 @@ func TestTUI_Presentation_Ergonomics_JunieLayoutAndToolFolding(t *testing.T) {
 	turn2 := "Checking diff.\n<action name=\"exec_bash\">\ngit diff\n</action>"
 	newM, _ = m.Update(tui.StreamDoneMsg(turn2))
 	m = newM.(tui.Model)
-	newM, _ = m.Update(tui.ActionExecutedMsg(""))
+	newM, _ = m.Update(tui.ActionExecutedMsg{Output: ""})
 	m = newM.(tui.Model)
 
 	content = m.ViewportContent()
@@ -667,7 +667,7 @@ func TestTUI_Presentation_Ergonomics_JunieLayoutAndToolFolding(t *testing.T) {
 	turn3 := "Running tests.\n<action name=\"exec_bash\">\ngo test ./...\n</action>"
 	newM, _ = m.Update(tui.StreamDoneMsg(turn3))
 	m = newM.(tui.Model)
-	newM, _ = m.Update(tui.ActionExecutedMsg("PASS"))
+	newM, _ = m.Update(tui.ActionExecutedMsg{Output: "PASS"})
 	m = newM.(tui.Model)
 
 	content = m.ViewportContent()
@@ -777,7 +777,7 @@ func TestTUI_Presentation_LoopCircuitBreakerAndFailureBadges(t *testing.T) {
 	m = newM.(tui.Model)
 
 	// Action returns directory error
-	newM, _ = m.Update(tui.ActionExecutedMsg("[Error: current directory \".\" is a directory, not a file. To discover files in this workspace, use <action name=\"find_files\"><pattern>*</pattern></action>.]\n"))
+	newM, _ = m.Update(tui.ActionExecutedMsg{Output: "[Error: current directory \".\" is a directory, not a file. To discover files in this workspace, use <action name=\"find_files\"><pattern>*</pattern></action>.]\n"})
 	m = newM.(tui.Model)
 
 	content := m.ViewportContent()
@@ -793,7 +793,7 @@ func TestTUI_Presentation_LoopCircuitBreakerAndFailureBadges(t *testing.T) {
 	m = newM.(tui.Model)
 	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
 	m = newM.(tui.Model)
-	newM, _ = m.Update(tui.ActionExecutedMsg("[Error: current directory \".\" is a directory, not a file.]\n"))
+	newM, _ = m.Update(tui.ActionExecutedMsg{Output: "[Error: current directory \".\" is a directory, not a file.]\n"})
 	m = newM.(tui.Model)
 
 	// Verify mock session received loop intervention
@@ -813,7 +813,7 @@ func TestTUI_Presentation_LoopCircuitBreakerAndFailureBadges(t *testing.T) {
 	m = newM.(tui.Model)
 	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
 	m = newM.(tui.Model)
-	newM, _ = m.Update(tui.ActionExecutedMsg("[Error: current directory \".\" is a directory, not a file.]\n"))
+	newM, _ = m.Update(tui.ActionExecutedMsg{Output: "[Error: current directory \".\" is a directory, not a file.]\n"})
 	m = newM.(tui.Model)
 
 	// Turn 4: Repeat 4th time -> Circuit breaker should trip immediately and halt
@@ -1052,42 +1052,42 @@ func TestTUI_LiveActionDigest_JunieErgonomicsAndMultiCategorySummary(t *testing.
 	act1 := "<action name=\"exec_bash\">\ngit diff main...feat/regulator-pipeline\n</action>"
 	newM, _ = m.Update(tui.StreamDoneMsg(act1))
 	m = newM.(tui.Model)
-	newM, _ = m.Update(tui.ActionExecutedMsg("diff --git a/foo b/foo"))
+	newM, _ = m.Update(tui.ActionExecutedMsg{Output: "diff --git a/foo b/foo"})
 	m = newM.(tui.Model)
 
 	// Step 2: exec_bash git status
 	act2 := "<action name=\"exec_bash\">\ngit status\n</action>"
 	newM, _ = m.Update(tui.StreamDoneMsg(act2))
 	m = newM.(tui.Model)
-	newM, _ = m.Update(tui.ActionExecutedMsg("clean"))
+	newM, _ = m.Update(tui.ActionExecutedMsg{Output: "clean"})
 	m = newM.(tui.Model)
 
 	// Step 3: exec_bash failed command
 	act3 := "<action name=\"exec_bash\">\ngit diff --invalid-flag\n</action>"
 	newM, _ = m.Update(tui.StreamDoneMsg(act3))
 	m = newM.(tui.Model)
-	newM, _ = m.Update(tui.ActionExecutedMsg("[Error: unknown flag --invalid-flag]\n"))
+	newM, _ = m.Update(tui.ActionExecutedMsg{Output: "[Error: unknown flag --invalid-flag]\n"})
 	m = newM.(tui.Model)
 
 	// Step 4: search_code
 	act4 := "<action name=\"search_code\">\n<pattern>func.*TargetSummary</pattern>\n</action>"
 	newM, _ = m.Update(tui.StreamDoneMsg(act4))
 	m = newM.(tui.Model)
-	newM, _ = m.Update(tui.ActionExecutedMsg("liblokol/agent/tools.go:375: func (a *Action) TargetSummary() string"))
+	newM, _ = m.Update(tui.ActionExecutedMsg{Output: "liblokol/agent/tools.go:375: func (a *Action) TargetSummary() string"})
 	m = newM.(tui.Model)
 
 	// Step 5: read_window with range
 	act5 := "<action name=\"read_window\">\n<path>liblokol/agent/tools.go</path>\n<start>360</start>\n<end>461</end>\n</action>"
 	newM, _ = m.Update(tui.StreamDoneMsg(act5))
 	m = newM.(tui.Model)
-	newM, _ = m.Update(tui.ActionExecutedMsg("package agent\n..."))
+	newM, _ = m.Update(tui.ActionExecutedMsg{Output: "package agent\n..."})
 	m = newM.(tui.Model)
 
 	// Step 6: get_environment (action)
 	act6 := "<action name=\"get_environment\">\n</action>"
 	newM, _ = m.Update(tui.StreamDoneMsg(act6))
 	m = newM.(tui.Model)
-	newM, _ = m.Update(tui.ActionExecutedMsg("{\"os\":\"linux\"}"))
+	newM, _ = m.Update(tui.ActionExecutedMsg{Output: "{\"os\":\"linux\"}"})
 	m = newM.(tui.Model)
 
 	// Assert live action stream display before turn finishes
@@ -1165,7 +1165,7 @@ func TestTUI_LiveActionDigest_SlashCommandsAndTabToggle(t *testing.T) {
 	act := "<action name=\"exec_bash\">\ngit status\n</action>"
 	newM, _ = m.Update(tui.StreamDoneMsg(act))
 	m = newM.(tui.Model)
-	newM, _ = m.Update(tui.ActionExecutedMsg("clean"))
+	newM, _ = m.Update(tui.ActionExecutedMsg{Output: "clean"})
 	m = newM.(tui.Model)
 
 	finish := "<action name=\"task_finish\">\nDone.\n</action>"
@@ -1269,10 +1269,109 @@ func TestTUI_ExplicitClear_KeybindingsCtrlLAndCtrlK(t *testing.T) {
 	}
 }
 
+// TestTUI_ActionCancellationAndStaleResultRejection verifies that actions can be cancelled
+// via Esc/Ctrl+C, and that stale ActionExecutedMsg events cannot hijack the state machine (lokol-fhr.3).
+func TestTUI_ActionCancellationAndStaleResultRejection(t *testing.T) {
+	mock := NewMockSession()
+	m := tui.NewWithSession(mock, nil, false)
 
+	// User prompt
+	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("check files")})
+	m = newM.(tui.Model)
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = newM.(tui.Model)
 
+	// Agent proposes an action
+	actXML := "<action name=\"exec_bash\">\nsleep 10\n</action>"
+	newM, _ = m.Update(tui.StreamDoneMsg(actXML))
+	m = newM.(tui.Model)
 
+	if m.State() != tui.StateWaitingActionApproval {
+		t.Fatalf("expected StateWaitingActionApproval, got: %v", m.State())
+	}
 
+	// User approves action -> model enters StateExecutingAction and returns executeAction cmd
+	newM, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	m = newM.(tui.Model)
 
+	if m.State() != tui.StateExecutingAction {
+		t.Fatalf("expected StateExecutingAction after approval, got: %v", m.State())
+	}
+	if cmd == nil {
+		t.Fatal("expected executeAction command to be returned")
+	}
 
+	// User presses Esc to cancel the running action
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	m = newM.(tui.Model)
 
+	if m.State() != tui.StateIdle {
+		t.Fatalf("expected StateIdle after Esc cancellation, got: %v", m.State())
+	}
+	if !strings.Contains(m.ViewportContent(), "Stream aborted (Esc)") {
+		t.Errorf("expected cancellation message in viewport, got: %s", m.ViewportContent())
+	}
+
+	// Now deliver a late/stale ActionExecutedMsg from the cancelled goroutine
+	// (with stale generation counter or while in StateIdle)
+	staleMsg := tui.ActionExecutedMsg{Output: "done after 10s", Gen: 1}
+	newM, staleCmd := m.Update(staleMsg)
+	m = newM.(tui.Model)
+
+	// Model MUST remain StateIdle, not transition to StateStreaming!
+	if m.State() != tui.StateIdle {
+		t.Fatalf("state machine was hijacked by stale ActionExecutedMsg! Expected StateIdle, got: %v", m.State())
+	}
+	if staleCmd != nil {
+		t.Errorf("expected nil cmd for stale ActionExecutedMsg, got: %v", staleCmd)
+	}
+}
+
+// TestTUI_Streaming_IncrementalViewportPerformanceAndChannelDraining verifies that token streaming
+// batches channel tokens and updates the viewport incrementally without O(n^2) re-wrapping (lokol-fhr.4).
+func TestTUI_Streaming_IncrementalViewportPerformanceAndChannelDraining(t *testing.T) {
+	mock := NewMockSession()
+	m := tui.NewWithSession(mock, nil, false)
+
+	// Enable verbose mode so streaming tokens are rendered to the viewport
+	newM, _ := m.Update(tea.KeyMsg{Type: tea.KeyCtrlV})
+	m = newM.(tui.Model)
+
+	// Add multi-turn history into chatLog
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("prompt 1")})
+	m = newM.(tui.Model)
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = newM.(tui.Model)
+	newM, _ = m.Update(tui.StreamDoneMsg("Response 1 to prompt."))
+	m = newM.(tui.Model)
+
+	// Start streaming a new turn
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("prompt 2")})
+	m = newM.(tui.Model)
+	newM, _ = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	m = newM.(tui.Model)
+
+	if m.State() != tui.StateStreaming {
+		t.Fatalf("expected StateStreaming, got: %v", m.State())
+	}
+
+	// Stream first token
+	newM, _ = m.Update(tui.TokenMsg("Hello"))
+	m = newM.(tui.Model)
+
+	// Stream second token
+	newM, _ = m.Update(tui.TokenMsg(" world!"))
+	m = newM.(tui.Model)
+
+	// Complete stream
+	newM, _ = m.Update(tui.StreamDoneMsg("Hello world!"))
+	m = newM.(tui.Model)
+
+	content := m.ViewportContent()
+	if !strings.Contains(content, "prompt 1") || !strings.Contains(content, "Response 1") {
+		t.Errorf("expected previous history preserved in viewport, got: %s", content)
+	}
+	if !strings.Contains(content, "Hello world!") {
+		t.Errorf("expected streamed response in viewport, got: %s", content)
+	}
+}

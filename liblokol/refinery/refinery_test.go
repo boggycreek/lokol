@@ -178,6 +178,60 @@ func TestRunTestVerifier(t *testing.T) {
 	if !strings.Contains(failRes.ErrorOutput, "auth_test.go:42") {
 		t.Errorf("expected extracted assertion, got: %s", failRes.ErrorOutput)
 	}
+
+	// 3. Output truncation cap (lokol-fhr.5)
+	hugeCmd := `bash -c 'head -c 1500000 /dev/zero | tr "\0" "A"'`
+	hugeRes, err := refinery.RunTestVerifier(ctx, hugeCmd)
+	if err != nil {
+		t.Fatalf("unexpected error running huge output test: %v", err)
+	}
+	if !hugeRes.Passed {
+		t.Errorf("expected zero-exit command to pass")
+	}
+}
+
+func TestCappedBuffer(t *testing.T) {
+	buf := refinery.NewCappedBuffer(100)
+	chunk := []byte(strings.Repeat("X", 60))
+	n, err := buf.Write(chunk)
+	if err != nil || n != 60 {
+		t.Fatalf("expected write of 60 bytes, got %d, err: %v", n, err)
+	}
+	if buf.Truncated() {
+		t.Errorf("expected buffer not to be truncated yet")
+	}
+	if buf.Len() != 60 {
+		t.Errorf("expected Len() == 60, got %d", buf.Len())
+	}
+
+	// Write second chunk of 60 bytes -> total 120 bytes (exceeds limit 100)
+	n, err = buf.Write(chunk)
+	if err != nil || n != 60 {
+		t.Fatalf("expected write of 60 bytes, got %d, err: %v", n, err)
+	}
+	if !buf.Truncated() {
+		t.Errorf("expected buffer to be truncated")
+	}
+	if buf.Len() != 100 {
+		t.Errorf("expected Len() capped at 100, got %d", buf.Len())
+	}
+
+	// Third write should be discarded cleanly
+	n, err = buf.Write(chunk)
+	if err != nil || n != 60 {
+		t.Fatalf("expected write of 60 bytes, got %d, err: %v", n, err)
+	}
+	if buf.Len() != 100 {
+		t.Errorf("expected Len() still 100, got %d", buf.Len())
+	}
+
+	content := buf.String()
+	if !strings.Contains(content, "[output truncated after 100 bytes]") {
+		t.Errorf("expected truncation marker in String(), got: %s", content)
+	}
+	if !strings.HasPrefix(content, strings.Repeat("X", 100)) {
+		t.Errorf("expected first 100 bytes of content intact")
+	}
 }
 
 func TestGetEnvironment(t *testing.T) {

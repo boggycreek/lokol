@@ -198,7 +198,7 @@ func TestTUI_E2E_RealSession_ToolExecutionAndHistory(t *testing.T) {
 	}
 
 	// Deliver action executed result to TUI
-	newM, _ = m.Update(tui.ActionExecutedMsg(out))
+	newM, _ = m.Update(tui.ActionExecutedMsg{Output: out})
 	m = newM.(tui.Model)
 
 	// Verify physical file was written to disk by real session tool execution!
@@ -301,7 +301,7 @@ func TestTUI_E2E_RealSession_YoloModeAutonomousExecution(t *testing.T) {
 	}
 
 	// Deliver result to model
-	newM, _ = m.Update(tui.ActionExecutedMsg(out))
+	newM, _ = m.Update(tui.ActionExecutedMsg{Output: out})
 	m = newM.(tui.Model)
 
 	// File must exist without any manual approval!
