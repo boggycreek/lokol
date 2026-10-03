@@ -12,6 +12,7 @@ import (
 
 	"github.com/boggycreek/lokol/liblokol/catalog"
 	"github.com/boggycreek/lokol/liblokol/regulator"
+	"github.com/boggycreek/lokol/liblokol/spec"
 )
 
 // Runner manages an autonomous execution loop (e.g. for batch execution or self-improvement).
@@ -26,6 +27,7 @@ type Runner struct {
 	OperatorName    string // Optional operator name override
 	Session         *Session
 	Regulator       *regulator.Regulator // Persistent regulator instance across turns (lokol-gml.9)
+	SpecMachine     *spec.StateMachine   // Optional spec-driven bounded state machine (lokol-jkx)
 	OnOutput        func(role, content string)
 }
 
@@ -59,6 +61,13 @@ func (r *Runner) Run(ctx context.Context, initialPrompt string) (string, error) 
 		}
 	}
 	session.AppendUserMessage(initialPrompt)
+
+	// Execute preflight check if bounded spec machine is configured (lokol-jkx)
+	if r.SpecMachine != nil && r.SpecMachine.State == spec.StatePending {
+		if err := r.SpecMachine.RunPreflight(ctx); err != nil {
+			return "", fmt.Errorf("spec preflight check failed: %w", err)
+		}
+	}
 
 	if r.MaxTurns <= 0 {
 		r.MaxTurns = 20
@@ -150,6 +159,25 @@ func (r *Runner) Run(ctx context.Context, initialPrompt string) (string, error) 
 		lastAssistantText = replyText
 
 		if act.Name == "task_finish" {
+			// Enforce automated verification gate locking task_finish until exit 0 (lokol-jkx)
+			if r.SpecMachine != nil {
+				verRes, err := r.SpecMachine.Verify(ctx)
+				if err != nil {
+					return "", fmt.Errorf("spec verification execution error: %w", err)
+				}
+				if !verRes.Passed {
+					if r.OnOutput != nil {
+						r.OnOutput("spec", fmt.Sprintf("[VERIFICATION GATE FAILED] Exit code %d", verRes.ExitCode))
+					}
+					failMsg := fmt.Sprintf("<action_result>\n[VERIFICATION GATE FAILED]: Verification command '%s' failed with exit code %d:\n%s\n\nYou cannot complete the task until all verification checks pass with exit 0. Inspect the failure, edit the code, and re-run tests.\n</action_result>", verRes.Command, verRes.ExitCode, verRes.Output)
+					session.AppendUserMessage(failMsg)
+					continue
+				}
+				if r.OnOutput != nil {
+					r.OnOutput("spec", "[VERIFICATION GATE PASSED] Exit 0")
+				}
+			}
+
 			if r.OnOutput != nil {
 				r.OnOutput("finish", act.Command)
 			}
@@ -171,6 +199,18 @@ func (r *Runner) Run(ctx context.Context, initialPrompt string) (string, error) 
 		targetSummary := act.TargetSummary()
 		if r.OnOutput != nil {
 			r.OnOutput(act.Name, targetSummary)
+		}
+
+		// Enforce spec target file constraints if spec machine is active (lokol-jkx)
+		if r.SpecMachine != nil && (act.Name == "replace_file" || act.Name == "write_file") {
+			if err := r.SpecMachine.CheckTargetConstraint(targetSummary); err != nil {
+				if r.OnOutput != nil {
+					r.OnOutput("spec", fmt.Sprintf("[TARGET CONSTRAINT VIOLATION] %v", err))
+				}
+				msg := fmt.Sprintf("<action_result>\n[PERMISSION DENIED: TARGET CONSTRAINT VIOLATION]: %v\n</action_result>", err)
+				session.AppendUserMessage(msg)
+				continue
+			}
 		}
 
 		// Enforce regulator permissions using persistent regulator instance (lokol-gml.9)

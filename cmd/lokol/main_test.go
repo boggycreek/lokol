@@ -153,3 +153,15 @@ func TestLokol_Run_ConfigCommands(t *testing.T) {
 		t.Errorf("expected Aria and Alice in config, got: %s", stdout.String())
 	}
 }
+
+func TestLokol_Run_ExecSpec_MissingFile(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"lokol", "exec", "--spec", "nonexistent-spec-file.md"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("expected exit code 1 for missing spec file, got %d", code)
+	}
+	if !strings.Contains(stderr.String(), "Error loading spec") {
+		t.Errorf("expected 'Error loading spec' in stderr, got: %s", stderr.String())
+	}
+}
+
