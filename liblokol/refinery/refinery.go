@@ -9,7 +9,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -25,6 +25,9 @@ type ReadWindowInput struct {
 	StartLine int
 	EndLine   int
 }
+
+// MaxWindowLineLength is the maximum allowable characters per line in ReadWindow (500 chars).
+const MaxWindowLineLength = 500
 
 // ReadWindow reads a specific slice of lines from a file, preventing whole-file dumping.
 // Maximum allowable window is 120 lines to protect the KV cache.
@@ -64,23 +67,54 @@ func ReadWindow(path string, startLine, endLine int) (string, error) {
 	}
 	defer file.Close()
 
-	scanner := bufio.NewScanner(file)
+	reader := bufio.NewReader(file)
 	currentLine := 1
 	var sb strings.Builder
 
 	sb.WriteString(fmt.Sprintf("// --- %s (Lines %d-%d) ---\n", path, startLine, endLine))
-	for scanner.Scan() {
+	for {
+		line, isPrefix, err := reader.ReadLine()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return "", fmt.Errorf("error reading file %s: %w", path, err)
+		}
+
+		var lineBytes []byte
+		truncated := false
+		if len(line) > MaxWindowLineLength {
+			lineBytes = line[:MaxWindowLineLength]
+			truncated = true
+		} else {
+			lineBytes = line
+		}
+
+		if isPrefix {
+			truncated = true
+			// Discard the remainder of the excessively long line
+			for isPrefix {
+				_, isPrefix, err = reader.ReadLine()
+				if err != nil && err != io.EOF {
+					return "", fmt.Errorf("error reading file %s: %w", path, err)
+				}
+				if err == io.EOF {
+					break
+				}
+			}
+		}
+
 		if currentLine >= startLine && currentLine <= endLine {
-			sb.WriteString(fmt.Sprintf("%4d | %s\n", currentLine, scanner.Text()))
+			lineText := string(lineBytes)
+			if truncated {
+				lineText += " [line truncated at 500 chars]"
+			}
+			sb.WriteString(fmt.Sprintf("%4d | %s\n", currentLine, lineText))
 		}
 		if currentLine > endLine {
 			break
 		}
 		currentLine++
-	}
-
-	if err := scanner.Err(); err != nil {
-		return "", fmt.Errorf("error reading file %s: %w", path, err)
 	}
 
 	return sb.String(), nil

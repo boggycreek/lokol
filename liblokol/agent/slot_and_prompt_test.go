@@ -270,3 +270,48 @@ func TestAbortSlotAndAbortActiveSlots(t *testing.T) {
 	}
 }
 
+// TestClient_ConcurrentGetSlotStatus_RaceCondition tests concurrent access to Client.GetSlotStatus
+// ensuring no data race on cachedModel (lokol-fhr.1).
+func TestClient_ConcurrentGetSlotStatus_RaceCondition(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/slots" {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`[{"id":0,"n_ctx":4096,"n_prompt_tokens":50,"is_processing":false}]`))
+			return
+		}
+		if r.URL.Path == "/v1/models" {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"data":[{"id":"qwen2.5-coder-7b.gguf"}]}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	client := agent.NewClient(server.URL)
+
+	// Launch multiple concurrent goroutines calling GetSlotStatus simultaneously
+	var wg sync.WaitGroup
+	workers := 10
+	iterations := 20
+
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				status, err := client.GetSlotStatus(context.Background())
+				if err != nil {
+					t.Errorf("GetSlotStatus error: %v", err)
+					return
+				}
+				if status == nil || status.ModelName == "" {
+					t.Errorf("expected non-empty status and model name")
+					return
+				}
+			}
+		}()
+	}
+	wg.Wait()
+}
+

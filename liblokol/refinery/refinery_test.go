@@ -50,6 +50,24 @@ func TestReadWindow(t *testing.T) {
 	if !strings.Contains(dirErr.Error(), "is a directory, not a file") {
 		t.Errorf("expected directory rejection guidance, got: %v", dirErr)
 	}
+
+	// Verify line-length cap truncation (lokol-fhr.2)
+	minifiedFile := filepath.Join(tmpDir, "minified.js")
+	longLine := "var bundle=" + strings.Repeat("a", 1000) + ";\nvar short=1;\n"
+	if err := os.WriteFile(minifiedFile, []byte(longLine), 0644); err != nil {
+		t.Fatalf("failed to write minified file: %v", err)
+	}
+
+	minOut, err := refinery.ReadWindow(minifiedFile, 1, 2)
+	if err != nil {
+		t.Fatalf("unexpected error reading minified file: %v", err)
+	}
+	if !strings.Contains(minOut, "[line truncated at 500 chars]") {
+		t.Errorf("expected line truncation marker in output, got: %s", minOut)
+	}
+	if !strings.Contains(minOut, "var short=1;") {
+		t.Errorf("expected subsequent line intact, got: %s", minOut)
+	}
 }
 
 func TestReadOutline(t *testing.T) {

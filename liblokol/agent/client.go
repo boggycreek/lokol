@@ -19,6 +19,7 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/boggycreek/lokol/liblokol/catalog"
@@ -215,6 +216,7 @@ func BuildInitialHistory(codebaseContext, initialPrompt string) []Message {
 type Client struct {
 	BaseURL     string
 	HTTPClient  *http.Client
+	modelMu     sync.RWMutex
 	cachedModel string
 }
 
@@ -552,14 +554,22 @@ func (c *Client) GetSlotStatus(ctx context.Context) (*SlotStatus, error) {
 		status.NDecoded = rawSlots[0].NextToken[0].NDecoded
 	}
 
-	if c.cachedModel == "" {
+	c.modelMu.RLock()
+	mName := c.cachedModel
+	c.modelMu.RUnlock()
+
+	if mName == "" {
 		modelCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
-		if mName, err := c.GetLoadedModel(modelCtx); err == nil && mName != "" {
-			c.cachedModel = mName
-		}
+		loadedName, err := c.GetLoadedModel(modelCtx)
 		cancel()
+		if err == nil && loadedName != "" {
+			c.modelMu.Lock()
+			c.cachedModel = loadedName
+			mName = loadedName
+			c.modelMu.Unlock()
+		}
 	}
-	status.ModelName = c.cachedModel
+	status.ModelName = mName
 
 	return status, nil
 }
