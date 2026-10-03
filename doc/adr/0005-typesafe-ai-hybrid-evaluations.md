@@ -3,7 +3,7 @@ adr: "0005"
 title: "Hybrid Evaluations and Fast Routing with TypeSafe AI (Jev / not-a-llm)"
 topic: "Evaluations & Verification"
 theme: "THEME-QUALITY"
-status: "proposed"
+status: "superseded"
 version: "v0.1.0-alpha"
 as_built: false
 tags:
@@ -11,13 +11,19 @@ tags:
   - typesafe-ai
   - routing
   - benchmarking
-executive_summary: "Proposes integrating TypeSafe AI non-LLM decision classifiers for fast query complexity routing and deterministic evaluation scoring."
+executive_summary: "Explored non-LLM decision classifiers for fast query routing and evaluation scoring; superseded by ADRs 0014 (Laya evaluation), 0020 (CPU offload), and 0024 (pure Go intent router)."
 ---
 
 # ADR 0005: Hybrid Evaluations and Fast Routing with TypeSafe AI (Jev / "not-a-llm")
 
 ## Status
-Proposed (Research & Exploration)
+Superseded by [ADR-0014](0014-non-autoregressive-decision-model-judging.md), [ADR-0020](0020-cpu-avx2-offload-strategy-for-auxiliary-decision-models.md), and [ADR-0024](0024-progressive-tool-disclosure-and-catalog-architecture.md)
+
+> [!NOTE]
+> The architectural directions explored in this research proposal have been independently resolved and superseded by subsequent accepted ADRs:
+> - **Artifact Evaluation & Scoring**: Decided by [ADR-0014](0014-non-autoregressive-decision-model-judging.md) (adopting local non-autoregressive Laya models on CPU).
+> - **Offloaded Compute Strategy**: Decided by [ADR-0020](0020-cpu-avx2-offload-strategy-for-auxiliary-decision-models.md) (reserving 100% of GPU VRAM for the generative model while running auxiliary evaluators on host CPU).
+> - **Fast Intent Pre-Routing**: Decided by [ADR-0024](0024-progressive-tool-disclosure-and-catalog-architecture.md) (implementing an in-process, deterministic pure Go intent router).
 
 ## Context
 In agentic coding loops on constrained local hardware (such as 7B on an RTX 3060 or 3B on a ThinkPad GTX 1650 Max-Q), invoking the generative LLM for every small decision introduces unnecessary latency and context consumption. Small models are also prone to over-generating or hallucinating when asked binary evaluation questions like:

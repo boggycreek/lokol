@@ -5,7 +5,7 @@ topic: "Memory & Retrieval"
 theme: "THEME-MEMORY"
 status: "accepted"
 version: "v0.1.0-alpha"
-as_built: true
+as_built: false
 tags:
   - vector-db
   - embeddings
@@ -18,7 +18,10 @@ executive_summary: "Adopts an embedded, pure Go local vector database for semant
 # ADR 0011: Local Vector Database Adoption for Memory and Source Code Indexing
 
 ## Status
-Accepted
+Accepted (Implementation Pending)
+
+> [!NOTE]
+> The architectural decision to adopt an embedded local vector database is accepted, but its implementation in `liblokol/` has not yet been built on `main` (tracked in backlog). The `as_built` flag is set to `false` until implementation lands.
 
 ## Date
 2026-09-20

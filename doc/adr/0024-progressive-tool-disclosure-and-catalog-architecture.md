@@ -12,7 +12,7 @@ tags:
   - intent-routing
   - context-efficiency
   - lean-prompt
-executive_summary: "Implements a centralized tool catalog providing an invariant ~250-token base prompt with 4 foundational primitives, disclosing specialized tools dynamically via intent routing or tool_help reflection."
+executive_summary: "Implements a centralized tool catalog providing an invariant ~250-token base prompt with 5 foundational primitives, disclosing specialized tools dynamically via deterministic keyword/tag intent routing or tool_help reflection."
 ---
 
 # ADR 0024: Progressive Tool Disclosure and Catalog Architecture
@@ -46,7 +46,7 @@ We establish a **Progressive Tool Disclosure and Catalog Architecture** governed
 flowchart TD
     subgraph InputStage ["Turn Input Stage"]
         Prompt["Operator Request"]
-        IntentRouter["Non-Autoregressive Decision Router\n(Offloaded Compute)"]
+        IntentRouter["Deterministic Intent Classifier\n(Keyword & Tag Matching)"]
     end
 
     subgraph PromptAssembly ["Context Assembly Layer"]
@@ -87,8 +87,8 @@ A minimal, constant baseline of foundational primitives remains permanently resi
 ### 2. Progressive Tool Disclosure
 All specialized, domain-specific, or peripheral tools are omitted from the base system prompt and maintained within a centralized tool catalog. The base system prompt exposes only a compact summary of available capability domains. Detailed tool calling syntax, parameter specifications, and execution constraints are disclosed to the model strictly on demand.
 
-### 3. Auxiliary Decision-Model Intent Pre-Routing
-To overcome the passivity of small models without bloating the base prompt, incoming operator requests are evaluated pre-flight by an auxiliary non-autoregressive decision model running on offloaded compute (such as host CPU AVX2). When a clear intent matching a specialized tool domain is recognized, the catalog dynamically pre-populates the required tool specifications into the immediate turn context, eliminating speculative discovery turns while keeping the base prompt invariant.
+### 3. Deterministic Intent Pre-Routing via Tag & Keyword Matching
+To overcome the passivity of small models without bloating the base prompt, incoming operator requests are evaluated pre-flight by an in-process, deterministic intent classifier. The classifier analyzes prompts against tool capability tags and action keywords using sub-millisecond, pure-Go matching (avoiding the compute overhead and dependency footprint of neural models). When a clear intent matching a specialized tool domain is recognized, the catalog dynamically pre-populates the required tool specifications into the immediate turn context, eliminating speculative discovery turns while keeping the base prompt invariant.
 
 ### 4. Reactive Discovery Safety Net
 When intent routing does not identify a specialized domain or when a multi-step task evolves mid-execution, the agent leverages the discovery meta-tool to query the catalog for tool specifications. Furthermore, if the agent attempts an action matching a known catalog tool using malformed syntax, the execution engine responds with the exact tool specification to guide immediate self-correction.

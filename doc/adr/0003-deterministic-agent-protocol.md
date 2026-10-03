@@ -26,12 +26,15 @@ Small language models (1.5B to 7B parameters) struggle significantly with standa
 In addition, formatting dozens of tool schemas in the system prompt consumes thousands of tokens, directly degrading context retention and reasoning on small models.
 
 ## Decision
-1. **Grammar-Enforced Sampling**: `quik` will leverage `llama.cpp` Context-Free Grammars (GBNF) for structured tool emissions whenever strict formatting is needed.
-2. **Minimal Tool Primitive Architecture (The "3-Tool Rule")**:
-   `quik` exposes only three core primitives to the local model:
+1. **Grammar-Enforced Sampling**: `lokol` will leverage `llama.cpp` Context-Free Grammars (GBNF) for structured tool emissions whenever strict formatting is needed.
+2. **Minimal Tool Primitive Baseline (Originally the "3-Tool Rule")**:
+   Early revisions exposed three core primitives to the local model:
    - `exec_bash`: Direct shell execution for inspection, searching, and running tests.
-   - `edit_file`: Targeted block replacement (`path`, `target`, `replacement`).
+   - `replace_file`: Targeted block replacement (`path`, `target`, `replacement`).
    - `task_finish`: Final summary and handover.
+
+   > [!NOTE]
+   > The initial "3-Tool Rule" was superseded and formalized by [ADR-0024](0024-progressive-tool-disclosure-and-catalog-architecture.md), which establishes five foundational primitives permanently resident in the base system prompt (`find_files`, `read_window`, `replace_file`, `task_finish`, `tool_help`), while `exec_bash` is classified as a specialized tool disclosed just-in-time via intent routing or on-demand reflection.
 3. **Tagged Delimiters as Primary Mode**:
    Small models perform reliably with code fences and explicit tags:
    ```text
@@ -42,7 +45,7 @@ In addition, formatting dozens of tool schemas in the system prompt consumes tho
    grep -rn "pattern" .
    </action>
    ```
-   `quik` parses streaming tokens directly in Go, halting generation as soon as `</action>` is received, executing the command, and streaming output back into the prompt cache.
+   `lokol` parses streaming tokens directly in Go, halting generation as soon as `</action>` is received, executing the command, and streaming output back into the prompt cache.
 
 ## Consequences
 ### Positive

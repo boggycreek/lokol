@@ -41,7 +41,7 @@ Records are numbered serially (`0001` through `0029`) and organized by topic dom
 - **[ADR 0008 — Dynamic Mixture of Experts (MoE) Routing for Constrained VRAM](0008-dynamic-moe-expert-routing.md)**  
   *Executive Summary:* Establishes a sparse MoE operational strategy that prioritizes attention layers and active experts in GPU VRAM while paging non-active experts in system RAM via `mmap`.
 - **[ADR 0020 — CPU AVX2 Offload Strategy for Auxiliary Decision Models](0020-cpu-avx2-offload-strategy-for-auxiliary-decision-models.md)**  
-  *Executive Summary:* Directs auxiliary decision models to execute exclusively on host CPU cores via AVX2/AVX-512 instructions, reserving 100% of GPU VRAM for the primary generative LLM context.
+  *Executive Summary:* Directs auxiliary decision models and evaluation judges to execute exclusively on host CPU cores via AVX2/AVX-512 instructions, reserving 100% of GPU VRAM for the primary generative LLM context.
 - **[ADR 0026 — Inference Slot Pressure and Context Budget Regulation](0026-inference-slot-pressure-and-context-budget-regulation.md)**  
   *Executive Summary:* Regulates execution cadence and triggers proactive context compaction based on inference slot memory utilization and token window pressure.
 - **[ADR 0028 — Explicit Context Clearing and State Retention Invariants](0028-explicit-context-clearing-and-state-retention-invariants.md)**  
@@ -59,16 +59,16 @@ Records are numbered serially (`0001` through `0029`) and organized by topic dom
 - **[ADR 0023 — Functional Regulator Action-Gating Pipeline](0023-functional-regulator-action-gating-pipeline.md)**  
   *Executive Summary:* Defines a composable functional regulator pipeline that intercepts, inspects, and validates proposed agent actions through layered static, dynamic, and human-in-the-loop gates.
 - **[ADR 0024 — Progressive Tool Disclosure and Catalog Architecture](0024-progressive-tool-disclosure-and-catalog-architecture.md)**  
-  *Executive Summary:* Implements a centralized tool catalog providing an invariant ~250-token base prompt with 4 foundational primitives, disclosing specialized tools dynamically via intent routing or `tool_help` reflection.
+  *Executive Summary:* Implements a centralized tool catalog providing an invariant ~250-token base prompt with 5 foundational primitives, disclosing specialized tools dynamically via deterministic keyword/tag intent routing or `tool_help` reflection.
 - **[ADR 0025 — Dynamic Loop Circuit Breaking and Oscillation Governance](0025-dynamic-loop-circuit-breaking-and-oscillation-governance.md)**  
   *Executive Summary:* Establishes automated loop detection and circuit breaking within the regulator pipeline to identify repeated identical tool failures, runaway inspection loops, and state oscillation before resource exhaustion occurs.
 - **[ADR 0027 — Structured Trajectory Remediation for Autonomous Recovery](0027-structured-trajectory-remediation-for-autonomous-recovery.md)**  
   *Executive Summary:* Defines a structured remediation protocol that transforms regulatory rejections and boundary denials into actionable self-correction feedback for the agent.
 
 ### Memory & Retrieval (`THEME-MEMORY`)
-- **[ADR 0010 — Persistent Memory Storage Architecture in XDG State and Data Directories](0010-xdg-persistent-memory-storage.md)**  
+- **[ADR 0010 — Persistent Memory Storage Architecture in XDG State and Data Directories](0010-xdg-persistent-memory-storage.md)** *(Implementation Pending)*  
   *Executive Summary:* Stores long-term agent memories and learned preferences across sessions using structured persistence in standard XDG state and data directories.
-- **[ADR 0011 — Local Vector Database Adoption for Memory and Source Code Indexing](0011-local-vector-database-adoption.md)**  
+- **[ADR 0011 — Local Vector Database Adoption for Memory and Source Code Indexing](0011-local-vector-database-adoption.md)** *(Implementation Pending)*  
   *Executive Summary:* Adopts an embedded, pure Go local vector database for semantic memory retrieval and code symbol indexing without external service dependencies.
 
 ### Security & Isolation (`THEME-SECURITY`)
@@ -80,8 +80,8 @@ Records are numbered serially (`0001` through `0029`) and organized by topic dom
 ### Evaluations, Ergonomics & Quality Gates (`THEME-QUALITY`)
 - **[ADR 0004 — Terminal Interface Strategy (Bubble Tea TUI vs Headless CLI)](0004-terminal-interface-strategy.md)**  
   *Executive Summary:* Splits terminal presentation into an interactive Bubble Tea TUI (`cmd/lk`) for live operator feedback and a headless non-interactive CLI (`cmd/lokol`) for scripted automation and CI.
-- **[ADR 0005 — Hybrid Evaluations and Fast Routing with TypeSafe AI (Jev / "not-a-llm")](0005-typesafe-ai-hybrid-evaluations.md)**  
-  *Executive Summary:* Proposes integrating TypeSafe AI non-LLM decision classifiers for fast query complexity routing and deterministic evaluation scoring.
+- **[ADR 0005 — Hybrid Evaluations and Fast Routing with TypeSafe AI (Jev / "not-a-llm")](0005-typesafe-ai-hybrid-evaluations.md)** *(Superseded)*  
+  *Executive Summary:* Explored non-LLM decision classifiers for fast query routing and evaluation scoring; superseded by ADRs 0014 (Laya evaluation), 0020 (CPU offload), and 0024 (pure Go intent router).
 - **[ADR 0013 — Graded Multi-Tier Integration Benchmark Suite](0013-graded-multi-tier-agent-evaluations.md)**  
   *Executive Summary:* Establishes a 10-tier graded integration benchmark suite testing agent loop mechanics, tool recovery, bounded editing, and full-project autonomy against live inference engines.
 - **[ADR 0014 — Non-Autoregressive Decision Models for Semantic Evaluation](0014-non-autoregressive-decision-model-judging.md)**  
