@@ -67,8 +67,14 @@ func SelectOptimalModelForMode(p *probe.HardwareProfile, mode Mode) Recommendati
 }
 
 func selectGeneralModel(p *probe.HardwareProfile, vramGiB float64) Recommendation {
+	hasGPU := p.HasNVIDIA || p.HasAppleMetal
+
 	// Tier 1: >= 10 GiB VRAM
-	if p.HasNVIDIA && vramGiB >= 10.0 {
+	if hasGPU && vramGiB >= 10.0 {
+		notes := "General conversational and analytical assistant. 100% VRAM offload with dedicated slot (-np 1) maximizing available VRAM for natural language attention."
+		if p.HasAppleMetal {
+			notes = "General conversational and analytical assistant. 100% GPU offload via Apple Metal with dedicated slot (-np 1) utilizing unified memory."
+		}
 		return Recommendation{
 			Tier:            Tier1HighVRAM,
 			ModelName:       "Meta Llama 3.1 8B Instruct (Q4_K_M)",
@@ -79,12 +85,16 @@ func selectGeneralModel(p *probe.HardwareProfile, vramGiB float64) Recommendatio
 			ParallelSlots:   1,
 			GPULayers:       99,
 			EstimatedVRAMMB: 6800,
-			Notes:           "General conversational and analytical assistant. 100% VRAM offload with dedicated slot (-np 1) maximizing available VRAM for natural language attention.",
+			Notes:           notes,
 		}
 	}
 
 	// Tier 2: 6 GiB to 10 GiB VRAM
-	if p.HasNVIDIA && vramGiB >= 6.0 {
+	if hasGPU && vramGiB >= 6.0 {
+		notes := "100% VRAM offload with Q4_0 KV cache and single dedicated slot (-np 1). 32k context fits cleanly in 6GB-8GB VRAM cards with zero host RAM spillover."
+		if p.HasAppleMetal {
+			notes = "100% GPU offload via Apple Metal with Q4_0 KV cache and single dedicated slot (-np 1). Unified memory fits 32k context cleanly."
+		}
 		return Recommendation{
 			Tier:            Tier2MidVRAM,
 			ModelName:       "Meta Llama 3.1 8B Instruct (Q4_K_M)",
@@ -95,12 +105,16 @@ func selectGeneralModel(p *probe.HardwareProfile, vramGiB float64) Recommendatio
 			ParallelSlots:   1,
 			GPULayers:       99,
 			EstimatedVRAMMB: 5600,
-			Notes:           "100% VRAM offload with Q4_0 KV cache and single dedicated slot (-np 1). 32k context fits cleanly in 6GB-8GB VRAM cards with zero host RAM spillover.",
+			Notes:           notes,
 		}
 	}
 
-	// Tier 3: 4 GiB to 6 GiB VRAM (GTX 1650 4GB)
-	if p.HasNVIDIA && vramGiB >= 3.5 {
+	// Tier 3: 4 GiB to 6 GiB VRAM (GTX 1650 4GB / 4GB Apple Silicon)
+	if hasGPU && vramGiB >= 3.5 {
+		notes := "Dedicated compute profile for constrained 4GB GPUs. High throughput conversational reasoning with zero CPU context spillover."
+		if p.HasAppleMetal {
+			notes = "Dedicated compute profile for Apple Silicon Metal. High throughput conversational reasoning utilizing unified memory."
+		}
 		return Recommendation{
 			Tier:            Tier3ConstrainedGPU,
 			ModelName:       "Meta Llama 3.2 3B Instruct (Q4_K_M)",
@@ -111,7 +125,7 @@ func selectGeneralModel(p *probe.HardwareProfile, vramGiB float64) Recommendatio
 			ParallelSlots:   1,
 			GPULayers:       99,
 			EstimatedVRAMMB: 2500,
-			Notes:           "Dedicated compute profile for constrained 4GB GPUs. High throughput conversational reasoning with zero CPU context spillover.",
+			Notes:           notes,
 		}
 	}
 
@@ -131,8 +145,14 @@ func selectGeneralModel(p *probe.HardwareProfile, vramGiB float64) Recommendatio
 }
 
 func selectCodingModel(p *probe.HardwareProfile, vramGiB float64) Recommendation {
+	hasGPU := p.HasNVIDIA || p.HasAppleMetal
+
 	// Tier 1: >= 10 GiB VRAM
-	if p.HasNVIDIA && vramGiB >= 10.0 {
+	if hasGPU && vramGiB >= 10.0 {
+		notes := "100% VRAM offload. Single dedicated slot (-np 1) maximizes available VRAM for KV cache (~66 t/s). ~5.5 GB VRAM headroom remaining."
+		if p.HasAppleMetal {
+			notes = "100% GPU offload via Apple Metal. Single dedicated slot (-np 1) maximizes available unified memory for KV cache (~66 t/s)."
+		}
 		return Recommendation{
 			Tier:            Tier1HighVRAM,
 			ModelName:       "Qwen 2.5 Coder 7B Instruct (Q4_K_M)",
@@ -143,12 +163,16 @@ func selectCodingModel(p *probe.HardwareProfile, vramGiB float64) Recommendation
 			ParallelSlots:   1,
 			GPULayers:       99,
 			EstimatedVRAMMB: 6600,
-			Notes:           "100% VRAM offload. Single dedicated slot (-np 1) maximizes available VRAM for KV cache (~66 t/s). ~5.5 GB VRAM headroom remaining.",
+			Notes:           notes,
 		}
 	}
 
 	// Tier 2: 6 GiB to 10 GiB VRAM
-	if p.HasNVIDIA && vramGiB >= 6.0 {
+	if hasGPU && vramGiB >= 6.0 {
+		notes := "100% VRAM offload with Q4_0 KV cache and single dedicated slot (-np 1). 32k context fits cleanly in 6GB-8GB VRAM cards with zero host RAM spillover."
+		if p.HasAppleMetal {
+			notes = "100% GPU offload via Apple Metal with Q4_0 KV cache and single dedicated slot (-np 1). Unified memory fits 32k context cleanly."
+		}
 		return Recommendation{
 			Tier:            Tier2MidVRAM,
 			ModelName:       "Qwen 2.5 Coder 7B Instruct (Q4_K_M)",
@@ -159,12 +183,16 @@ func selectCodingModel(p *probe.HardwareProfile, vramGiB float64) Recommendation
 			ParallelSlots:   1,
 			GPULayers:       99,
 			EstimatedVRAMMB: 5400,
-			Notes:           "100% VRAM offload with Q4_0 KV cache and single dedicated slot (-np 1). 32k context fits cleanly in 6GB-8GB VRAM cards with zero host RAM spillover.",
+			Notes:           notes,
 		}
 	}
 
 	// Tier 3: 4 GiB to 6 GiB VRAM
-	if p.HasNVIDIA && vramGiB >= 3.5 {
+	if hasGPU && vramGiB >= 3.5 {
+		notes := fmt.Sprintf("Dedicated compute dGPU profile (GTX 1650 Max-Q 4GB). Q4_K_M weights (~1.9 GB) + 32k Q4_0 KV cache (~0.55 GB) offloaded 100%% to VRAM with dedicated slot (-np 1).")
+		if p.HasAppleMetal {
+			notes = "Dedicated Apple Silicon Metal compute profile. Q4_K_M weights (~1.9 GB) + 32k Q4_0 KV cache (~0.55 GB) offloaded 100% via Metal with dedicated slot (-np 1)."
+		}
 		return Recommendation{
 			Tier:            Tier3ConstrainedGPU,
 			ModelName:       "Qwen 2.5 Coder 3B Instruct (Q4_K_M)",
@@ -175,7 +203,7 @@ func selectCodingModel(p *probe.HardwareProfile, vramGiB float64) Recommendation
 			ParallelSlots:   1,
 			GPULayers:       99,
 			EstimatedVRAMMB: 2450,
-			Notes:           fmt.Sprintf("Dedicated compute dGPU profile (GTX 1650 Max-Q 4GB). Q4_K_M weights (~1.9 GB) + 32k Q4_0 KV cache (~0.55 GB) offloaded 100%% to VRAM with dedicated slot (-np 1)."),
+			Notes:           notes,
 		}
 	}
 
@@ -195,7 +223,13 @@ func selectCodingModel(p *probe.HardwareProfile, vramGiB float64) Recommendation
 }
 
 func selectMoEModel(p *probe.HardwareProfile, vramGiB float64) Recommendation {
-	if p.HasNVIDIA && vramGiB >= 6.0 {
+	hasGPU := p.HasNVIDIA || p.HasAppleMetal
+
+	if hasGPU && vramGiB >= 6.0 {
+		notes := "Dynamic Mixture of Experts mode: 14B total parameters with 2.7B active per token. Offloads active expert paths to VRAM for high-capacity reasoning within consumer GPU bounds."
+		if p.HasAppleMetal {
+			notes = "Dynamic Mixture of Experts mode: 14B total parameters with 2.7B active per token. Offloads active expert paths to Metal GPU unified memory."
+		}
 		return Recommendation{
 			Tier:            Tier1HighVRAM,
 			ModelName:       "Qwen 1.5 MoE A2.7B Chat (Q4_K_M)",
@@ -206,11 +240,15 @@ func selectMoEModel(p *probe.HardwareProfile, vramGiB float64) Recommendation {
 			ParallelSlots:   1,
 			GPULayers:       99,
 			EstimatedVRAMMB: 4800,
-			Notes:           "Dynamic Mixture of Experts mode: 14B total parameters with 2.7B active per token. Offloads active expert paths to VRAM for high-capacity reasoning within consumer GPU bounds.",
+			Notes:           notes,
 		}
 	}
 
-	if p.HasNVIDIA && vramGiB >= 3.5 {
+	if hasGPU && vramGiB >= 3.5 {
+		notes := "MoE sparse expert routing optimized for 4GB VRAM. Fast active expert execution with memory-mapped host RAM expert fallback."
+		if p.HasAppleMetal {
+			notes = "MoE sparse expert routing optimized for Apple Silicon Metal. Fast active expert execution via unified memory."
+		}
 		return Recommendation{
 			Tier:            Tier3ConstrainedGPU,
 			ModelName:       "Qwen 1.5 MoE A2.7B Chat (Q3_K_M)",
@@ -221,7 +259,7 @@ func selectMoEModel(p *probe.HardwareProfile, vramGiB float64) Recommendation {
 			ParallelSlots:   1,
 			GPULayers:       99,
 			EstimatedVRAMMB: 3600,
-			Notes:           "MoE sparse expert routing optimized for 4GB VRAM. Fast active expert execution with memory-mapped host RAM expert fallback.",
+			Notes:           notes,
 		}
 	}
 

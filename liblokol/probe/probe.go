@@ -81,6 +81,18 @@ func detectCPUFeatures(p *HardwareProfile) {
 }
 
 func detectSystemRAM(p *HardwareProfile) {
+	if runtime.GOOS == "darwin" {
+		cmd := exec.Command("sysctl", "-n", "hw.memsize")
+		out, err := cmd.Output()
+		if err == nil {
+			bytes, err := strconv.ParseUint(strings.TrimSpace(string(out)), 10, 64)
+			if err == nil {
+				p.SystemRAMBytes = bytes
+				return
+			}
+		}
+	}
+
 	if runtime.GOOS != "linux" {
 		return
 	}
