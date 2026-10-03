@@ -287,7 +287,7 @@ func DefaultPipeline(workDir string, evaluator ...SemanticEvaluator) *Pipeline {
 // inference slot governor stage (ADR 0023, ADR 0025, ADR 0026).
 func DefaultPipelineWithSlot(workDir string, evaluator SemanticEvaluator, slotProvider SlotStatusProvider) *Pipeline {
 	if evaluator == nil {
-		evaluator = NewNativeCPUEvaluator()
+		evaluator = NewHeuristicRiskScorer()
 	}
 
 	stages := []Stage{

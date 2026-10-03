@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-// SemanticEvaluator evaluates candidate actions using a non-autoregressive decision model or native CPU evaluator.
+// SemanticEvaluator evaluates candidate actions using heuristic risk assessment or decision models (ADR-0020).
 type SemanticEvaluator interface {
 	Evaluate(ctx context.Context, action ActionCandidate, workDir string) (PermissionResult, error)
 }
@@ -23,20 +23,28 @@ func (f SemanticEvaluatorFunc) Evaluate(ctx context.Context, action ActionCandid
 	return f(ctx, action, workDir)
 }
 
-// NativeCPUEvaluator is a pure Go semantic decision evaluator executing on host CPU with zero Python dependencies (ADR-0020, ADR-0021).
-type NativeCPUEvaluator struct {
+// HeuristicRiskScorer performs heuristic risk assessment on host CPU with zero Python dependencies (ADR-0020, ADR-0021).
+type HeuristicRiskScorer struct {
 	Threshold float64
 }
 
-// NewNativeCPUEvaluator creates a pure Go semantic decision evaluator for production runtime.
-func NewNativeCPUEvaluator() *NativeCPUEvaluator {
-	return &NativeCPUEvaluator{
+// NewHeuristicRiskScorer creates a heuristic risk scorer for supplementary pattern-based safety evaluation.
+func NewHeuristicRiskScorer() *HeuristicRiskScorer {
+	return &HeuristicRiskScorer{
 		Threshold: 0.5,
 	}
 }
 
-// Evaluate performs sub-millisecond semantic risk assessment on CPU.
-func (e *NativeCPUEvaluator) Evaluate(ctx context.Context, action ActionCandidate, workDir string) (PermissionResult, error) {
+// NativeCPUEvaluator is an alias for backwards compatibility with existing callers.
+type NativeCPUEvaluator = HeuristicRiskScorer
+
+// NewNativeCPUEvaluator creates a new HeuristicRiskScorer for backwards compatibility.
+func NewNativeCPUEvaluator() *HeuristicRiskScorer {
+	return NewHeuristicRiskScorer()
+}
+
+// Evaluate performs sub-millisecond heuristic risk assessment on CPU.
+func (e *HeuristicRiskScorer) Evaluate(ctx context.Context, action ActionCandidate, workDir string) (PermissionResult, error) {
 	cmdLower := strings.ToLower(action.Command)
 	pathLower := strings.ToLower(action.Path)
 
