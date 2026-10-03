@@ -18,6 +18,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // ReadWindowInput specifies parameters for bounded line reading.
@@ -262,6 +263,71 @@ type TestResult struct {
 	ErrorOutput string
 }
 
+// MaxTestOutputBytes is the maximum test output captured by RunTestVerifier (1MB).
+const MaxTestOutputBytes = 1024 * 1024
+
+// CappedBuffer captures up to limit bytes, safely discarding subsequent writes
+// and appending an output truncation notice.
+type CappedBuffer struct {
+	mu        sync.Mutex
+	buf       bytes.Buffer
+	limit     int
+	truncated bool
+}
+
+// NewCappedBuffer creates a new CappedBuffer with the specified byte limit.
+func NewCappedBuffer(limit int) *CappedBuffer {
+	if limit <= 0 {
+		limit = MaxTestOutputBytes
+	}
+	return &CappedBuffer{limit: limit}
+}
+
+func (b *CappedBuffer) Write(p []byte) (n int, err error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	n = len(p)
+	if b.truncated {
+		return n, nil
+	}
+
+	remaining := b.limit - b.buf.Len()
+	if remaining <= 0 {
+		b.truncated = true
+		return n, nil
+	}
+
+	if len(p) > remaining {
+		b.buf.Write(p[:remaining])
+		b.truncated = true
+	} else {
+		b.buf.Write(p)
+	}
+	return n, nil
+}
+
+func (b *CappedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.truncated {
+		return b.buf.String() + fmt.Sprintf("\n[output truncated after %d bytes]", b.limit)
+	}
+	return b.buf.String()
+}
+
+func (b *CappedBuffer) Truncated() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.truncated
+}
+
+func (b *CappedBuffer) Len() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Len()
+}
+
 // RunTestVerifier executes test commands and strips verbose stack traces down to
 // actionable assertion errors and line numbers.
 func RunTestVerifier(ctx context.Context, command string, workDir ...string) (*TestResult, error) {
@@ -278,9 +344,9 @@ func RunTestVerifier(ctx context.Context, command string, workDir ...string) (*T
 			cmd.Dir = workDir[0]
 		}
 	}
-	var combinedBuf bytes.Buffer
-	cmd.Stdout = &combinedBuf
-	cmd.Stderr = &combinedBuf
+	combinedBuf := NewCappedBuffer(MaxTestOutputBytes)
+	cmd.Stdout = combinedBuf
+	cmd.Stderr = combinedBuf
 
 	err := cmd.Run()
 	output := combinedBuf.String()

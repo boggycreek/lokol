@@ -40,7 +40,10 @@ const (
 
 type TokenMsg string
 type StreamDoneMsg string
-type ActionExecutedMsg string
+type ActionExecutedMsg struct {
+	Output string
+	Gen    int
+}
 type ErrMsg error
 type SlotTickMsg *agent.SlotStatus
 
@@ -74,12 +77,15 @@ type Model struct {
 	viewport     viewport.Model
 	textarea     textarea.Model
 	spinner      spinner.Model
-	chatLog      string
-	pendingAct   *agent.Action
-	currentResp  string
-	tokenChan    chan string
-	streamCancel context.CancelFunc
-	yoloMode     bool
+	chatLog        string
+	wrappedChatLog string
+	pendingAct     *agent.Action
+	currentResp    string
+	tokenChan      chan string
+	streamCancel   context.CancelFunc
+	actionCancel   context.CancelFunc
+	actionGen      int
+	yoloMode       bool
 	verbose      bool
 	width        int
 	height       int
@@ -332,7 +338,8 @@ func NewWithSession(session agent.SessionCore, hw *probe.HardwareProfile, yoloMo
 	if yoloMode {
 		initialText += "⚡ [YOLO MODE ENGAGED] Autonomous command execution without confirmation.\n\n"
 	}
-	vp.SetContent(wrapContent(initialText, 76))
+	wrappedInitial := wrapContent(initialText, 76)
+	vp.SetContent(wrappedInitial)
 
 	workDir := "."
 	if session != nil && session.GetWorkDir() != "" {
@@ -340,18 +347,19 @@ func NewWithSession(session agent.SessionCore, hw *probe.HardwareProfile, yoloMo
 	}
 
 	m := Model{
-		session:      session,
-		hardware:     hw,
-		agentName:    agentName,
-		operatorName: operatorName,
-		state:        StateIdle,
-		viewport:     vp,
-		textarea:     ta,
-		spinner:      s,
-		tokenChan:    make(chan string, 100),
-		yoloMode:     yoloMode,
-		chatLog:      initialText,
-		regulator:    regulator.New(workDir),
+		session:        session,
+		hardware:       hw,
+		agentName:      agentName,
+		operatorName:   operatorName,
+		state:          StateIdle,
+		viewport:       vp,
+		textarea:       ta,
+		spinner:        s,
+		tokenChan:      make(chan string, 100),
+		yoloMode:       yoloMode,
+		chatLog:        initialText,
+		wrappedChatLog: wrappedInitial,
+		regulator:      regulator.New(workDir),
 	}
 	if session != nil {
 		m.regulator.SetSlotStatusProvider(regulator.SlotStatusFunc(func(ctx context.Context) (*regulator.SlotMetrics, error) {
@@ -417,19 +425,22 @@ func startStream(ctx context.Context, session agent.SessionCore, tokenChan chan 
 	}
 }
 
-func executeAction(session agent.SessionCore, act *agent.Action) tea.Cmd {
+func executeAction(ctx context.Context, session agent.SessionCore, act *agent.Action, gen int) tea.Cmd {
 	return func() tea.Msg {
 		if act == nil {
-			return ActionExecutedMsg("")
+			return ActionExecutedMsg{Output: "", Gen: gen}
 		}
 		if session == nil {
-			return ActionExecutedMsg("[Error: session is nil]")
+			return ActionExecutedMsg{Output: "[Error: session is nil]", Gen: gen}
 		}
-		out, err := session.ExecuteAction(context.Background(), act)
+		out, err := session.ExecuteAction(ctx, act)
+		if ctx.Err() != nil {
+			return ActionExecutedMsg{Output: fmt.Sprintf("[Action cancelled: %v]", ctx.Err()), Gen: gen}
+		}
 		if err != nil {
-			return ActionExecutedMsg(fmt.Sprintf("[Error: %v]\n%s", err, out))
+			return ActionExecutedMsg{Output: fmt.Sprintf("[Error: %v]\n%s", err, out), Gen: gen}
 		}
-		return ActionExecutedMsg(out)
+		return ActionExecutedMsg{Output: out, Gen: gen}
 	}
 }
 
@@ -470,7 +481,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.textarea.SetWidth(taWidth)
 		m.updateViewportDimensions()
-		m.viewport.SetContent(wrapContent(m.chatLog, m.viewport.Width))
+		m.wrappedChatLog = wrapContent(m.chatLog, m.viewport.Width)
+		m.viewport.SetContent(m.wrappedChatLog)
 		m.viewport.GotoBottom()
 
 	case tea.KeyMsg:
@@ -481,6 +493,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.streamCancel()
 					m.streamCancel = nil
 				}
+				if m.actionCancel != nil {
+					m.actionCancel()
+					m.actionCancel = nil
+				}
+				m.actionGen++
+				m.pendingAct = nil
 				m.state = StateIdle
 				m.stepCount = 0
 				m.lastThought = ""
@@ -502,6 +520,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.streamCancel()
 					m.streamCancel = nil
 				}
+				if m.actionCancel != nil {
+					m.actionCancel()
+					m.actionCancel = nil
+				}
+				m.actionGen++
+				m.pendingAct = nil
 				m.state = StateIdle
 				m.stepCount = 0
 				m.lastThought = ""
@@ -588,8 +612,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.verbose && m.pendingAct != nil {
 					m.appendLog(m.pendingAct.VerboseDescription() + "\n\n")
 				}
+				if m.actionCancel != nil {
+					m.actionCancel()
+				}
+				actCtx, cancel := context.WithCancel(context.Background())
+				m.actionCancel = cancel
+				m.actionGen++
 				return m, tea.Batch(
-					executeAction(m.session, m.pendingAct),
+					executeAction(actCtx, m.session, m.pendingAct, m.actionGen),
 					m.spinner.Tick,
 				)
 			}
@@ -746,8 +776,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.verbose && m.pendingAct != nil {
 					m.appendLog(m.pendingAct.VerboseDescription() + "\n\n")
 				}
+				if m.actionCancel != nil {
+					m.actionCancel()
+				}
+				actCtx, cancel := context.WithCancel(context.Background())
+				m.actionCancel = cancel
+				m.actionGen++
 				return m, tea.Batch(
-					executeAction(m.session, m.pendingAct),
+					executeAction(actCtx, m.session, m.pendingAct, m.actionGen),
 					m.spinner.Tick,
 				)
 			case "n", "N":
@@ -787,6 +823,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case TokenMsg:
 		if m.state == StateStreaming {
 			m.currentResp += string(msg)
+			// Drain buffered tokens from channel to batch render updates
+			drained := false
+			for {
+				select {
+				case nextToken, ok := <-m.tokenChan:
+					if !ok {
+						drained = true
+						break
+					}
+					m.currentResp += nextToken
+				default:
+					drained = true
+				}
+				if drained {
+					break
+				}
+			}
+
 			if m.verbose {
 				// Filter out action XML from the live stream display in verbose mode
 				displayStr := m.currentResp
@@ -794,7 +848,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					displayStr = strings.TrimSpace(displayStr[:idx])
 				}
 				if displayStr != "" {
-					m.viewport.SetContent(wrapContent(m.chatLog+agentStyle.Render(fmt.Sprintf("%s: ", m.AgentName()))+displayStr, m.viewport.Width))
+					prefix := agentStyle.Render(fmt.Sprintf("%s: ", m.AgentName()))
+					wrappedStream := wrapContent(prefix+displayStr, m.viewport.Width)
+					m.viewport.SetContent(m.wrappedChatLog + wrappedStream)
 				}
 				m.viewport.GotoBottom()
 			}
@@ -884,8 +940,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if m.verbose {
 						m.appendLog(act.VerboseDescription() + "\n\n")
 					}
+					if m.actionCancel != nil {
+						m.actionCancel()
+					}
+					actCtx, cancel := context.WithCancel(context.Background())
+					m.actionCancel = cancel
+					m.actionGen++
 					return m, tea.Batch(
-						executeAction(m.session, act),
+						executeAction(actCtx, m.session, act, m.actionGen),
 						m.spinner.Tick,
 					)
 				}
@@ -960,7 +1022,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case ActionExecutedMsg:
-		output := string(msg)
+		if m.state != StateExecutingAction || (msg.Gen != 0 && msg.Gen != m.actionGen) {
+			return m, nil
+		}
+		if m.actionCancel != nil {
+			m.actionCancel()
+			m.actionCancel = nil
+		}
+		output := msg.Output
 		isError := strings.HasPrefix(output, "[Error: ")
 
 		if m.pendingAct != nil {
@@ -1064,7 +1133,8 @@ func (m *Model) appendLog(text string) {
 	if w <= 0 {
 		w = 76
 	}
-	m.viewport.SetContent(wrapContent(m.chatLog, w))
+	m.wrappedChatLog = wrapContent(m.chatLog, w)
+	m.viewport.SetContent(m.wrappedChatLog)
 	m.viewport.GotoBottom()
 }
 
@@ -1329,6 +1399,9 @@ func (m Model) View() string {
 
 // ViewportContent returns the raw wrapped text content currently held in the viewport.
 func (m Model) ViewportContent() string {
+	if m.wrappedChatLog != "" {
+		return m.wrappedChatLog
+	}
 	return wrapContent(m.chatLog, m.viewport.Width)
 }
 
@@ -1834,7 +1907,8 @@ func (m Model) finalizeTurnDigest() Model {
 	if w <= 0 {
 		w = 76
 	}
-	m.viewport.SetContent(wrapContent(m.chatLog, w))
+	m.wrappedChatLog = wrapContent(m.chatLog, w)
+	m.viewport.SetContent(m.wrappedChatLog)
 	m.viewport.GotoBottom()
 
 	m.turnDigests = append(m.turnDigests, TurnDigest{
@@ -1871,7 +1945,8 @@ func (m Model) ToggleTurnDigest() Model {
 	if w <= 0 {
 		w = 76
 	}
-	m.viewport.SetContent(wrapContent(m.chatLog, w))
+	m.wrappedChatLog = wrapContent(m.chatLog, w)
+	m.viewport.SetContent(m.wrappedChatLog)
 	m.viewport.GotoBottom()
 	return m
 }
