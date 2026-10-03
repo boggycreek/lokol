@@ -9,6 +9,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -107,7 +108,7 @@ func ReadWindow(path string, startLine, endLine int) (string, error) {
 		if currentLine >= startLine && currentLine <= endLine {
 			lineText := string(lineBytes)
 			if truncated {
-				lineText += " [line truncated at 500 chars]"
+				lineText += fmt.Sprintf(" [line truncated at %d chars]", MaxWindowLineLength)
 			}
 			sb.WriteString(fmt.Sprintf("%4d | %s\n", currentLine, lineText))
 		}
