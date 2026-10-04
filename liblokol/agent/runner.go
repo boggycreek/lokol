@@ -44,9 +44,9 @@ func (r *Runner) Run(ctx context.Context, initialPrompt string) (string, error) 
 
 	if r.Regulator == nil {
 		r.Regulator = regulator.New(workDir)
-		if r.Client != nil {
-			r.Regulator.SetSlotStatusProvider(r.Client)
-		}
+	}
+	if r.Client != nil && r.Regulator.SlotStatusProvider == nil {
+		r.Regulator.SetSlotStatusProvider(r.Client)
 	}
 
 	session := r.Session
@@ -65,6 +65,10 @@ func (r *Runner) Run(ctx context.Context, initialPrompt string) (string, error) 
 	// Wire session compaction into regulator slot governor to prevent headless deadlocks (lokol-f78.5)
 	if r.Regulator != nil {
 		r.Regulator.SetCompactor(session)
+	}
+	// Connect spec machine compaction ledger provider to session (lokol-asw)
+	if r.SpecMachine != nil {
+		session.SetLedgerProvider(r.SpecMachine.ToCompactionLedger)
 	}
 
 	session.AppendUserMessage(initialPrompt)
@@ -258,6 +262,21 @@ func (r *Runner) Run(ctx context.Context, initialPrompt string) (string, error) 
 		}
 
 		out, err := session.ExecuteAction(ctx, act)
+		if r.SpecMachine != nil {
+			if act.Name == "run_test" {
+				exitCode := 0
+				if err != nil {
+					exitCode = 1
+				}
+				r.SpecMachine.RecordVerification("run_test "+act.Command, exitCode, out)
+			} else if act.Name == "exec_bash" && r.SpecMachine.Spec != nil && r.SpecMachine.Spec.VerifyCmd != "" && strings.TrimSpace(act.Command) == strings.TrimSpace(r.SpecMachine.Spec.VerifyCmd) {
+				exitCode := 0
+				if err != nil {
+					exitCode = 1
+				}
+				r.SpecMachine.RecordVerification(act.Command, exitCode, out)
+			}
+		}
 
 		// Format reciprocal action_result with loop intervention heuristics
 		var toolResult string

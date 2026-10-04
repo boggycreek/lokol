@@ -391,6 +391,17 @@ func (sm *StateMachine) Verify(ctx context.Context) (*VerificationResult, error)
 	return res, nil
 }
 
+// RecordVerification manually records a verification or test execution result (lokol-asw).
+func (sm *StateMachine) RecordVerification(cmd string, code int, output string) {
+	sm.LatestVerification = &VerificationResult{
+		Timestamp: time.Now(),
+		Command:   cmd,
+		ExitCode:  code,
+		Output:    output,
+		Passed:    code == 0,
+	}
+}
+
 // ToCompactionLedger produces a structured context ledger for downstream context compaction (lokol-asw).
 func (sm *StateMachine) ToCompactionLedger() string {
 	if sm.Spec == nil {
@@ -406,13 +417,18 @@ func (sm *StateMachine) ToCompactionLedger() string {
 		b.WriteString(fmt.Sprintf("  <target_files>%s</target_files>\n", strings.Join(sm.Spec.TargetFiles, ", ")))
 	}
 
-	if sm.LatestVerification != nil {
+	ver := sm.LatestVerification
+	if ver == nil && sm.PreflightResult != nil {
+		ver = sm.PreflightResult
+	}
+
+	if ver != nil {
 		b.WriteString(fmt.Sprintf("  <latest_verification passed=\"%t\" exit_code=\"%d\">\n",
-			sm.LatestVerification.Passed, sm.LatestVerification.ExitCode))
-		b.WriteString(fmt.Sprintf("    <command>%s</command>\n", sm.LatestVerification.Command))
+			ver.Passed, ver.ExitCode))
+		b.WriteString(fmt.Sprintf("    <command>%s</command>\n", ver.Command))
 
 		// Compact output to first 5 and last 10 lines of verification output
-		lines := strings.Split(strings.TrimSpace(sm.LatestVerification.Output), "\n")
+		lines := strings.Split(strings.TrimSpace(ver.Output), "\n")
 		var summaryLines []string
 		if len(lines) <= 15 {
 			summaryLines = lines

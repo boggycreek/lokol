@@ -130,6 +130,11 @@ func CompactHistory(history []Message, summaryLedger string, preserveRecent int)
 	}
 
 	cutoff := len(history) - (preserveRecent * 2)
+	// If preserving preserveRecent turns leaves no older turns to compact,
+	// fall back to preserving 1 recent turn to reclaim headroom (lokol-asw).
+	if cutoff <= 2 && preserveRecent > 1 {
+		cutoff = len(history) - 2
+	}
 	// We need at least: system prompt (0), initial user prompt (1), and some older turns (2..cutoff)
 	if cutoff <= 2 {
 		return history

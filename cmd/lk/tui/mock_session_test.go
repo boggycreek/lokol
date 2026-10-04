@@ -179,4 +179,7 @@ func (m *MockSession) PruneToolOutputs(preserveRecent int) int {
 func (m *MockSession) CompactHistory(summaryLedger string, preserveRecent int) {
 }
 
+func (m *MockSession) SetLedgerProvider(provider func() string) {
+}
+
 

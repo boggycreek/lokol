@@ -38,6 +38,7 @@ type SessionCore interface {
 	SetPersona(agentName, operatorName string)
 	PruneToolOutputs(preserveRecent int) int
 	CompactHistory(summaryLedger string, preserveRecent int)
+	SetLedgerProvider(provider func() string)
 }
 
 // Session represents a stateful conversational agent session.
@@ -53,6 +54,7 @@ type Session struct {
 	History          []Message
 	consecutiveReads int
 	windowCache      *WindowReadCache
+	LedgerProvider   func() string
 }
 
 var _ SessionCore = (*Session)(nil)
@@ -343,15 +345,52 @@ func (s *Session) CompactHistory(summaryLedger string, preserveRecent int) {
 // ErrNoCompactionPossible indicates that conversation history cannot be compacted further.
 var ErrNoCompactionPossible = errors.New("no compaction possible: context already pruned to minimum retainable bounds")
 
-// Compact implements regulator.Compactor for Session (lokol-f78.5).
+// SetLedgerProvider registers a callback that generates a compaction ledger (e.g. from spec.StateMachine).
+func (s *Session) SetLedgerProvider(provider func() string) {
+	s.LedgerProvider = provider
+}
+
+// Compact implements regulator.Compactor for Session (lokol-f78.5, lokol-asw).
+// In accordance with ADR 0026 and ADR 0029, it enforces a progressive two-stage intervention:
+// 1. In the warning band (60%-75% utilization), micro-pruning strips obsolete tool observation payloads.
+// 2. In the critical compaction band (>= 75% utilization) or when micro-pruning cannot reclaim space,
+// macro-compaction condenses intermediate turns into a structured summary ledger preserving SPEC.md and assertion state.
 func (s *Session) Compact(ctx context.Context, metrics *regulator.SlotMetrics) error {
 	reclaimed := s.PruneToolOutputs(2)
-	if reclaimed > 0 {
+
+	isCritical := false
+	if metrics != nil && metrics.NCtx > 0 {
+		utilPct := (float64(metrics.NPromptTokens) / float64(metrics.NCtx)) * 100.0
+		if utilPct >= 75.0 {
+			isCritical = true
+		}
+	}
+
+	// If micro-pruning recovered headroom and we are not in critical pressure, we can proceed.
+	if reclaimed > 0 && !isCritical {
 		return nil
 	}
+
 	beforeLen := len(s.History)
-	s.CompactHistory("Older interaction turns summarized due to slot capacity constraints.", 2)
-	if len(s.History) < beforeLen {
+	beforeChars := 0
+	for _, m := range s.History {
+		beforeChars += len(m.Content)
+	}
+
+	summary := "Older interaction turns summarized due to slot capacity constraints."
+	if s.LedgerProvider != nil {
+		if ledger := s.LedgerProvider(); ledger != "" {
+			summary = fmt.Sprintf("SPECIFICATION & TEST ASSERTION LEDGER:\n%s\n\nIntermediate turns compacted to preserve context budget.", ledger)
+		}
+	}
+	s.CompactHistory(summary, 2)
+
+	afterChars := 0
+	for _, m := range s.History {
+		afterChars += len(m.Content)
+	}
+
+	if len(s.History) < beforeLen || afterChars < beforeChars || reclaimed > 0 {
 		return nil
 	}
 	return ErrNoCompactionPossible

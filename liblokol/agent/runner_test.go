@@ -821,4 +821,148 @@ func TestRunner_Spec_PreflightFailureAbortsEarly(t *testing.T) {
 	}
 }
 
+func TestRunner_SlotAwareCompactionGovernor(t *testing.T) {
+	tmpDir := t.TempDir()
+	codeFile := filepath.Join(tmpDir, "code.go")
+	if err := os.WriteFile(codeFile, []byte("package main\n\nfunc old() {}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	turn := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/slots" {
+			// Simulate context token pressure growth across turns:
+			// Turns 1-2: nominal (<60%)
+			// Turn 3: warning band (65%)
+			// Turn 4: critical compaction band (80%)
+			tokens := 3000
+			if turn >= 3 {
+				tokens = 8000
+			} else if turn == 2 {
+				tokens = 6500
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode([]struct {
+				ID            int  `json:"id"`
+				NCtx          int  `json:"n_ctx"`
+				NPromptTokens int  `json:"n_prompt_tokens"`
+				IsProcessing  bool `json:"is_processing"`
+			}{
+				{ID: 0, NCtx: 10000, NPromptTokens: tokens, IsProcessing: false},
+			})
+			return
+		}
+
+		if r.URL.Path != "/v1/chat/completions" {
+			if r.URL.Path == "/v1/models" {
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]any{{"id": "test-model"}}})
+				return
+			}
+			http.NotFound(w, r)
+			return
+		}
+
+		turn++
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher, _ := w.(http.Flusher)
+
+		var tok string
+		switch turn {
+		case 1:
+			tok = "I will read code.go.\n<action name=\"read_window\"><path>code.go</path></action>"
+		case 2:
+			tok = "I will replace old with new.\n<action name=\"replace_file\"><path>code.go</path><target>func old() {}</target><replacement>func new() {}</replacement></action>"
+		case 3:
+			tok = "I will run tests.\n<action name=\"run_test\">go test</action>"
+		case 4:
+			tok = "Task completed.\n<action name=\"task_finish\">All done</action>"
+		default:
+			tok = "<action name=\"task_finish\">Done</action>"
+		}
+
+		chunk := agent.ChatChunkResponse{
+			Choices: []struct {
+				Delta struct {
+					Content string `json:"content"`
+				} `json:"delta"`
+				FinishReason string `json:"finish_reason"`
+			}{
+				{Delta: struct {
+					Content string `json:"content"`
+				}{Content: tok}},
+			},
+		}
+		bytesChunk, _ := json.Marshal(chunk)
+		fmt.Fprintf(w, "data: %s\n\n", bytesChunk)
+		flusher.Flush()
+		fmt.Fprintf(w, "data: [DONE]\n\n")
+		flusher.Flush()
+	}))
+	defer server.Close()
+
+	sp := &spec.Spec{
+		Title:       "Refactor Old Code",
+		TargetFiles: []string{"code.go"},
+		VerifyCmd:   "go test",
+	}
+	sm := spec.NewStateMachine(sp, tmpDir)
+	sm.Executor = func(ctx context.Context, cmd, workDir string) (string, int, error) {
+		return "PASS: test suite passed", 0, nil
+	}
+
+	client := agent.NewClient(server.URL)
+	runner := &agent.Runner{
+		Client:      client,
+		MaxTurns:    10,
+		WorkDir:     tmpDir,
+		SpecMachine: sm,
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	result, err := runner.Run(ctx, "Refactor code.go to new and verify with tests")
+	if err != nil {
+		t.Fatalf("unexpected runner error: %v", err)
+	}
+	if result != "All done" {
+		t.Errorf("expected finish result 'All done', got: %q", result)
+	}
+
+	// Verify session history contains compacted conversation summary
+	var foundSummary bool
+	var summaryContent string
+	for _, msg := range runner.Session.History {
+		if strings.Contains(msg.Content, "<conversation_summary>") {
+			foundSummary = true
+			summaryContent = msg.Content
+			break
+		}
+	}
+
+	if !foundSummary {
+		t.Fatalf("expected <conversation_summary> in session history due to slot pressure compaction, got history: %+v", runner.Session.History)
+	}
+
+	// Verify spec ledger preservation invariants
+	if !strings.Contains(summaryContent, "SPECIFICATION & TEST ASSERTION LEDGER:") {
+		t.Errorf("expected spec ledger header in summary, got: %q", summaryContent)
+	}
+	if !strings.Contains(summaryContent, "<title>Refactor Old Code</title>") {
+		t.Errorf("expected spec title in summary, got: %q", summaryContent)
+	}
+	if !strings.Contains(summaryContent, "<target_files>code.go</target_files>") {
+		t.Errorf("expected target_files in summary, got: %q", summaryContent)
+	}
+
+	// Invariants: History[0] is system prompt, History[1] is user initial prompt
+	if runner.Session.History[0].Role != "system" {
+		t.Errorf("expected History[0] system prompt, got role %s", runner.Session.History[0].Role)
+	}
+	if runner.Session.History[1].Role != "user" || !strings.Contains(runner.Session.History[1].Content, "Refactor code.go") {
+		t.Errorf("expected History[1] original user prompt, got %q", runner.Session.History[1].Content)
+	}
+}
+
 
