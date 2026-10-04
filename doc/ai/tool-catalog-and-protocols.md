@@ -31,7 +31,7 @@ description: >-
 
 ## Functional Regulator Action-Gating Pipeline
 - **Layered Action Governance**: Mediates tool execution through composable pipeline stages ([ADR 0023](../adr/0023-functional-regulator-action-gating-pipeline.md)):
-  - **Static Gating**: Pre-execution syntax validation, filesystem boundary containment (`CheckPathWithinBounds`), and shell command blocklist scanning ([ADR 0019](../adr/0019-filesystem-boundary-containment-and-permissions-pipeline.md)).
+  - **Static Gating**: Pre-execution syntax validation, filesystem boundary containment (`CheckPathWithinBounds` using ancestor-walking symlink resolution and `filepath.Rel` containment; see `CONTRIBUTING.md`), and shell command blocklist scanning ([ADR 0019](../adr/0019-filesystem-boundary-containment-and-permissions-pipeline.md)).
   - **Dynamic Gating**: Loop circuit breakers detecting repetitive failed action loops, runaway reads, and ping-pong state oscillation ([ADR 0025](../adr/0025-dynamic-loop-circuit-breaking-and-oscillation-governance.md)).
   - **Slot Pressure & Budget Regulation**: Tracks real-time inference slot KV-cache utilization, emitting tiered warnings and triggering proactive context compaction ([ADR 0026](../adr/0026-inference-slot-pressure-and-context-budget-regulation.md)).
   - **Structured Remediation**: Provides actionable self-correction feedback directing the agent to valid alternatives upon any regulatory denial ([ADR 0027](../adr/0027-structured-trajectory-remediation-for-autonomous-recovery.md)).

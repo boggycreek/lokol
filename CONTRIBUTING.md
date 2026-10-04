@@ -288,3 +288,22 @@ bd dolt push
    - Store local developer test dumps, benchmark logs, and evaluation reports in `./data/`. This directory is gitignored.
 5. **Non-Interactive Shell Scripts**: Always use `-f`, `-rf`, and non-interactive flags (`apt-get -y`, `HOMEBREW_NO_AUTO_UPDATE=1`, `rm -rf`, `cp -f`) to prevent scripts and agents from hanging on confirmation prompts.
 6. **Formatting**: Run `gofmt -w` on all Go source files prior to testing.
+
+---
+
+## 11. Filesystem Boundary Safety & Tool Authoring Conventions
+
+When developing or registering new tools that interact with the host filesystem (reading, writing, deleting, or inspecting files), authors **must never invent ad hoc path containment checks**. Specifically:
+
+### The `strings.HasPrefix` Anti-Pattern
+Checking containment using naive string prefixing (e.g. `strings.HasPrefix(targetPath, workDir)`) is an anti-pattern:
+- **Sibling Traversal Vulnerability**: A workspace path `/home/user/work` will falsely match sibling paths such as `/home/user/work2` or `/home/user/work_private/secret.txt`.
+- **Symlink Escapes**: A symlink `/home/user/work/link` pointing to `/etc/shadow` starts with the workspace prefix string, but escapes to arbitrary host targets upon dereference.
+
+### Canonical Boundary Validation (`liblokol/regulator.CheckPathWithinBounds`)
+All filesystem-touching tools must use [`regulator.CheckPathWithinBounds(workDir, targetPath)`](liblokol/regulator/boundary.go):
+1. **Null Byte & URL Traversal Rejection**: Automatically rejects null bytes (`\x00`) and recursive URL-encoded traversal attempts (`%2e%2e%2f`).
+2. **Ancestor-Walking Symlink Resolution**: Evaluates symlinks iteratively up the directory hierarchy so uncreated target paths in existing symlinked folders are resolved to their true physical targets before creation.
+3. **Canonical `filepath.Rel` Containment**: Verifies that `rel, err := filepath.Rel(absWorkDir, absTarget)` satisfies `err == nil && rel != ".." && !strings.HasPrefix(rel, ".." + string(filepath.Separator))`.
+4. **Defense-in-Depth**: Both the regulator pipeline and core tool dispatchers (`DispatchAction`, `ExecuteWriteFile`, `ExecuteReplaceFile`) re-validate boundaries immediately before any filesystem mutation to prevent TOCTOU races.
+
