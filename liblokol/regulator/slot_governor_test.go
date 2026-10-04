@@ -247,3 +247,80 @@ func TestSlotGovernor_FunctionAdapter(t *testing.T) {
 		t.Errorf("expected StatusAllowed, got: %s", res.Status)
 	}
 }
+
+func TestSlotGovernor_WithCompactor_Success(t *testing.T) {
+	provider := &mockSlotProvider{
+		metrics: &regulator.SlotMetrics{
+			NCtx:          1000,
+			NPromptTokens: 900, // 90% utilization (Compaction Band)
+		},
+	}
+
+	stub := &regulator.StubCompactor{}
+	stage := regulator.NewInferenceSlotGovernorStage(provider, regulator.WithCompactor(stub))
+
+	ctx := context.Background()
+	action := regulator.ActionCandidate{Name: "exec_bash", Command: "make build"}
+	res := stage.Evaluate(ctx, action, ".")
+
+	if stub.CompactedCount != 1 {
+		t.Errorf("expected compactor to be invoked once, got: %d", stub.CompactedCount)
+	}
+	if res.Status != regulator.StatusWarning {
+		t.Errorf("expected StatusWarning after successful compaction, got: %s", res.Status)
+	}
+	if !strings.Contains(res.Reason, "compaction triggered successfully") {
+		t.Errorf("expected reason to note successful compaction, got: %s", res.Reason)
+	}
+}
+
+func TestSlotGovernor_WithCompactor_ErrorFallsBackToBlocked(t *testing.T) {
+	provider := &mockSlotProvider{
+		metrics: &regulator.SlotMetrics{
+			NCtx:          1000,
+			NPromptTokens: 900, // 90% utilization
+		},
+	}
+
+	stub := &regulator.StubCompactor{
+		OnCompact: func(ctx context.Context, metrics *regulator.SlotMetrics) error {
+			return errors.New("compaction failed: no prunable turns")
+		},
+	}
+	stage := regulator.NewInferenceSlotGovernorStage(provider, regulator.WithCompactor(stub))
+
+	ctx := context.Background()
+	action := regulator.ActionCandidate{Name: "exec_bash", Command: "make build"}
+	res := stage.Evaluate(ctx, action, ".")
+
+	if stub.CompactedCount != 1 {
+		t.Errorf("expected compactor to be invoked, got: %d", stub.CompactedCount)
+	}
+	if res.Status != regulator.StatusBlocked {
+		t.Errorf("expected StatusBlocked when compactor fails, got: %s", res.Status)
+	}
+}
+
+func TestSlotGovernor_CompactorFuncAdapter(t *testing.T) {
+	compacted := false
+	compactor := regulator.CompactorFunc(func(ctx context.Context, metrics *regulator.SlotMetrics) error {
+		compacted = true
+		return nil
+	})
+
+	provider := &mockSlotProvider{
+		metrics: &regulator.SlotMetrics{
+			NCtx:          1000,
+			NPromptTokens: 900,
+		},
+	}
+	stage := regulator.NewInferenceSlotGovernorStage(provider, regulator.WithCompactor(compactor))
+	res := stage.Evaluate(context.Background(), regulator.ActionCandidate{Name: "read_window"}, ".")
+
+	if !compacted {
+		t.Errorf("expected CompactorFunc adapter to be called")
+	}
+	if res.Status != regulator.StatusWarning {
+		t.Errorf("expected StatusWarning, got: %s", res.Status)
+	}
+}

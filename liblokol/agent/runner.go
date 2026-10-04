@@ -58,6 +58,13 @@ func (r *Runner) Run(ctx context.Context, initialPrompt string) (string, error) 
 			session.SetPersona(r.AgentName, r.OperatorName)
 		}
 	}
+	r.Session = session
+
+	// Wire session compaction into regulator slot governor to prevent headless deadlocks (lokol-f78.5)
+	if r.Regulator != nil {
+		r.Regulator.SetCompactor(session)
+	}
+
 	session.AppendUserMessage(initialPrompt)
 
 	if r.MaxTurns <= 0 {

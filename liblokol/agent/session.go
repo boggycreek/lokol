@@ -7,6 +7,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -337,6 +338,23 @@ func (s *Session) PruneToolOutputs(preserveRecent int) int {
 // while preserving the system prompt, initial user objective, and recent turns intact.
 func (s *Session) CompactHistory(summaryLedger string, preserveRecent int) {
 	s.History = CompactHistory(s.History, summaryLedger, preserveRecent)
+}
+
+// ErrNoCompactionPossible indicates that conversation history cannot be compacted further.
+var ErrNoCompactionPossible = errors.New("no compaction possible: context already pruned to minimum retainable bounds")
+
+// Compact implements regulator.Compactor for Session (lokol-f78.5).
+func (s *Session) Compact(ctx context.Context, metrics *regulator.SlotMetrics) error {
+	reclaimed := s.PruneToolOutputs(2)
+	if reclaimed > 0 {
+		return nil
+	}
+	beforeLen := len(s.History)
+	s.CompactHistory("Older interaction turns summarized due to slot capacity constraints.", 2)
+	if len(s.History) < beforeLen {
+		return nil
+	}
+	return ErrNoCompactionPossible
 }
 
 

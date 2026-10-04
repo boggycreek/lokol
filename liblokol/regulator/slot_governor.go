@@ -29,12 +29,42 @@ func (f SlotStatusFunc) GetSlotMetrics(ctx context.Context) (*SlotMetrics, error
 	return f(ctx)
 }
 
+// Compactor is an abstract interface for triggering proactive context compaction
+// when slot pressure reaches the Compaction Band (ADR 0026, ADR 0029, lokol-f78.5).
+type Compactor interface {
+	Compact(ctx context.Context, metrics *SlotMetrics) error
+}
+
+// CompactorFunc adapts a standalone function to the Compactor interface.
+type CompactorFunc func(ctx context.Context, metrics *SlotMetrics) error
+
+// Compact implements Compactor.
+func (f CompactorFunc) Compact(ctx context.Context, metrics *SlotMetrics) error {
+	return f(ctx, metrics)
+}
+
+// StubCompactor is a reference compactor implementation that records invocations and supports custom handlers (lokol-f78.5).
+type StubCompactor struct {
+	CompactedCount int
+	OnCompact      func(ctx context.Context, metrics *SlotMetrics) error
+}
+
+// Compact implements Compactor.
+func (s *StubCompactor) Compact(ctx context.Context, metrics *SlotMetrics) error {
+	s.CompactedCount++
+	if s.OnCompact != nil {
+		return s.OnCompact(ctx, metrics)
+	}
+	return nil
+}
+
 // InferenceSlotGovernorStage regulates execution cadence and triggers proactive context compaction
 // based on inference slot memory utilization and token window pressure (ADR 0026).
 type InferenceSlotGovernorStage struct {
 	provider            SlotStatusProvider
 	warningThreshold    float64 // Default 70.0%
 	compactionThreshold float64 // Default 85.0%
+	compactor           Compactor
 }
 
 // SlotGovernorOption configures an InferenceSlotGovernorStage instance.
@@ -55,6 +85,13 @@ func WithCompactionThreshold(pct float64) SlotGovernorOption {
 		if pct > 0 && pct <= 100 {
 			s.compactionThreshold = pct
 		}
+	}
+}
+
+// WithCompactor registers a context compactor to be invoked when slot pressure reaches the Compaction Band.
+func WithCompactor(c Compactor) SlotGovernorOption {
+	return func(s *InferenceSlotGovernorStage) {
+		s.compactor = c
 	}
 }
 
@@ -135,6 +172,19 @@ func (s *InferenceSlotGovernorStage) Evaluate(ctx context.Context, action Action
 
 	// 1. Compaction Band (>= compactionThreshold, default 85%)
 	if utilPct >= s.compactionThreshold {
+		if s.compactor != nil {
+			if err := s.compactor.Compact(ctx, metrics); err == nil {
+				return PermissionResult{
+					Status:      StatusWarning,
+					Reason:      fmt.Sprintf("Inference slot context pressure reached %.1f%% (%d/%d tokens); proactive context compaction triggered successfully", utilPct, metrics.NPromptTokens, metrics.NCtx),
+					RiskLevel:   RiskLevelMedium,
+					Target:      action.Name,
+					Stage:       s.Name(),
+					Remediation: "Context compaction succeeded. Older turns pruned or summarized; execution continuing with refreshed budget.",
+				}
+			}
+		}
+
 		return PermissionResult{
 			Status:      StatusBlocked,
 			Reason:      fmt.Sprintf("Inference slot context pressure critical: %.1f%% utilization (%d/%d tokens) exceeds compaction threshold (%.1f%%)", utilPct, metrics.NPromptTokens, metrics.NCtx, s.compactionThreshold),
