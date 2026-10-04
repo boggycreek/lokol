@@ -6,8 +6,12 @@
 package agent
 
 import (
+	"context"
 	"strings"
 	"testing"
+
+	"github.com/boggycreek/lokol/liblokol/regulator"
+	"github.com/boggycreek/lokol/liblokol/spec"
 )
 
 func TestClassifySlotPressure(t *testing.T) {
@@ -175,5 +179,184 @@ func TestSession_CompactionIntegration(t *testing.T) {
 	}
 	if !strings.Contains(s.History[2].Content, "<conversation_summary>") {
 		t.Errorf("expected conversation_summary in history[2], got %q", s.History[2].Content)
+	}
+}
+
+func TestSession_Compact_WarningBand_MicroPruning(t *testing.T) {
+	client := NewClient("http://127.0.0.1:8080")
+	s := NewSession(client, t.TempDir())
+
+	s.AppendUserMessage("Objective: Fix calc.go")
+	// Turn 1
+	s.AppendAssistantMessage("<action name=\"read_window\"><path>calc.go</path></action>")
+	s.AppendActionResult(strings.Repeat("package calc\nfunc Add(a, b int) int { return a - b }\n", 20), nil)
+	// Turn 2
+	s.AppendAssistantMessage("<action name=\"replace_file\"><path>calc.go</path></action>")
+	s.AppendActionResult("Replaced calc.go", nil)
+	// Turn 3
+	s.AppendAssistantMessage("<action name=\"run_test\">go test ./...</action>")
+	s.AppendActionResult("PASS", nil)
+	// Turn 4
+	s.AppendAssistantMessage("<action name=\"read_window\"><path>calc_test.go</path></action>")
+	s.AppendActionResult(strings.Repeat("func TestAdd(t *testing.T) {}\n", 20), nil)
+
+	initialLen := len(s.History)
+
+	// Warning band metrics (65% utilization: 6500/10000)
+	metrics := &regulator.SlotMetrics{
+		NCtx:          10000,
+		NPromptTokens: 6500,
+	}
+
+	err := s.Compact(context.Background(), metrics)
+	if err != nil {
+		t.Fatalf("expected s.Compact to succeed at warning band, got: %v", err)
+	}
+
+	// At warning band with prunable turns, micro-pruning should reclaim observation data without truncating turn count
+	if len(s.History) != initialLen {
+		t.Errorf("expected history length preserved during micro-pruning (%d), got: %d", initialLen, len(s.History))
+	}
+
+	// Turn 1 observation (index 3) should now be pruned stub
+	if !strings.Contains(s.History[3].Content, "[Output pruned:") {
+		t.Errorf("expected Turn 1 tool result at index 3 to be pruned stub, got: %q", s.History[3].Content)
+	}
+}
+
+func TestSession_Compact_WarningBand_NothingPrunableDoesNotMacroCompact(t *testing.T) {
+	client := NewClient("http://127.0.0.1:8080")
+	s := NewSession(client, t.TempDir())
+
+	s.AppendUserMessage("Objective: Fix calc.go")
+	// Add 8 short turns with small non-prunable results (no verbose observation payloads)
+	for i := 1; i <= 8; i++ {
+		s.AppendAssistantMessage("<action name=\"replace_file\"><path>calc.go</path></action>")
+		s.AppendActionResult("ok", nil)
+	}
+
+	initialLen := len(s.History) // 18 messages
+
+	// Warning band metrics (65% utilization)
+	metrics := &regulator.SlotMetrics{
+		NCtx:          1000,
+		NPromptTokens: 650,
+	}
+
+	err := s.Compact(context.Background(), metrics)
+	// In the warning band when nothing is prunable, it must return ErrNoCompactionPossible and NOT macro-compact
+	if err != ErrNoCompactionPossible {
+		t.Errorf("expected ErrNoCompactionPossible in warning band when nothing prunable, got: %v", err)
+	}
+	if len(s.History) != initialLen {
+		t.Errorf("warning band must not escalate to macro-compaction; expected len %d, got %d", initialLen, len(s.History))
+	}
+	for _, msg := range s.History {
+		if strings.Contains(msg.Content, "<conversation_summary>") {
+			t.Fatalf("conversation_summary must not be present in warning band when micro-pruning yields 0")
+		}
+	}
+}
+
+func TestSession_Compact_CompactionBand_WithSpecLedger(t *testing.T) {
+	client := NewClient("http://127.0.0.1:8080")
+	workDir := t.TempDir()
+	s := NewSession(client, workDir)
+
+	// Configure spec state machine
+	sm := spec.NewStateMachine(&spec.Spec{
+		Title:       "Calculator Bug Fix",
+		TargetFiles: []string{"calc.go"},
+		VerifyCmd:   "go test -v ./...",
+	}, workDir)
+	sm.RecordVerification("go test -v ./...", 0, "=== RUN TestAdd\n--- PASS: TestAdd (0.00s)\nPASS")
+
+	// Wire ledger provider to session (lokol-asw)
+	s.SetLedgerProvider(sm.ToCompactionLedger)
+
+	s.AppendUserMessage("Objective: Fix calc.go and pass tests")
+	// Turn 1
+	s.AppendAssistantMessage("<action name=\"read_window\"><path>calc.go</path></action>")
+	s.AppendActionResult("initial content", nil)
+	// Turn 2
+	s.AppendAssistantMessage("<action name=\"replace_file\"><path>calc.go</path></action>")
+	s.AppendActionResult("replaced content", nil)
+	// Turn 3
+	s.AppendAssistantMessage("<action name=\"run_test\">go test ./...</action>")
+	s.AppendActionResult("PASS", nil)
+	// Turn 4
+	s.AppendAssistantMessage("<action name=\"task_finish\">Done</action>")
+	s.AppendActionResult("Complete", nil)
+
+	initialLen := len(s.History) // 10 messages (1 system + 1 user prompt + 4 turns * 2)
+
+	// Critical compaction band metrics (80% utilization: 8000/10000)
+	metrics := &regulator.SlotMetrics{
+		NCtx:          10000,
+		NPromptTokens: 8000,
+	}
+
+	err := s.Compact(context.Background(), metrics)
+	if err != nil {
+		t.Fatalf("expected s.Compact to succeed at critical band, got: %v", err)
+	}
+
+	if len(s.History) >= initialLen {
+		t.Errorf("expected macro-compaction to reduce history length (%d), got: %d", initialLen, len(s.History))
+	}
+
+	// Verify invariant 1: System prompt preserved at index 0
+	if s.History[0].Role != "system" || !strings.Contains(s.History[0].Content, "You are") {
+		t.Errorf("system prompt invariant violated at index 0: %q", s.History[0].Content)
+	}
+
+	// Verify invariant 2: Initial user objective preserved at index 1
+	if s.History[1].Role != "user" || !strings.Contains(s.History[1].Content, "Objective: Fix calc.go") {
+		t.Errorf("initial user objective invariant violated at index 1: %q", s.History[1].Content)
+	}
+
+	// Verify invariant 3: Macro-compaction ledger inserted at index 2 containing SPEC.md and latest assertion
+	summaryMsg := s.History[2]
+	if summaryMsg.Role != "user" || !strings.Contains(summaryMsg.Content, "<conversation_summary>") {
+		t.Fatalf("expected <conversation_summary> at index 2, got: %q", summaryMsg.Content)
+	}
+	if !strings.Contains(summaryMsg.Content, "SPECIFICATION & TEST ASSERTION LEDGER:") {
+		t.Errorf("expected spec ledger header in conversation_summary, got: %q", summaryMsg.Content)
+	}
+	if !strings.Contains(summaryMsg.Content, "<title>Calculator Bug Fix</title>") {
+		t.Errorf("expected spec title in conversation_summary, got: %q", summaryMsg.Content)
+	}
+	if !strings.Contains(summaryMsg.Content, "<target_files>calc.go</target_files>") {
+		t.Errorf("expected target_files in conversation_summary, got: %q", summaryMsg.Content)
+	}
+	if !strings.Contains(summaryMsg.Content, "passed=\"true\" exit_code=\"0\"") {
+		t.Errorf("expected latest verification assertion in conversation_summary, got: %q", summaryMsg.Content)
+	}
+	if !strings.Contains(summaryMsg.Content, "=== RUN TestAdd") {
+		t.Errorf("expected test verification output in conversation_summary, got: %q", summaryMsg.Content)
+	}
+
+	// Verify assistant acknowledgement at index 3
+	if s.History[3].Role != "assistant" || !strings.Contains(s.History[3].Content, "Understood") {
+		t.Errorf("expected assistant acknowledgment at index 3, got: %q", s.History[3].Content)
+	}
+}
+
+func TestSession_Compact_ErrNoCompactionPossible(t *testing.T) {
+	client := NewClient("http://127.0.0.1:8080")
+	s := NewSession(client, t.TempDir())
+
+	s.AppendUserMessage("Single short prompt")
+	s.AppendAssistantMessage("<action name=\"task_finish\">Done</action>")
+
+	// Already minimal (len = 3: system, user, assistant)
+	metrics := &regulator.SlotMetrics{
+		NCtx:          10000,
+		NPromptTokens: 8500,
+	}
+
+	err := s.Compact(context.Background(), metrics)
+	if err != ErrNoCompactionPossible {
+		t.Errorf("expected ErrNoCompactionPossible for minimal history, got: %v", err)
 	}
 }

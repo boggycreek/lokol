@@ -60,7 +60,7 @@ func TestSlotGovernor_WarningBand(t *testing.T) {
 	provider := &mockSlotProvider{
 		metrics: &regulator.SlotMetrics{
 			NCtx:          10000,
-			NPromptTokens: 7500, // 75.0% utilization (>= 70% and < 85%)
+			NPromptTokens: 6800, // 68.0% utilization (>= 60% and < 75%)
 		},
 	}
 
@@ -70,7 +70,7 @@ func TestSlotGovernor_WarningBand(t *testing.T) {
 
 	res := stage.Evaluate(ctx, action, ".")
 	if res.Status != regulator.StatusWarning {
-		t.Errorf("expected StatusWarning for 75%% utilization, got: %s", res.Status)
+		t.Errorf("expected StatusWarning for 68%% utilization, got: %s", res.Status)
 	}
 	if res.RiskLevel != regulator.RiskLevelMedium {
 		t.Errorf("expected RiskLevelMedium, got: %s", res.RiskLevel)
@@ -80,6 +80,32 @@ func TestSlotGovernor_WarningBand(t *testing.T) {
 	}
 	if res.Remediation == "" || !strings.Contains(res.Remediation, "compact") {
 		t.Errorf("expected actionable remediation guiding compaction, got: %q", res.Remediation)
+	}
+}
+
+func TestSlotGovernor_WarningBand_WithCompactor(t *testing.T) {
+	provider := &mockSlotProvider{
+		metrics: &regulator.SlotMetrics{
+			NCtx:          10000,
+			NPromptTokens: 6800, // 68.0% utilization (Warning Band)
+		},
+	}
+
+	stub := &regulator.StubCompactor{}
+	stage := regulator.NewInferenceSlotGovernorStage(provider, regulator.WithCompactor(stub))
+
+	ctx := context.Background()
+	action := regulator.ActionCandidate{Name: "exec_bash", Command: "find ."}
+
+	res := stage.Evaluate(ctx, action, ".")
+	if stub.CompactedCount != 1 {
+		t.Errorf("expected compactor to be invoked once at warning band, got: %d", stub.CompactedCount)
+	}
+	if res.Status != regulator.StatusWarning {
+		t.Errorf("expected StatusWarning, got: %s", res.Status)
+	}
+	if !strings.Contains(res.Reason, "compaction triggered successfully") {
+		t.Errorf("expected reason to note successful compaction, got: %s", res.Reason)
 	}
 }
 

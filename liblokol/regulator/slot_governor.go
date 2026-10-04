@@ -59,18 +59,18 @@ func (s *StubCompactor) Compact(ctx context.Context, metrics *SlotMetrics) error
 }
 
 // InferenceSlotGovernorStage regulates execution cadence and triggers proactive context compaction
-// based on inference slot memory utilization and token window pressure (ADR 0026).
+// based on inference slot memory utilization and token window pressure (ADR 0026, ADR 0029, lokol-asw).
 type InferenceSlotGovernorStage struct {
 	provider            SlotStatusProvider
-	warningThreshold    float64 // Default 70.0%
-	compactionThreshold float64 // Default 85.0%
+	warningThreshold    float64 // Default 60.0%
+	compactionThreshold float64 // Default 75.0%
 	compactor           Compactor
 }
 
 // SlotGovernorOption configures an InferenceSlotGovernorStage instance.
 type SlotGovernorOption func(*InferenceSlotGovernorStage)
 
-// WithWarningThreshold overrides the default 70% warning threshold.
+// WithWarningThreshold overrides the default 60% warning threshold.
 func WithWarningThreshold(pct float64) SlotGovernorOption {
 	return func(s *InferenceSlotGovernorStage) {
 		if pct > 0 && pct <= 100 {
@@ -79,7 +79,7 @@ func WithWarningThreshold(pct float64) SlotGovernorOption {
 	}
 }
 
-// WithCompactionThreshold overrides the default 85% compaction threshold.
+// WithCompactionThreshold overrides the default 75% compaction threshold.
 func WithCompactionThreshold(pct float64) SlotGovernorOption {
 	return func(s *InferenceSlotGovernorStage) {
 		if pct > 0 && pct <= 100 {
@@ -99,8 +99,8 @@ func WithCompactor(c Compactor) SlotGovernorOption {
 func NewInferenceSlotGovernorStage(provider SlotStatusProvider, opts ...SlotGovernorOption) *InferenceSlotGovernorStage {
 	stage := &InferenceSlotGovernorStage{
 		provider:            provider,
-		warningThreshold:    70.0,
-		compactionThreshold: 85.0,
+		warningThreshold:    60.0,
+		compactionThreshold: 75.0,
 	}
 	for _, opt := range opts {
 		opt(stage)
@@ -170,7 +170,7 @@ func (s *InferenceSlotGovernorStage) Evaluate(ctx context.Context, action Action
 
 	utilPct := (float64(metrics.NPromptTokens) / float64(metrics.NCtx)) * 100.0
 
-	// 1. Compaction Band (>= compactionThreshold, default 85%)
+	// 1. Compaction Band (>= compactionThreshold, default 75%)
 	if utilPct >= s.compactionThreshold {
 		if s.compactor != nil {
 			if err := s.compactor.Compact(ctx, metrics); err == nil {
@@ -195,8 +195,21 @@ func (s *InferenceSlotGovernorStage) Evaluate(ctx context.Context, action Action
 		}
 	}
 
-	// 2. Warning Band (>= warningThreshold, default 70%)
+	// 2. Warning Band (>= warningThreshold, default 60%)
 	if utilPct >= s.warningThreshold {
+		if s.compactor != nil {
+			if err := s.compactor.Compact(ctx, metrics); err == nil {
+				return PermissionResult{
+					Status:      StatusWarning,
+					Reason:      fmt.Sprintf("Inference slot context pressure reached %.1f%% (%d/%d tokens); proactive context compaction triggered successfully", utilPct, metrics.NPromptTokens, metrics.NCtx),
+					RiskLevel:   RiskLevelMedium,
+					Target:      action.Name,
+					Stage:       s.Name(),
+					Remediation: "Context compaction succeeded at warning threshold. Older turns pruned or summarized; execution continuing with refreshed budget.",
+				}
+			}
+		}
+
 		return PermissionResult{
 			Status:      StatusWarning,
 			Reason:      fmt.Sprintf("Inference slot context pressure high: %.1f%% utilization (%d/%d tokens) exceeds warning threshold (%.1f%%)", utilPct, metrics.NPromptTokens, metrics.NCtx, s.warningThreshold),
