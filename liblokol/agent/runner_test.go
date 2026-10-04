@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/boggycreek/lokol/liblokol/agent"
+	"github.com/boggycreek/lokol/liblokol/spec"
 )
 
 // TestRunner_LoopCircuitBreaker verifies that the runner halts runaway loops
@@ -602,4 +603,222 @@ func TestSession_ProjectSummaryGuidanceInjection(t *testing.T) {
 		t.Errorf("expected grounding guidance injected on project summary query, got: %s", lastMsg)
 	}
 }
+
+func TestRunner_Spec_TargetConstraintViolation(t *testing.T) {
+	tmpDir := t.TempDir()
+	turnCount := 0
+	var receivedConstraintViolation bool
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req agent.StreamChatRequest
+		_ = json.NewDecoder(r.Body).Decode(&req)
+
+		for _, msg := range req.Messages {
+			if strings.Contains(msg.Content, "TARGET CONSTRAINT VIOLATION") {
+				receivedConstraintViolation = true
+			}
+		}
+
+		turnCount++
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher, _ := w.(http.Flusher)
+
+		var tokens []string
+		if turnCount == 1 {
+			// Turn 1: Try modifying forbidden file
+			tokens = []string{
+				"<action name=\"write_file\">\n<path>forbidden.go</path>\n<content>package forbidden</content>\n</action>",
+			}
+		} else {
+			// Turn 2: Modify allowed file and finish
+			tokens = []string{
+				"<action name=\"write_file\">\n<path>allowed.go</path>\n<content>package allowed</content>\n</action>",
+			}
+		}
+
+		for _, tok := range tokens {
+			chunk := agent.ChatChunkResponse{
+				Choices: []struct {
+					Delta struct {
+						Content string `json:"content"`
+					} `json:"delta"`
+					FinishReason string `json:"finish_reason"`
+				}{
+					{Delta: struct {
+						Content string `json:"content"`
+					}{Content: tok}},
+				},
+			}
+			bytesChunk, _ := json.Marshal(chunk)
+			fmt.Fprintf(w, "data: %s\n\n", bytesChunk)
+			flusher.Flush()
+		}
+		fmt.Fprintf(w, "data: [DONE]\n\n")
+		flusher.Flush()
+	}))
+	defer server.Close()
+
+	sp := &spec.Spec{
+		Title:       "Constrained Spec",
+		TargetFiles: []string{"allowed.go"},
+	}
+	sm := spec.NewStateMachine(sp, tmpDir)
+
+	client := agent.NewClient(server.URL)
+	runner := &agent.Runner{
+		Client:      client,
+		MaxTurns:    5,
+		YOLO:        true,
+		WorkDir:     tmpDir,
+		SpecMachine: sm,
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, _ = runner.Run(ctx, "Execute constrained spec")
+
+	if !receivedConstraintViolation {
+		t.Errorf("expected target constraint violation feedback in prompt, but none was received")
+	}
+
+	// Verify forbidden.go was NOT created, but allowed.go was created
+	if _, err := os.Stat(filepath.Join(tmpDir, "forbidden.go")); err == nil {
+		t.Errorf("forbidden.go should NOT have been created")
+	}
+	if _, err := os.Stat(filepath.Join(tmpDir, "allowed.go")); err != nil {
+		t.Errorf("allowed.go should have been created: %v", err)
+	}
+}
+
+func TestRunner_Spec_VerificationGate_LockAndComplete(t *testing.T) {
+	tmpDir := t.TempDir()
+	turnCount := 0
+	verifyAttempts := 0
+	var receivedVerificationFailureFeedback bool
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req agent.StreamChatRequest
+		_ = json.NewDecoder(r.Body).Decode(&req)
+
+		for _, msg := range req.Messages {
+			if strings.Contains(msg.Content, "VERIFICATION GATE FAILED") {
+				receivedVerificationFailureFeedback = true
+			}
+		}
+
+		turnCount++
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher, _ := w.(http.Flusher)
+
+		var tokens []string
+		if turnCount == 1 {
+			// Premature task_finish while tests are still failing
+			tokens = []string{
+				"<action name=\"task_finish\">\nCompleted task\n</action>",
+			}
+		} else {
+			// Second attempt after fixing tests
+			tokens = []string{
+				"<action name=\"task_finish\">\nCompleted and verified\n</action>",
+			}
+		}
+
+		for _, tok := range tokens {
+			chunk := agent.ChatChunkResponse{
+				Choices: []struct {
+					Delta struct {
+						Content string `json:"content"`
+					} `json:"delta"`
+					FinishReason string `json:"finish_reason"`
+				}{
+					{Delta: struct {
+						Content string `json:"content"`
+					}{Content: tok}},
+				},
+			}
+			bytesChunk, _ := json.Marshal(chunk)
+			fmt.Fprintf(w, "data: %s\n\n", bytesChunk)
+			flusher.Flush()
+		}
+		fmt.Fprintf(w, "data: [DONE]\n\n")
+		flusher.Flush()
+	}))
+	defer server.Close()
+
+	sp := &spec.Spec{
+		Title:     "Verification Gate Spec",
+		VerifyCmd: "go test ./...",
+	}
+	sm := spec.NewStateMachine(sp, tmpDir)
+	sm.Executor = func(ctx context.Context, cmd, workDir string) (string, int, error) {
+		verifyAttempts++
+		if verifyAttempts == 1 {
+			return "FAIL: TestMain", 1, fmt.Errorf("exit 1")
+		}
+		return "PASS: TestMain", 0, nil
+	}
+
+	client := agent.NewClient(server.URL)
+	runner := &agent.Runner{
+		Client:      client,
+		MaxTurns:    5,
+		YOLO:        true,
+		WorkDir:     tmpDir,
+		SpecMachine: sm,
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	summary, err := runner.Run(ctx, "Implement spec with verification gate")
+	if err != nil {
+		t.Fatalf("expected successful run after verification passed, got error: %v", err)
+	}
+
+	if !receivedVerificationFailureFeedback {
+		t.Errorf("expected verification gate failure feedback on turn 1")
+	}
+	if verifyAttempts != 2 {
+		t.Errorf("expected 2 verification attempts, got %d", verifyAttempts)
+	}
+	if sm.State != spec.StateCompleted {
+		t.Errorf("expected final state StateCompleted, got %s", sm.State)
+	}
+	if !strings.Contains(summary, "Completed and verified") {
+		t.Errorf("expected final finish summary, got: %q", summary)
+	}
+}
+
+func TestRunner_Spec_PreflightFailureAbortsEarly(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	sp := &spec.Spec{
+		Title:        "Failing Preflight Spec",
+		PreflightCmd: "check-missing-tool",
+	}
+	sm := spec.NewStateMachine(sp, tmpDir)
+	sm.Executor = func(ctx context.Context, cmd, workDir string) (string, int, error) {
+		return "tool not found", 127, fmt.Errorf("not found")
+	}
+
+	runner := &agent.Runner{
+		MaxTurns:    5,
+		WorkDir:     tmpDir,
+		SpecMachine: sm,
+	}
+
+	ctx := context.Background()
+	_, err := runner.Run(ctx, "Run spec")
+	if err == nil {
+		t.Fatal("expected preflight failure to abort runner, got nil error")
+	}
+	if !strings.Contains(err.Error(), "spec preflight check failed") {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if sm.State != spec.StateFailed {
+		t.Errorf("expected StateFailed, got %s", sm.State)
+	}
+}
+
 

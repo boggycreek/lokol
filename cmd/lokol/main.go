@@ -22,6 +22,7 @@ import (
 	"github.com/boggycreek/lokol/liblokol/model"
 	"github.com/boggycreek/lokol/liblokol/probe"
 	"github.com/boggycreek/lokol/liblokol/setup"
+	"github.com/boggycreek/lokol/liblokol/spec"
 	"github.com/boggycreek/lokol/liblokol/update"
 	"github.com/boggycreek/lokol/liblokol/version"
 )
@@ -45,6 +46,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	topMaxTurns := topFlags.Int("max-turns", 15, "Max turns for agent loop in headless mode")
 	topVerbose := topFlags.Bool("verbose", false, "Display internal reasoning tokens and verbose tool activity")
 	topFlags.BoolVar(topVerbose, "v", false, "Display internal reasoning tokens (shorthand)")
+	topSpec := topFlags.String("spec", "", "Path to SPEC.md structured specification file (alias: -s)")
+	topFlags.StringVar(topSpec, "s", "", "Path to SPEC.md structured specification file (shorthand)")
 	topVersion := topFlags.Bool("version", false, "Display version and exit")
 
 	// Custom usage func
@@ -69,6 +72,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	execMaxTurns := execCmd.Int("max-turns", 15, "Max turns for agent loop")
 	execVerbose := execCmd.Bool("verbose", false, "Display internal reasoning tokens and verbose tool activity")
 	execCmd.BoolVar(execVerbose, "v", false, "Display internal reasoning tokens (shorthand)")
+	execSpec := execCmd.String("spec", "", "Path to SPEC.md structured specification file (alias: -s)")
+	execCmd.StringVar(execSpec, "s", "", "Path to SPEC.md structured specification file (shorthand)")
 
 	setupCmd := flag.NewFlagSet("setup", flag.ContinueOnError)
 	setupCmd.SetOutput(stderr)
@@ -100,9 +105,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stdout, "lokol %s (commit: %s, built: %s)\n", version.Version, version.GitCommit, version.BuildDate)
 			return 0
 		}
-		if *promptFlag != "" {
+		if *promptFlag != "" || *topSpec != "" {
 			m, _ := agent.ParseMode(*topMode)
-			return runExec(*topEngine, *topMaxTurns, *promptFlag, *topVerbose, m, stdout, stderr, *topName, *topOperator)
+			return runExec(*topEngine, *topMaxTurns, *promptFlag, *topVerbose, m, *topSpec, stdout, stderr, *topName, *topOperator)
 		}
 		// If remaining arguments exist after parsing flags
 		if topFlags.NArg() > 0 {
@@ -134,8 +139,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 					return 1
 				}
 				prompt := strings.Join(execCmd.Args(), " ")
-				if prompt == "" {
-					fmt.Fprintln(stderr, "Error: prompt required for exec")
+				specPath := *execSpec
+				if specPath == "" {
+					specPath = *topSpec
+				}
+				if prompt == "" && specPath == "" {
+					fmt.Fprintln(stderr, "Error: prompt required for exec (or specify --spec)")
 					return 1
 				}
 				m, _ := agent.ParseMode(*execMode)
@@ -147,7 +156,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 				if opArg == "" {
 					opArg = *topOperator
 				}
-				return runExec(*execEngine, *execMaxTurns, prompt, *execVerbose || *topVerbose, m, stdout, stderr, nameArg, opArg)
+				return runExec(*execEngine, *execMaxTurns, prompt, *execVerbose || *topVerbose, m, specPath, stdout, stderr, nameArg, opArg)
 			case "update":
 				if err := updateCmd.Parse(topFlags.Args()[1:]); err != nil {
 					if errors.Is(err, flag.ErrHelp) {
@@ -193,12 +202,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		prompt := strings.Join(execCmd.Args(), " ")
-		if prompt == "" {
-			fmt.Fprintln(stderr, "Error: prompt required for exec")
+		if prompt == "" && *execSpec == "" {
+			fmt.Fprintln(stderr, "Error: prompt required for exec (or specify --spec)")
 			return 1
 		}
 		m, _ := agent.ParseMode(*execMode)
-		return runExec(*execEngine, *execMaxTurns, prompt, *execVerbose, m, stdout, stderr, *execName, *execOperator)
+		return runExec(*execEngine, *execMaxTurns, prompt, *execVerbose, m, *execSpec, stdout, stderr, *execName, *execOperator)
 	case "update":
 		if err := updateCmd.Parse(args[2:]); err != nil {
 			if errors.Is(err, flag.ErrHelp) {
@@ -220,13 +229,13 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "lokol - Local-first autonomous AI agent for consumer GPUs")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Usage:")
-	fmt.Fprintln(w, "  lokol exec   [--engine=...] [-m general|coding|moe] [--name=...] [--operator=...] [-v] <prompt>  Run autonomous agent in headless mode")
+	fmt.Fprintln(w, "  lokol exec   [--spec=SPEC.md] [--engine=...] [-m general|coding|moe] [--name=...] [--operator=...] [-v] [prompt]  Run autonomous agent in headless mode")
 	fmt.Fprintln(w, "  lokol setup  [--download-model] [--install-llama]                  Bootstrap environment, probe hardware & check dependencies")
 	fmt.Fprintln(w, "  lokol probe  [--simulate-vram-gib=X] [-m general|coding|moe]       Probe host capabilities and compute optimal model tier")
 	fmt.Fprintln(w, "  lokol config [show | set-name <name> | set-operator <name>]        Inspect or update persistent agent persona configuration")
 	fmt.Fprintln(w, "  lokol update [--pre] [--version=vX]                                Update to latest release from GitHub (or specific version)")
 	fmt.Fprintln(w, "  lokol update --list                                                List all published releases available on GitHub")
-	fmt.Fprintln(w, "  lokol [-p | --prompt] \"<prompt>\" [-m mode] [-v]                     Run agent in headless mode directly")
+	fmt.Fprintln(w, "  lokol [-p | --prompt] \"<prompt>\" [-s | --spec SPEC.md] [-m mode] [-v]  Run agent in headless mode directly")
 	fmt.Fprintln(w, "  lokol version                                                     Display version")
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Interactive TUI:")
@@ -312,7 +321,7 @@ func runSetup(downloadModel bool, simVRAM float64, installLlama bool, stdout, st
 	return 0
 }
 
-func runExec(engineURL string, maxTurns int, prompt string, verbose bool, mode agent.Mode, stdout, stderr io.Writer, persona ...string) int {
+func runExec(engineURL string, maxTurns int, prompt string, verbose bool, mode agent.Mode, specPath string, stdout, stderr io.Writer, persona ...string) int {
 	workDir, _ := os.Getwd()
 	client := agent.NewClient(engineURL)
 	stepCount := 0
@@ -326,6 +335,24 @@ func runExec(engineURL string, maxTurns int, prompt string, verbose bool, mode a
 		operatorName = persona[1]
 	}
 
+	var specMachine *spec.StateMachine
+	if specPath != "" {
+		sp, err := spec.Load(specPath)
+		if err != nil {
+			fmt.Fprintf(stderr, "Error loading spec %s: %v\n", specPath, err)
+			return 1
+		}
+		if prompt == "" {
+			prompt = sp.Prompt()
+		} else {
+			prompt = fmt.Sprintf("%s\n\nAdditional Operator Instructions:\n%s", sp.Prompt(), prompt)
+		}
+		if sp.MaxTurns > 0 && maxTurns == 15 {
+			maxTurns = sp.MaxTurns
+		}
+		specMachine = spec.NewStateMachine(sp, workDir)
+	}
+
 	runner := &agent.Runner{
 		Client:       client,
 		MaxTurns:     maxTurns,
@@ -334,11 +361,14 @@ func runExec(engineURL string, maxTurns int, prompt string, verbose bool, mode a
 		Mode:         mode,
 		AgentName:    agentName,
 		OperatorName: operatorName,
+		SpecMachine:  specMachine,
 		OnOutput: func(role, content string) {
 			if verbose {
 				switch role {
 				case "token":
 					fmt.Fprint(stdout, content)
+				case "spec":
+					fmt.Fprintf(stdout, "\n⚡ Spec Gate: %s\n", content)
 				case "exec_bash":
 					fmt.Fprintf(stdout, "\n⚡ Executing: %s\n", content)
 				case "replace_file":
@@ -391,6 +421,8 @@ func runExec(engineURL string, maxTurns int, prompt string, verbose bool, mode a
 			case "get_environment":
 				stepCount++
 				fmt.Fprintf(stderr, "⚡ [Step %d] Inspecting Environment: %s\n", stepCount, content)
+			case "spec":
+				fmt.Fprintf(stderr, "⚡ [Spec Gate] %s\n", content)
 			case "task_finish", "finish":
 				finished = true
 				plural := ""
