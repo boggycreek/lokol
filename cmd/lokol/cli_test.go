@@ -418,3 +418,41 @@ func TestLokolCLI_Exec_SignalInterruption(t *testing.T) {
 		t.Errorf("expected slot release notification on stdout, got: %s", outStr)
 	}
 }
+
+func TestLokolCLI_Exec_Spec_Success(t *testing.T) {
+	tmpDir := t.TempDir()
+	specFile := filepath.Join(tmpDir, "SPEC.md")
+	specContent := `---
+title: "Test Spec Execution"
+verify: "echo ok"
+---
+`
+	if err := os.WriteFile(specFile, []byte(specContent), 0644); err != nil {
+		t.Fatalf("failed to write spec file: %v", err)
+	}
+
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+
+		fmt.Fprintf(w, "data: {\"choices\":[{\"delta\":{\"content\":\"Implementing spec\\n<action name=\\\"task_finish\\\">Spec verified</action>\"}}]}\n\n")
+		fmt.Fprintf(w, "data: [DONE]\n\n")
+	}))
+	defer mockServer.Close()
+
+	cmd := exec.Command(lokolBin, "exec", "--engine="+mockServer.URL, "--spec="+specFile)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	if err != nil {
+		t.Fatalf("lokol exec --spec failed: %v, stderr: %s", err, stderr.String())
+	}
+
+	outStr := stdout.String()
+	if !strings.Contains(outStr, "Spec verified") && !strings.Contains(outStr, "Complete") {
+		t.Errorf("expected completion message on stdout, got: %s", outStr)
+	}
+}
+
