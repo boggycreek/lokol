@@ -68,7 +68,7 @@ Records are numbered serially (`0001` through `0029`) and organized by topic dom
 ### Memory & Retrieval (`THEME-MEMORY`)
 - **[ADR 0010 — Persistent Memory Storage Architecture in XDG State and Data Directories](0010-xdg-persistent-memory-storage.md)**  
   *Executive Summary:* Stores long-term agent memories and learned preferences across sessions using structured persistence in standard XDG state and data directories.
-- **[ADR 0011 — Local Vector Database Adoption for Memory and Source Code Indexing](0011-local-vector-database-adoption.md)**  
+- **[ADR 0011 — Local Vector Database Adoption for Memory and Source Code Indexing](0011-local-vector-database-adoption.md)** *(Implementation Pending)*  
   *Executive Summary:* Adopts an embedded, pure Go local vector database for semantic memory retrieval and code symbol indexing without external service dependencies.
 
 ### Security & Isolation (`THEME-SECURITY`)

@@ -7,6 +7,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -130,16 +131,30 @@ func registerMemoryTools(server *mcp.Server, store *memory.Store) {
 			if title == "" {
 				return "Error: title parameter is required", true, nil
 			}
+			if len(title) > memory.MaxTitleLength {
+				return fmt.Sprintf("Error: title exceeds maximum length of %d bytes", memory.MaxTitleLength), true, nil
+			}
+
 			abstract, _ := args["abstract"].(string)
 			if abstract == "" {
 				return "Error: abstract parameter is required (1-sentence Tier 1 signpost)", true, nil
 			}
+			if len(abstract) > memory.MaxAbstractBytes {
+				return fmt.Sprintf("Error: abstract exceeds maximum size of %d bytes", memory.MaxAbstractBytes), true, nil
+			}
+
 			summary, _ := args["summary"].(string)
 			if summary == "" {
 				return "Error: summary parameter is required (Tier 2 concise digest)", true, nil
 			}
+			if len(summary) > memory.MaxSummaryBytes {
+				return fmt.Sprintf("Error: summary exceeds maximum size of %d bytes", memory.MaxSummaryBytes), true, nil
+			}
 
 			details, _ := args["details"].(string)
+			if len(details) > memory.MaxDetailsBytes {
+				return fmt.Sprintf("Error: details exceeds maximum size of %d bytes", memory.MaxDetailsBytes), true, nil
+			}
 			domain, _ := args["domain"].(string)
 
 			// Parse tags
@@ -167,6 +182,10 @@ func registerMemoryTools(server *mcp.Server, store *memory.Store) {
 			if rawExtra, ok := args["extra_data"]; ok {
 				if m, ok := rawExtra.(map[string]any); ok {
 					extra = m
+					data, err := json.Marshal(extra)
+					if err == nil && len(data) > memory.MaxExtraDataBytes {
+						return fmt.Sprintf("Error: extra_data exceeds maximum size of %d bytes", memory.MaxExtraDataBytes), true, nil
+					}
 				}
 			}
 

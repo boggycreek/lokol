@@ -324,3 +324,163 @@ func TestMemory_SummarizeEpisodic(t *testing.T) {
 		t.Errorf("summary missing event titles: %s", summary)
 	}
 }
+
+func TestMemory_PayloadLimits(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, err := memory.NewStore(tmpDir)
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+	ctx := context.Background()
+
+	// 1. Oversized title
+	_, err = store.Save(ctx, &memory.MemoryRecord{
+		Category: memory.PillarSemantic,
+		Title:    strings.Repeat("T", memory.MaxTitleLength+1),
+		Abstract: "Valid abstract",
+		Summary:  "Valid summary",
+	})
+	if err == nil || !strings.Contains(err.Error(), "title exceeds maximum limit") {
+		t.Errorf("expected title limit error, got: %v", err)
+	}
+
+	// 2. Oversized abstract
+	_, err = store.Save(ctx, &memory.MemoryRecord{
+		Category: memory.PillarSemantic,
+		Title:    "Valid Title",
+		Abstract: strings.Repeat("A", memory.MaxAbstractBytes+1),
+		Summary:  "Valid summary",
+	})
+	if err == nil || !strings.Contains(err.Error(), "abstract exceeds maximum limit") {
+		t.Errorf("expected abstract limit error, got: %v", err)
+	}
+
+	// 3. Oversized summary
+	_, err = store.Save(ctx, &memory.MemoryRecord{
+		Category: memory.PillarSemantic,
+		Title:    "Valid Title",
+		Abstract: "Valid abstract",
+		Summary:  strings.Repeat("S", memory.MaxSummaryBytes+1),
+	})
+	if err == nil || !strings.Contains(err.Error(), "summary exceeds maximum limit") {
+		t.Errorf("expected summary limit error, got: %v", err)
+	}
+
+	// 4. Oversized details
+	_, err = store.Save(ctx, &memory.MemoryRecord{
+		Category: memory.PillarSemantic,
+		Title:    "Valid Title",
+		Abstract: "Valid abstract",
+		Summary:  "Valid summary",
+		Details:  strings.Repeat("D", memory.MaxDetailsBytes+1),
+	})
+	if err == nil || !strings.Contains(err.Error(), "details exceeds maximum limit") {
+		t.Errorf("expected details limit error, got: %v", err)
+	}
+
+	// 5. Oversized companion extra_data
+	hugeMap := map[string]any{
+		"blob": strings.Repeat("X", memory.MaxExtraDataBytes+10),
+	}
+	_, err = store.Save(ctx, &memory.MemoryRecord{
+		Category:  memory.PillarSemantic,
+		Title:     "Valid Title",
+		Abstract:  "Valid abstract",
+		Summary:   "Valid summary",
+		ExtraData: hugeMap,
+	})
+	if err == nil || !strings.Contains(err.Error(), "companion details exceed maximum limit") {
+		t.Errorf("expected extra_data limit error, got: %v", err)
+	}
+}
+
+func TestMemory_TemporaryFileBoundsValidation(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, err := memory.NewStore(tmpDir)
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+	ctx := context.Background()
+
+	// Inject path traversal into ID
+	_, err = store.Save(ctx, &memory.MemoryRecord{
+		ID:       "../../../../outside_jail",
+		Category: memory.PillarSemantic,
+		Title:    "Traversal Attack",
+		Abstract: "Should be rejected",
+		Summary:  "Should be rejected",
+	})
+	if err == nil {
+		t.Fatalf("expected boundary escape error for traversal ID, got nil")
+	}
+	if !strings.Contains(err.Error(), "escapes authorized memory root") {
+		t.Errorf("expected boundary violation error, got: %v", err)
+	}
+}
+
+func TestMemory_ConcurrentSearchAndSave(t *testing.T) {
+	tmpDir := t.TempDir()
+	store, err := memory.NewStore(tmpDir)
+	if err != nil {
+		t.Fatalf("failed to create store: %v", err)
+	}
+	ctx := context.Background()
+
+	// Seed some initial records
+	for i := 0; i < 20; i++ {
+		_, err := store.Save(ctx, &memory.MemoryRecord{
+			Category: memory.PillarSemantic,
+			Title:    strings.Repeat("TermA ", 3) + " Record",
+			Abstract: "Initial abstract with keyword TermB",
+			Summary:  "Initial summary with keyword TermC",
+		})
+		if err != nil {
+			t.Fatalf("failed to seed: %v", err)
+		}
+	}
+
+	done := make(chan bool)
+	errChan := make(chan error, 10)
+
+	// Spawn concurrent searches
+	for i := 0; i < 5; i++ {
+		go func() {
+			for {
+				select {
+				case <-done:
+					return
+				default:
+					_, _, err := store.Search(ctx, "TermA TermB", "", 5)
+					if err != nil {
+						errChan <- err
+						return
+					}
+					time.Sleep(1 * time.Millisecond)
+				}
+			}
+		}()
+	}
+
+	// Concurrent writes
+	for i := 0; i < 10; i++ {
+		_, err := store.Save(ctx, &memory.MemoryRecord{
+			Category: memory.PillarProcedural,
+			Title:    "Concurrent Record",
+			Abstract: "Concurrent abstract",
+			Summary:  "Concurrent summary",
+		})
+		if err != nil {
+			t.Fatalf("concurrent save failed: %v", err)
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+
+	close(done)
+
+	select {
+	case err := <-errChan:
+		t.Fatalf("concurrent search failed: %v", err)
+	default:
+	}
+}
+

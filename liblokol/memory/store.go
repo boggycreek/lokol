@@ -26,12 +26,22 @@ var (
 	ErrBoundaryViolation = errors.New("memory path escapes authorized memory root")
 )
 
+// Bounded payload limits for memory records to prevent disk exhaustion and memory bloat.
+const (
+	MaxTitleLength    = 256
+	MaxAbstractBytes  = 4 * 1024  // 4KB (~1,000 tokens)
+	MaxSummaryBytes   = 8 * 1024  // 8KB (~2,000 tokens)
+	MaxDetailsBytes   = 64 * 1024 // 64KB
+	MaxExtraDataBytes = 64 * 1024 // 64KB
+)
+
 // Store manages partitioned persistent memory records with strict boundary containment
 // and atomic filesystem persistence.
 type Store struct {
-	RootDir string
-	mu      sync.RWMutex
-	cache   map[string]*MemoryRecord
+	RootDir  string
+	mu       sync.RWMutex
+	cache    map[string]*MemoryRecord
+	docTerms map[string]map[string]int // pre-tokenized term frequency index
 }
 
 // NewStore initializes a persistent memory store. If rootDir is empty,
@@ -47,8 +57,9 @@ func NewStore(rootDir string) (*Store, error) {
 	}
 
 	s := &Store{
-		RootDir: absRoot,
-		cache:   make(map[string]*MemoryRecord),
+		RootDir:  absRoot,
+		cache:    make(map[string]*MemoryRecord),
+		docTerms: make(map[string]map[string]int),
 	}
 
 	if err := s.Init(); err != nil {
@@ -106,6 +117,20 @@ func (s *Store) Save(ctx context.Context, rec *MemoryRecord) (*MemoryRecord, err
 		return nil, fmt.Errorf("invalid memory category: %s", rec.Category)
 	}
 
+	// Enforce bounded payload limits to prevent disk exhaustion and prompt bloat
+	if len(rec.Title) > MaxTitleLength {
+		return nil, fmt.Errorf("title exceeds maximum limit of %d bytes", MaxTitleLength)
+	}
+	if len(rec.Abstract) > MaxAbstractBytes {
+		return nil, fmt.Errorf("abstract exceeds maximum limit of %d bytes", MaxAbstractBytes)
+	}
+	if len(rec.Summary) > MaxSummaryBytes {
+		return nil, fmt.Errorf("summary exceeds maximum limit of %d bytes", MaxSummaryBytes)
+	}
+	if len(rec.Details) > MaxDetailsBytes {
+		return nil, fmt.Errorf("details exceeds maximum limit of %d bytes", MaxDetailsBytes)
+	}
+
 	now := time.Now().UTC()
 	if rec.CreatedAt.IsZero() {
 		rec.CreatedAt = now
@@ -146,8 +171,11 @@ func (s *Store) Save(ctx context.Context, rec *MemoryRecord) (*MemoryRecord, err
 	rec.Path = mdPath
 	content := rec.ToMarkdown()
 
-	// Atomic write for Markdown record
+	// Atomic write for Markdown record with explicit bounds check on temporary file
 	tmpMd := filepath.Join(targetDir, fmt.Sprintf(".%s.tmp.%d", rec.ID, time.Now().UnixNano()))
+	if err := s.CheckMemoryPathWithinBounds(tmpMd); err != nil {
+		return nil, err
+	}
 	if err := os.WriteFile(tmpMd, []byte(content), 0644); err != nil {
 		return nil, fmt.Errorf("failed to write temporary memory file: %w", err)
 	}
@@ -159,12 +187,21 @@ func (s *Store) Save(ctx context.Context, rec *MemoryRecord) (*MemoryRecord, err
 	// Atomic write for companion .details.json if extra structured data exists
 	if len(rec.ExtraData) > 0 {
 		jsonPath := filepath.Join(targetDir, rec.ID+".details.json")
+		if err := s.CheckMemoryPathWithinBounds(jsonPath); err != nil {
+			return nil, err
+		}
 		jsonData, err := json.MarshalIndent(rec.ExtraData, "", "  ")
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal companion details: %w", err)
 		}
+		if len(jsonData) > MaxExtraDataBytes {
+			return nil, fmt.Errorf("companion details exceed maximum limit of %d bytes", MaxExtraDataBytes)
+		}
 
 		tmpJson := filepath.Join(targetDir, fmt.Sprintf(".%s.details.tmp.%d", rec.ID, time.Now().UnixNano()))
+		if err := s.CheckMemoryPathWithinBounds(tmpJson); err != nil {
+			return nil, err
+		}
 		if err := os.WriteFile(tmpJson, jsonData, 0644); err != nil {
 			return nil, fmt.Errorf("failed to write temporary companion details: %w", err)
 		}
@@ -174,8 +211,9 @@ func (s *Store) Save(ctx context.Context, rec *MemoryRecord) (*MemoryRecord, err
 		}
 	}
 
-	// Update in-memory cache
+	// Update in-memory cache and pre-indexed term frequencies
 	s.cache[rec.ID] = rec
+	s.docTerms[rec.ID] = tokenize(rec.Title + " " + rec.Title + " " + rec.Abstract + " " + rec.Summary + " " + strings.Join(rec.Tags, " "))
 	return rec, nil
 }
 
@@ -305,6 +343,7 @@ func (s *Store) SummarizeEpisodic(ctx context.Context, period string, date time.
 // reindexLocked crawls RootDir and indexes all .md memory files into cache.
 func (s *Store) reindexLocked() error {
 	s.cache = make(map[string]*MemoryRecord)
+	s.docTerms = make(map[string]map[string]int)
 
 	err := filepath.WalkDir(s.RootDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d == nil || d.IsDir() {
@@ -326,6 +365,7 @@ func (s *Store) reindexLocked() error {
 
 		rec.Path = path
 		s.cache[rec.ID] = rec
+		s.docTerms[rec.ID] = tokenize(rec.Title + " " + rec.Title + " " + rec.Abstract + " " + rec.Summary + " " + strings.Join(rec.Tags, " "))
 		return nil
 	})
 
