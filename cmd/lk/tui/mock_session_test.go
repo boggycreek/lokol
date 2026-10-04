@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/boggycreek/lokol/liblokol/agent"
+	"github.com/boggycreek/lokol/liblokol/regulator"
 )
 
 // MockSession is a mock implementation of agent.SessionCore for testing
@@ -180,6 +181,10 @@ func (m *MockSession) CompactHistory(summaryLedger string, preserveRecent int) {
 }
 
 func (m *MockSession) SetLedgerProvider(provider func() string) {
+}
+
+func (m *MockSession) Compact(ctx context.Context, metrics *regulator.SlotMetrics) error {
+	return nil
 }
 
 

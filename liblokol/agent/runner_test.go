@@ -965,4 +965,108 @@ func TestRunner_SlotAwareCompactionGovernor(t *testing.T) {
 	}
 }
 
+func TestRunner_Spec_FailingRunTestRecordedAsFailure(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	sp := &spec.Spec{
+		Title:       "Test Suite Verification",
+		TargetFiles: []string{"main.go"},
+		VerifyCmd:   "go test ./...",
+	}
+	sm := spec.NewStateMachine(sp, tmpDir)
+
+	turn := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/slots" {
+			tokens := 3000
+			if turn >= 1 {
+				tokens = 8000
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode([]struct {
+				ID            int  `json:"id"`
+				NCtx          int  `json:"n_ctx"`
+				NPromptTokens int  `json:"n_prompt_tokens"`
+				IsProcessing  bool `json:"is_processing"`
+			}{
+				{ID: 0, NCtx: 10000, NPromptTokens: tokens, IsProcessing: false},
+			})
+			return
+		}
+
+		if r.URL.Path != "/v1/chat/completions" {
+			if r.URL.Path == "/v1/models" {
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]any{{"id": "test-model"}}})
+				return
+			}
+			http.NotFound(w, r)
+			return
+		}
+
+		turn++
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher, _ := w.(http.Flusher)
+
+		var tok string
+		switch turn {
+		case 1:
+			// Run a failing test command
+			tok = "Running failing test.\n<action name=\"run_test\">exit 1</action>"
+		case 2:
+			tok = "<action name=\"read_window\"><path>main.go</path></action>"
+		default:
+			tok = "<action name=\"task_finish\">Done</action>"
+		}
+
+		chunk := agent.ChatChunkResponse{
+			Choices: []struct {
+				Delta struct {
+					Content string `json:"content"`
+				} `json:"delta"`
+				FinishReason string `json:"finish_reason"`
+			}{
+				{Delta: struct {
+					Content string `json:"content"`
+				}{Content: tok}},
+			},
+		}
+		bytesChunk, _ := json.Marshal(chunk)
+		fmt.Fprintf(w, "data: %s\n\n", bytesChunk)
+		flusher.Flush()
+		fmt.Fprintf(w, "data: [DONE]\n\n")
+		flusher.Flush()
+	}))
+	defer server.Close()
+
+	client := agent.NewClient(server.URL)
+	runner := &agent.Runner{
+		Client:      client,
+		MaxTurns:    3,
+		WorkDir:     tmpDir,
+		SpecMachine: sm,
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, _ = runner.Run(ctx, "Run tests and inspect failures")
+
+	// LatestVerification must record passed="false" and exit_code != 0
+	if sm.LatestVerification == nil {
+		t.Fatal("expected LatestVerification to be recorded after run_test")
+	}
+	if sm.LatestVerification.Passed {
+		t.Errorf("expected LatestVerification.Passed to be false for failing test, got true")
+	}
+	if sm.LatestVerification.ExitCode == 0 {
+		t.Errorf("expected LatestVerification.ExitCode to be non-zero for failing test, got 0")
+	}
+
+	ledger := sm.ToCompactionLedger()
+	if !strings.Contains(ledger, "passed=\"false\"") {
+		t.Errorf("expected ToCompactionLedger to record passed=\"false\", got: %s", ledger)
+	}
+}
+
 

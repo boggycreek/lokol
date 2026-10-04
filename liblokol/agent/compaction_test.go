@@ -224,6 +224,40 @@ func TestSession_Compact_WarningBand_MicroPruning(t *testing.T) {
 	}
 }
 
+func TestSession_Compact_WarningBand_NothingPrunableDoesNotMacroCompact(t *testing.T) {
+	client := NewClient("http://127.0.0.1:8080")
+	s := NewSession(client, t.TempDir())
+
+	s.AppendUserMessage("Objective: Fix calc.go")
+	// Add 8 short turns with small non-prunable results (no verbose observation payloads)
+	for i := 1; i <= 8; i++ {
+		s.AppendAssistantMessage("<action name=\"replace_file\"><path>calc.go</path></action>")
+		s.AppendActionResult("ok", nil)
+	}
+
+	initialLen := len(s.History) // 18 messages
+
+	// Warning band metrics (65% utilization)
+	metrics := &regulator.SlotMetrics{
+		NCtx:          1000,
+		NPromptTokens: 650,
+	}
+
+	err := s.Compact(context.Background(), metrics)
+	// In the warning band when nothing is prunable, it must return ErrNoCompactionPossible and NOT macro-compact
+	if err != ErrNoCompactionPossible {
+		t.Errorf("expected ErrNoCompactionPossible in warning band when nothing prunable, got: %v", err)
+	}
+	if len(s.History) != initialLen {
+		t.Errorf("warning band must not escalate to macro-compaction; expected len %d, got %d", initialLen, len(s.History))
+	}
+	for _, msg := range s.History {
+		if strings.Contains(msg.Content, "<conversation_summary>") {
+			t.Fatalf("conversation_summary must not be present in warning band when micro-pruning yields 0")
+		}
+	}
+}
+
 func TestSession_Compact_CompactionBand_WithSpecLedger(t *testing.T) {
 	client := NewClient("http://127.0.0.1:8080")
 	workDir := t.TempDir()

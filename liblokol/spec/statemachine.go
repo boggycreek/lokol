@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -410,11 +411,15 @@ func (sm *StateMachine) ToCompactionLedger() string {
 
 	var b strings.Builder
 	b.WriteString("<spec_ledger>\n")
-	b.WriteString(fmt.Sprintf("  <title>%s</title>\n", sm.Spec.Title))
+	b.WriteString(fmt.Sprintf("  <title>%s</title>\n", html.EscapeString(sm.Spec.Title)))
 	b.WriteString(fmt.Sprintf("  <state>%s</state>\n", sm.State))
 
 	if len(sm.Spec.TargetFiles) > 0 {
-		b.WriteString(fmt.Sprintf("  <target_files>%s</target_files>\n", strings.Join(sm.Spec.TargetFiles, ", ")))
+		var escapedFiles []string
+		for _, f := range sm.Spec.TargetFiles {
+			escapedFiles = append(escapedFiles, html.EscapeString(f))
+		}
+		b.WriteString(fmt.Sprintf("  <target_files>%s</target_files>\n", strings.Join(escapedFiles, ", ")))
 	}
 
 	ver := sm.LatestVerification
@@ -425,7 +430,7 @@ func (sm *StateMachine) ToCompactionLedger() string {
 	if ver != nil {
 		b.WriteString(fmt.Sprintf("  <latest_verification passed=\"%t\" exit_code=\"%d\">\n",
 			ver.Passed, ver.ExitCode))
-		b.WriteString(fmt.Sprintf("    <command>%s</command>\n", ver.Command))
+		b.WriteString(fmt.Sprintf("    <command>%s</command>\n", html.EscapeString(ver.Command)))
 
 		// Compact output to first 5 and last 10 lines of verification output
 		lines := strings.Split(strings.TrimSpace(ver.Output), "\n")
@@ -437,7 +442,11 @@ func (sm *StateMachine) ToCompactionLedger() string {
 			summaryLines = append(summaryLines, fmt.Sprintf("... [%d lines omitted] ...", len(lines)-15))
 			summaryLines = append(summaryLines, lines[len(lines)-10:]...)
 		}
-		b.WriteString(fmt.Sprintf("    <summary>\n%s\n    </summary>\n", strings.Join(summaryLines, "\n")))
+		var escapedLines []string
+		for _, l := range summaryLines {
+			escapedLines = append(escapedLines, html.EscapeString(l))
+		}
+		b.WriteString(fmt.Sprintf("    <summary>\n%s\n    </summary>\n", strings.Join(escapedLines, "\n")))
 		b.WriteString("  </latest_verification>\n")
 	}
 

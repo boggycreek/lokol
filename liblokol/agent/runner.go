@@ -265,7 +265,7 @@ func (r *Runner) Run(ctx context.Context, initialPrompt string) (string, error) 
 		if r.SpecMachine != nil {
 			if act.Name == "run_test" {
 				exitCode := 0
-				if err != nil {
+				if err != nil || strings.Contains(out, "✗ Tests failed") || strings.Contains(out, "Failures:") || strings.Contains(out, "FAIL") {
 					exitCode = 1
 				}
 				r.SpecMachine.RecordVerification("run_test "+act.Command, exitCode, out)

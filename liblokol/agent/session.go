@@ -39,6 +39,7 @@ type SessionCore interface {
 	PruneToolOutputs(preserveRecent int) int
 	CompactHistory(summaryLedger string, preserveRecent int)
 	SetLedgerProvider(provider func() string)
+	Compact(ctx context.Context, metrics *regulator.SlotMetrics) error
 }
 
 // Session represents a stateful conversational agent session.
@@ -366,9 +367,13 @@ func (s *Session) Compact(ctx context.Context, metrics *regulator.SlotMetrics) e
 		}
 	}
 
-	// If micro-pruning recovered headroom and we are not in critical pressure, we can proceed.
-	if reclaimed > 0 && !isCritical {
-		return nil
+	// In the warning band (< 75%), execute micro-pruning only (ADR 0029).
+	if !isCritical {
+		if reclaimed > 0 {
+			return nil
+		}
+		// If nothing was prunable at the warning band, do not escalate to macro-compaction.
+		return ErrNoCompactionPossible
 	}
 
 	beforeLen := len(s.History)
