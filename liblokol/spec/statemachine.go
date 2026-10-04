@@ -6,15 +6,18 @@
 package spec
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
+
+	"github.com/boggycreek/lokol/liblokol/refinery"
+	"github.com/boggycreek/lokol/liblokol/regulator"
 )
 
 // State represents the lifecycle state of a spec-driven execution.
@@ -69,16 +72,20 @@ func NewStateMachine(s *Spec, workDir string) *StateMachine {
 	}
 }
 
-// DefaultExecutor runs bash commands, capturing combined output with safe line limits.
+// DefaultExecutor runs bash commands, capturing combined output with safe line and byte limits.
 func DefaultExecutor(ctx context.Context, cmdStr string, workDir string) (string, int, error) {
+	if risk := regulator.InspectShellRisk(workDir, cmdStr); risk.Level == regulator.RiskLevelCritical || risk.Level == regulator.RiskLevelHigh {
+		return fmt.Sprintf("execution blocked by security regulator: %s (%s)", risk.Reason, risk.Level), -1, fmt.Errorf("command execution rejected: %s", risk.Reason)
+	}
+
 	cmd := exec.CommandContext(ctx, "bash", "-c", cmdStr)
 	if workDir != "" {
 		cmd.Dir = workDir
 	}
 
-	var buf bytes.Buffer
-	cmd.Stdout = &buf
-	cmd.Stderr = &buf
+	buf := refinery.NewCappedBuffer(refinery.MaxTestOutputBytes)
+	cmd.Stdout = buf
+	cmd.Stderr = buf
 
 	err := cmd.Run()
 	output := buf.String()
@@ -131,6 +138,20 @@ func (sm *StateMachine) RunPreflight(ctx context.Context) error {
 
 	// Run preflight command if configured
 	if sm.Spec.PreflightCmd != "" {
+		risk := regulator.InspectShellRisk(sm.WorkDir, sm.Spec.PreflightCmd)
+		if risk.Level == regulator.RiskLevelCritical || risk.Level == regulator.RiskLevelHigh {
+			sm.State = StateFailed
+			res := &VerificationResult{
+				Timestamp: time.Now(),
+				Command:   sm.Spec.PreflightCmd,
+				ExitCode:  -1,
+				Output:    fmt.Sprintf("preflight check rejected by security regulator: %s (%s)", risk.Reason, risk.Level),
+				Passed:    false,
+			}
+			sm.PreflightResult = res
+			return fmt.Errorf("preflight check %q rejected by security regulator: %s (%s)", sm.Spec.PreflightCmd, risk.Reason, risk.Level)
+		}
+
 		executor := sm.Executor
 		if executor == nil {
 			executor = DefaultExecutor
@@ -160,55 +181,154 @@ func (sm *StateMachine) RunPreflight(ctx context.Context) error {
 }
 
 // CheckTargetConstraint verifies whether a given file path is allowed to be modified under this spec.
+// Path matching is strictly canonicalized relative to the workspace; filepath.Base matching is disallowed.
 func (sm *StateMachine) CheckTargetConstraint(targetPath string) error {
 	if sm.Spec == nil || len(sm.Spec.TargetFiles) == 0 {
 		return nil
 	}
 
 	cleanTarget := filepath.Clean(targetPath)
+	var rel string
+	var err error
 
-	// If absolute, convert to relative to WorkDir
 	if filepath.IsAbs(cleanTarget) {
-		rel, err := filepath.Rel(sm.WorkDir, cleanTarget)
-		if err == nil {
-			cleanTarget = rel
-		}
+		rel, err = filepath.Rel(sm.WorkDir, cleanTarget)
+	} else {
+		abs := filepath.Join(sm.WorkDir, cleanTarget)
+		rel, err = filepath.Rel(sm.WorkDir, abs)
 	}
 
-	// Clean leading ./ if present
-	cleanTarget = strings.TrimPrefix(cleanTarget, "./")
+	if err != nil || strings.HasPrefix(rel, "..") || filepath.IsAbs(rel) {
+		return fmt.Errorf("target constraint violation: path %q escapes workspace boundary %s", targetPath, sm.WorkDir)
+	}
+
+	rel = filepath.Clean(rel)
+	rel = strings.TrimPrefix(rel, "./")
 
 	for _, allowed := range sm.Spec.TargetFiles {
 		cleanAllowed := filepath.Clean(allowed)
+		var allowedRel string
 		if filepath.IsAbs(cleanAllowed) {
-			rel, err := filepath.Rel(sm.WorkDir, cleanAllowed)
-			if err == nil {
-				cleanAllowed = rel
-			}
+			allowedRel, err = filepath.Rel(sm.WorkDir, cleanAllowed)
+		} else {
+			absAllowed := filepath.Join(sm.WorkDir, cleanAllowed)
+			allowedRel, err = filepath.Rel(sm.WorkDir, absAllowed)
 		}
-		cleanAllowed = strings.TrimPrefix(cleanAllowed, "./")
+		if err != nil {
+			continue
+		}
+		allowedRel = filepath.Clean(allowedRel)
+		allowedRel = strings.TrimPrefix(allowedRel, "./")
 
-		// Exact match
-		if cleanTarget == cleanAllowed {
+		// Exact canonical relative match
+		if rel == allowedRel {
 			return nil
 		}
 
-		// Base name match
-		if filepath.Base(cleanTarget) == cleanAllowed {
-			return nil
-		}
-
-		// Glob pattern match
-		if matched, _ := filepath.Match(cleanAllowed, cleanTarget); matched {
-			return nil
-		}
-		if matched, _ := filepath.Match(cleanAllowed, filepath.Base(cleanTarget)); matched {
+		// Glob pattern match against canonical relative path
+		if matched, _ := filepath.Match(allowedRel, rel); matched {
 			return nil
 		}
 	}
 
 	return fmt.Errorf("target constraint violation: modification of %q is not permitted by SPEC.md (allowed target files: %s)",
 		targetPath, strings.Join(sm.Spec.TargetFiles, ", "))
+}
+
+var (
+	bashRedirectRegex   = regexp.MustCompile(`(?:^|[^<>&0-9])(?:>>|>)\s*(?:"([^"]+)"|'([^']+)'|([^\s;&|<>]+))`)
+	bashTeeRegex        = regexp.MustCompile(`\btee\s+(?:-[a-zA-Z]+\s+)*(?:"([^"]+)"|'([^']+)'|([^\s;&|<>-][^\s;&|<>]*))`)
+	bashMutateRegex     = regexp.MustCompile(`\b(?:touch|rm|truncate)\s+(?:-[a-zA-Z0-9-]+\s+)*(?:"([^"]+)"|'([^']+)'|([^\s;&|<>-][^\s;&|<>]*))`)
+	bashCpMvRegex       = regexp.MustCompile(`\b(?:cp|mv)\s+(?:-[a-zA-Z0-9-]+\s+)*.*?(?:"([^"]+)"|'([^']+)'|([^\s;&|<>-][^\s;&|<>]*))`)
+	bashSedInplaceRegex = regexp.MustCompile(`\bsed\s+.*-i(?:\s*['"]?[a-zA-Z0-9._-]*['"]?)?\s+.*?(?:"([^"]+)"|'([^']+)'|([^\s;&|<>-][^\s;&|<>]*))`)
+)
+
+func extractRegexTarget(match []string) string {
+	for i := 1; i < len(match); i++ {
+		if match[i] != "" {
+			return strings.TrimSpace(match[i])
+		}
+	}
+	return ""
+}
+
+// CheckBashTargetConstraint scans a bash command for file modification vectors (redirections,
+// writes, file removals, in-place edits) and verifies target paths against the spec's target constraints.
+func (sm *StateMachine) CheckBashTargetConstraint(cmd string) error {
+	if sm.Spec == nil || len(sm.Spec.TargetFiles) == 0 {
+		return nil
+	}
+
+	trimmed := strings.TrimSpace(cmd)
+	if trimmed == "" {
+		return nil
+	}
+
+	isSpecialTarget := func(target string) bool {
+		switch target {
+		case "/dev/null", "/dev/zero", "/dev/stdout", "/dev/stderr", "&1", "&2":
+			return true
+		default:
+			return false
+		}
+	}
+
+	// 1. Redirection operators (> and >>)
+	for _, m := range bashRedirectRegex.FindAllStringSubmatch(trimmed, -1) {
+		target := extractRegexTarget(m)
+		if target == "" || isSpecialTarget(target) {
+			continue
+		}
+		if err := sm.CheckTargetConstraint(target); err != nil {
+			return fmt.Errorf("shell redirection violates target constraint: %w", err)
+		}
+	}
+
+	// 2. tee writes
+	for _, m := range bashTeeRegex.FindAllStringSubmatch(trimmed, -1) {
+		target := extractRegexTarget(m)
+		if target == "" || isSpecialTarget(target) {
+			continue
+		}
+		if err := sm.CheckTargetConstraint(target); err != nil {
+			return fmt.Errorf("shell tee operation violates target constraint: %w", err)
+		}
+	}
+
+	// 3. Mutating file commands (touch, rm, truncate)
+	for _, m := range bashMutateRegex.FindAllStringSubmatch(trimmed, -1) {
+		target := extractRegexTarget(m)
+		if target == "" || isSpecialTarget(target) {
+			continue
+		}
+		if err := sm.CheckTargetConstraint(target); err != nil {
+			return fmt.Errorf("shell file mutation (%s) violates target constraint: %w", target, err)
+		}
+	}
+
+	// 4. cp / mv destination checks
+	for _, m := range bashCpMvRegex.FindAllStringSubmatch(trimmed, -1) {
+		target := extractRegexTarget(m)
+		if target == "" || isSpecialTarget(target) {
+			continue
+		}
+		if err := sm.CheckTargetConstraint(target); err != nil {
+			return fmt.Errorf("shell copy/move target (%s) violates target constraint: %w", target, err)
+		}
+	}
+
+	// 5. In-place stream modifications (sed -i)
+	for _, m := range bashSedInplaceRegex.FindAllStringSubmatch(trimmed, -1) {
+		target := extractRegexTarget(m)
+		if target == "" || isSpecialTarget(target) {
+			continue
+		}
+		if err := sm.CheckTargetConstraint(target); err != nil {
+			return fmt.Errorf("shell in-place stream edit (%s) violates target constraint: %w", target, err)
+		}
+	}
+
+	return nil
 }
 
 // Verify runs the verification command, locking completion until exit code 0.
@@ -224,6 +344,20 @@ func (sm *StateMachine) Verify(ctx context.Context) (*VerificationResult, error)
 		sm.LatestVerification = res
 		sm.State = StateCompleted
 		return res, nil
+	}
+
+	risk := regulator.InspectShellRisk(sm.WorkDir, sm.Spec.VerifyCmd)
+	if risk.Level == regulator.RiskLevelCritical || risk.Level == regulator.RiskLevelHigh {
+		res := &VerificationResult{
+			Timestamp: time.Now(),
+			Command:   sm.Spec.VerifyCmd,
+			ExitCode:  -1,
+			Output:    fmt.Sprintf("verification check rejected by security regulator: %s (%s)", risk.Reason, risk.Level),
+			Passed:    false,
+		}
+		sm.LatestVerification = res
+		sm.State = StateExecuting
+		return res, fmt.Errorf("verification check %q rejected by security regulator: %s (%s)", sm.Spec.VerifyCmd, risk.Reason, risk.Level)
 	}
 
 	sm.State = StateVerifying

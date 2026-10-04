@@ -202,14 +202,25 @@ func (r *Runner) Run(ctx context.Context, initialPrompt string) (string, error) 
 		}
 
 		// Enforce spec target file constraints if spec machine is active (lokol-jkx)
-		if r.SpecMachine != nil && (act.Name == "replace_file" || act.Name == "write_file") {
-			if err := r.SpecMachine.CheckTargetConstraint(targetSummary); err != nil {
-				if r.OnOutput != nil {
-					r.OnOutput("spec", fmt.Sprintf("[TARGET CONSTRAINT VIOLATION] %v", err))
+		if r.SpecMachine != nil {
+			if act.Name == "replace_file" || act.Name == "write_file" {
+				if err := r.SpecMachine.CheckTargetConstraint(targetSummary); err != nil {
+					if r.OnOutput != nil {
+						r.OnOutput("spec", fmt.Sprintf("[TARGET CONSTRAINT VIOLATION] %v", err))
+					}
+					msg := fmt.Sprintf("<action_result>\n[PERMISSION DENIED: TARGET CONSTRAINT VIOLATION]: %v\n</action_result>", err)
+					session.AppendUserMessage(msg)
+					continue
 				}
-				msg := fmt.Sprintf("<action_result>\n[PERMISSION DENIED: TARGET CONSTRAINT VIOLATION]: %v\n</action_result>", err)
-				session.AppendUserMessage(msg)
-				continue
+			} else if act.Name == "exec_bash" {
+				if err := r.SpecMachine.CheckBashTargetConstraint(act.Command); err != nil {
+					if r.OnOutput != nil {
+						r.OnOutput("spec", fmt.Sprintf("[TARGET CONSTRAINT VIOLATION] %v", err))
+					}
+					msg := fmt.Sprintf("<action_result>\n[PERMISSION DENIED: TARGET CONSTRAINT VIOLATION]: %v\n</action_result>", err)
+					session.AppendUserMessage(msg)
+					continue
+				}
 			}
 		}
 
