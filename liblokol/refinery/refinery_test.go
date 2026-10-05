@@ -206,6 +206,29 @@ func TestRunTestVerifier(t *testing.T) {
 	if !hugeRes.Passed {
 		t.Errorf("expected zero-exit command to pass")
 	}
+
+	// 4. Passing run containing the word "FAIL" in output (must pass based on exit 0)
+	passWithFailWordCmd := `echo "Testing FAIL word handling: PASS (all tests ok)"`
+	passWithFailRes, err := refinery.RunTestVerifier(ctx, passWithFailWordCmd)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !passWithFailRes.Passed {
+		t.Errorf("expected command with exit 0 to pass even if output contains 'FAIL'")
+	}
+	if !strings.Contains(passWithFailRes.Summary, "✓") {
+		t.Errorf("expected checkmark summary for passing command, got: %s", passWithFailRes.Summary)
+	}
+
+	// 5. Failing run with none of the old marker strings (must fail based on exit code)
+	failWithoutMarkersCmd := `bash -c 'echo "custom non-standard error occurred"; exit 2'`
+	failWithoutMarkersRes, _ := refinery.RunTestVerifier(ctx, failWithoutMarkersCmd)
+	if failWithoutMarkersRes.Passed {
+		t.Errorf("expected non-zero exit command to fail even without standard markers")
+	}
+	if !strings.Contains(failWithoutMarkersRes.Summary, "✗") {
+		t.Errorf("expected failure summary for non-zero exit command, got: %s", failWithoutMarkersRes.Summary)
+	}
 }
 
 func TestCappedBuffer(t *testing.T) {

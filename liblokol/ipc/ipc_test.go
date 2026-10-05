@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/boggycreek/lokol/liblokol/agent"
+	"github.com/boggycreek/lokol/liblokol/catalog"
 	"github.com/boggycreek/lokol/liblokol/ipc"
 )
 
@@ -29,6 +30,17 @@ func startMockLLMServer(t *testing.T, turnHandler func(turn int, req agent.Strea
 	var mu sync.Mutex
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			if r.URL.Path == "/slots" {
+				_, _ = w.Write([]byte(`[{"id":0,"state":0,"n_ctx":4096,"n_past":100}]`))
+			} else {
+				_, _ = w.Write([]byte(`{"data":[{"id":"mock-model"}]}`))
+			}
+			return
+		}
+
 		var req agent.StreamChatRequest
 		_ = json.NewDecoder(r.Body).Decode(&req)
 
@@ -884,5 +896,448 @@ func TestIPC_ConcurrentControlUnderRaceDetector(t *testing.T) {
 		}()
 	}
 
+	// Exercise compaction during concurrent Prompt and GetStatus calls
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		time.Sleep(5 * time.Millisecond)
+		if sess, resolveErr := srv.ResolveSession("sess_race"); resolveErr == nil && sess != nil {
+			_ = sess.Session.Compact(context.Background(), nil)
+		}
+	}()
+
 	wg.Wait()
 }
+
+func TestIPC_PanicPath_AssertErrorAndSingleTurnFinished(t *testing.T) {
+	// Register a panic-inducing tool in catalog
+	catalog.DefaultRegistry.Register(&catalog.SimpleTool{
+		NameVal:    "simulate_panic",
+		SummaryVal: "Simulate a panic for testing",
+		ExecuteFn: func(ctx context.Context, cmd string, workDir ...string) (string, error) {
+			panic("simulated panic in tool execution")
+		},
+	})
+
+	tmpDir := t.TempDir()
+	mockLLM, _ := startMockLLMServer(t, func(turn int, req agent.StreamChatRequest) []string {
+		return []string{"<action name=\"simulate_panic\">crash</action>"}
+	})
+	defer mockLLM.Close()
+
+	sockPath := filepath.Join(tmpDir, "panic_test.sock")
+	srv := ipc.NewServer(ipc.ServerConfig{
+		EngineURL:      mockLLM.URL,
+		DefaultWorkDir: tmpDir,
+	})
+	if err := srv.Listen("unix", sockPath); err != nil {
+		t.Fatalf("Listen failed: %v", err)
+	}
+	defer srv.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = srv.Serve(ctx) }()
+
+	client, err := ipc.Dial("unix", sockPath)
+	if err != nil {
+		t.Fatalf("Dial failed: %v", err)
+	}
+	defer client.Close()
+
+	var turnFinishedCount int
+	var mu sync.Mutex
+	client.SetEventHandler(func(n ipc.Notification) {
+		if n.Method == ipc.EventTurnFinished {
+			mu.Lock()
+			turnFinishedCount++
+			mu.Unlock()
+		}
+	})
+
+	yolo := true
+	_, err = client.CreateSession(context.Background(), ipc.SessionCreateParams{
+		SessionID: "sess_panic",
+		YOLO:      &yolo,
+	})
+	if err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+
+	res, err := client.Prompt(context.Background(), ipc.SessionPromptParams{
+		SessionID: "sess_panic",
+		Prompt:    "trigger panic",
+	})
+	if err == nil {
+		t.Fatalf("expected RPC error from panic, got nil")
+	}
+	if res != nil {
+		t.Errorf("expected nil result on panic error, got %+v", res)
+	}
+	if !strings.Contains(err.Error(), "internal engine panic") {
+		t.Errorf("expected error message to mention internal engine panic, got: %v", err)
+	}
+
+	mu.Lock()
+	count := turnFinishedCount
+	mu.Unlock()
+	if count != 1 {
+		t.Errorf("expected exactly 1 turn_finished notification, got %d", count)
+	}
+}
+
+func TestIPC_LoopDetectPath_SingleTurnFinished(t *testing.T) {
+	tmpDir := t.TempDir()
+	mockLLM, _ := startMockLLMServer(t, func(turn int, req agent.StreamChatRequest) []string {
+		return []string{"<action name=\"tool_help\"><tool>all</tool></action>"}
+	})
+	defer mockLLM.Close()
+
+	sockPath := filepath.Join(tmpDir, "loop_test.sock")
+	srv := ipc.NewServer(ipc.ServerConfig{
+		EngineURL:      mockLLM.URL,
+		DefaultWorkDir: tmpDir,
+	})
+	if err := srv.Listen("unix", sockPath); err != nil {
+		t.Fatalf("Listen failed: %v", err)
+	}
+	defer srv.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = srv.Serve(ctx) }()
+
+	client, err := ipc.Dial("unix", sockPath)
+	if err != nil {
+		t.Fatalf("Dial failed: %v", err)
+	}
+	defer client.Close()
+
+	var turnFinishedCount int
+	var mu sync.Mutex
+	client.SetEventHandler(func(n ipc.Notification) {
+		if n.Method == ipc.EventTurnFinished {
+			mu.Lock()
+			turnFinishedCount++
+			mu.Unlock()
+		}
+	})
+
+	yolo := true
+	_, err = client.CreateSession(context.Background(), ipc.SessionCreateParams{
+		SessionID: "sess_loop",
+		YOLO:      &yolo,
+	})
+	if err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+
+	_, err = client.Prompt(context.Background(), ipc.SessionPromptParams{
+		SessionID: "sess_loop",
+		Prompt:    "trigger loop",
+	})
+	if err == nil {
+		t.Fatalf("expected loop detection error, got nil")
+	}
+	if !strings.Contains(err.Error(), "loop detected") {
+		t.Errorf("expected loop detected error message, got: %v", err)
+	}
+
+	mu.Lock()
+	count := turnFinishedCount
+	mu.Unlock()
+	if count != 1 {
+		t.Errorf("expected exactly 1 turn_finished notification, got %d", count)
+	}
+}
+
+func TestIPC_ActionInProse_TokensStreamed(t *testing.T) {
+	tmpDir := t.TempDir()
+	mockLLM, _ := startMockLLMServer(t, func(turn int, req agent.StreamChatRequest) []string {
+		return []string{
+			"Here is an example: ",
+			"<action in a sentence",
+			" should still stream. ",
+			"<action name=\"task_finish\">done</action>",
+		}
+	})
+	defer mockLLM.Close()
+
+	sockPath := filepath.Join(tmpDir, "prose_test.sock")
+	srv := ipc.NewServer(ipc.ServerConfig{
+		EngineURL:      mockLLM.URL,
+		DefaultWorkDir: tmpDir,
+	})
+	if err := srv.Listen("unix", sockPath); err != nil {
+		t.Fatalf("Listen failed: %v", err)
+	}
+	defer srv.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = srv.Serve(ctx) }()
+
+	client, err := ipc.Dial("unix", sockPath)
+	if err != nil {
+		t.Fatalf("Dial failed: %v", err)
+	}
+	defer client.Close()
+
+	var streamedText strings.Builder
+	var mu sync.Mutex
+	client.SetEventHandler(func(n ipc.Notification) {
+		if n.Method == ipc.EventToken {
+			var p ipc.EventTokenPayload
+			bytes, _ := json.Marshal(n.Params)
+			_ = json.Unmarshal(bytes, &p)
+			mu.Lock()
+			streamedText.WriteString(p.Token)
+			mu.Unlock()
+		}
+	})
+
+	yolo := true
+	_, err = client.CreateSession(context.Background(), ipc.SessionCreateParams{
+		SessionID: "sess_prose",
+		YOLO:      &yolo,
+	})
+	if err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+
+	_, err = client.Prompt(context.Background(), ipc.SessionPromptParams{
+		SessionID: "sess_prose",
+		Prompt:    "tell me about actions",
+	})
+	if err != nil {
+		t.Fatalf("Prompt failed: %v", err)
+	}
+
+	mu.Lock()
+	text := streamedText.String()
+	mu.Unlock()
+
+	if !strings.Contains(text, "<action in a sentence should still stream.") {
+		t.Errorf("expected prose with '<action' to be streamed, got: %q", text)
+	}
+	if strings.Contains(text, "<action name=") {
+		t.Errorf("expected action tag to be suppressed from token stream, got: %q", text)
+	}
+}
+
+func TestIPC_SessionCloseAndReset_RequireExplicitSessionID(t *testing.T) {
+	tmpDir := t.TempDir()
+	sockPath := filepath.Join(tmpDir, "explicit_id.sock")
+	srv := ipc.NewServer(ipc.ServerConfig{DefaultWorkDir: tmpDir})
+	if err := srv.Listen("unix", sockPath); err != nil {
+		t.Fatalf("Listen failed: %v", err)
+	}
+	defer srv.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = srv.Serve(ctx) }()
+
+	conn, err := net.Dial("unix", sockPath)
+	if err != nil {
+		t.Fatalf("Dial failed: %v", err)
+	}
+	defer conn.Close()
+
+	// 1. session.close with empty session_id
+	closeReq := `{"jsonrpc":"2.0","id":"1","method":"session.close","params":{"session_id":""}}` + "\n"
+	_, _ = conn.Write([]byte(closeReq))
+
+	buf := make([]byte, 1024)
+	n, _ := conn.Read(buf)
+	if !strings.Contains(string(buf[:n]), "session_id is required for session.close") {
+		t.Errorf("expected error requiring session_id on close, got: %s", string(buf[:n]))
+	}
+
+	// 2. session.reset with empty session_id
+	resetReq := `{"jsonrpc":"2.0","id":"2","method":"session.reset","params":{"session_id":""}}` + "\n"
+	_, _ = conn.Write([]byte(resetReq))
+
+	n, _ = conn.Read(buf)
+	if !strings.Contains(string(buf[:n]), "session_id is required for session.reset") {
+		t.Errorf("expected error requiring session_id on reset, got: %s", string(buf[:n]))
+	}
+}
+
+func TestIPC_MutatingActionsGatedInInteractiveMode(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	mockLLM, _ := startMockLLMServer(t, func(turn int, req agent.StreamChatRequest) []string {
+		switch turn {
+		case 1:
+			return []string{"<action name=\"exec_bash\">echo safe</action>"}
+		case 2:
+			return []string{"<action name=\"tool_help\"><tool>all</tool></action>"}
+		default:
+			return []string{"<action name=\"task_finish\">done</action>"}
+		}
+	})
+	defer mockLLM.Close()
+
+	sockPath := filepath.Join(tmpDir, "gate.sock")
+	srv := ipc.NewServer(ipc.ServerConfig{
+		EngineURL:      mockLLM.URL,
+		DefaultWorkDir: tmpDir,
+	})
+	if err := srv.Listen("unix", sockPath); err != nil {
+		t.Fatalf("Listen failed: %v", err)
+	}
+	defer srv.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = srv.Serve(ctx) }()
+
+	client, err := ipc.Dial("unix", sockPath)
+	if err != nil {
+		t.Fatalf("Dial failed: %v", err)
+	}
+	defer client.Close()
+
+	proposedChan := make(chan ipc.EventActionProposedPayload, 10)
+	client.SetEventHandler(func(n ipc.Notification) {
+		if n.Method == ipc.EventActionProposed {
+			var p ipc.EventActionProposedPayload
+			bytes, _ := json.Marshal(n.Params)
+			_ = json.Unmarshal(bytes, &p)
+			proposedChan <- p
+		}
+	})
+
+	yolo := false
+	_, err = client.CreateSession(context.Background(), ipc.SessionCreateParams{
+		SessionID: "sess_gate",
+		YOLO:      &yolo,
+	})
+	if err != nil {
+		t.Fatalf("CreateSession failed: %v", err)
+	}
+
+	promptDone := make(chan error, 1)
+	go func() {
+		_, err := client.Prompt(context.Background(), ipc.SessionPromptParams{
+			SessionID: "sess_gate",
+			Prompt:    "run actions",
+		})
+		promptDone <- err
+	}()
+
+	// Turn 1: exec_bash must require approval even though echo is risk None
+	select {
+	case act1 := <-proposedChan:
+		if act1.Name != "exec_bash" {
+			t.Errorf("expected act1 to be exec_bash, got %s", act1.Name)
+		}
+		if !act1.RequiresApproval {
+			t.Errorf("expected exec_bash in non-YOLO mode to require approval")
+		}
+		_ = client.ApproveAction(context.Background(), "sess_gate", act1.ActionID)
+	case <-time.After(5 * time.Second):
+		t.Fatalf("timed out waiting for act1")
+	}
+
+	// Turn 2: tool_help is read-only and should NOT require approval
+	select {
+	case act2 := <-proposedChan:
+		if act2.Name != "tool_help" {
+			t.Errorf("expected act2 to be tool_help, got %s", act2.Name)
+		}
+		if act2.RequiresApproval {
+			t.Errorf("expected tool_help (read-only) NOT to require approval, but got RequiresApproval=true (risk=%s reason=%s)", act2.RiskLevel, act2.Reason)
+		}
+		if act2.RequiresApproval {
+			_ = client.ApproveAction(context.Background(), "sess_gate", act2.ActionID)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatalf("timed out waiting for act2")
+	}
+
+	select {
+	case err := <-promptDone:
+		if err != nil {
+			t.Fatalf("prompt failed: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatalf("timed out waiting for prompt completion")
+	}
+}
+
+func TestIPC_NonReadingClient_WriteTimeoutOrClose(t *testing.T) {
+	tmpDir := t.TempDir()
+	// Mock server that generates continuous stream of tokens
+	mockLLM := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher, _ := w.(http.Flusher)
+		for i := 0; i < 500; i++ {
+			chunk := agent.ChatChunkResponse{
+				Choices: []struct {
+					Delta struct {
+						Content string `json:"content"`
+					} `json:"delta"`
+					FinishReason string `json:"finish_reason"`
+				}{
+					{Delta: struct {
+						Content string `json:"content"`
+					}{Content: fmt.Sprintf("chunk-%d-%s ", i, strings.Repeat("X", 512))}},
+				},
+			}
+			bytesChunk, _ := json.Marshal(chunk)
+			fmt.Fprintf(w, "data: %s\n\n", bytesChunk)
+			flusher.Flush()
+			time.Sleep(5 * time.Millisecond)
+		}
+	}))
+	defer mockLLM.Close()
+
+	sockPath := filepath.Join(tmpDir, "slow_read.sock")
+	srv := ipc.NewServer(ipc.ServerConfig{
+		EngineURL:      mockLLM.URL,
+		DefaultWorkDir: tmpDir,
+	})
+	if err := srv.Listen("unix", sockPath); err != nil {
+		t.Fatalf("Listen failed: %v", err)
+	}
+	defer srv.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = srv.Serve(ctx) }()
+
+	conn, err := net.Dial("unix", sockPath)
+	if err != nil {
+		t.Fatalf("Dial failed: %v", err)
+	}
+
+	// Send create and prompt
+	req := `{"jsonrpc":"2.0","id":"1","method":"session.create","params":{"session_id":"sess_slow"}}` + "\n"
+	_, _ = conn.Write([]byte(req))
+	promptReq := `{"jsonrpc":"2.0","id":"2","method":"session.prompt","params":{"session_id":"sess_slow","prompt":"stream"}}` + "\n"
+	_, _ = conn.Write([]byte(promptReq))
+
+	// Close read side to simulate an abandoned reader / broken pipe
+	if unixConn, ok := conn.(*net.UnixConn); ok {
+		_ = unixConn.CloseRead()
+	} else {
+		_ = conn.Close()
+	}
+
+	// Wait briefly; server should detect write error and cleanly clean up connection
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify server remains alive and accepts new connections
+	c2, err := ipc.Dial("unix", sockPath)
+	if err != nil {
+		t.Fatalf("server died after slow/broken reader: %v", err)
+	}
+	defer c2.Close()
+	pong, err := c2.Ping(context.Background())
+	if err != nil || pong["status"] != "pong" {
+		t.Fatalf("failed to ping server: %v", err)
+	}
+}
+

@@ -105,8 +105,22 @@ func NewSessionState(id string, client *agent.Client, params SessionCreateParams
 	}, nil
 }
 
+func hasActionTagPrefix(s string) bool {
+	prefixes := []string{
+		"<", "<a", "<ac", "<act", "<acti", "<actio", "<action",
+		"<action ", "<action n", "<action na", "<action nam", "<action name",
+		"<action name=", "<action name =",
+	}
+	for _, p := range prefixes {
+		if strings.HasSuffix(s, p) {
+			return true
+		}
+	}
+	return false
+}
+
 // Prompt initiates turn execution on the session, streaming events through the broadcaster.
-func (s *SessionState) Prompt(ctx context.Context, prompt string, emit func(Notification)) (*EventTurnFinishedPayload, error) {
+func (s *SessionState) Prompt(ctx context.Context, prompt string, emit func(Notification)) (res *EventTurnFinishedPayload, err error) {
 	s.mu.Lock()
 	if s.isBusy {
 		s.mu.Unlock()
@@ -143,17 +157,22 @@ func (s *SessionState) Prompt(ctx context.Context, prompt string, emit func(Noti
 		}
 	}
 
+	turnCount := 0
+
 	// Complete process and memory fault isolation: catch engine panics
 	defer func() {
 		if r := recover(); r != nil {
 			buf := make([]byte, 2048)
 			n := runtime.Stack(buf, false)
 			fmt.Fprintf(os.Stderr, "[PANIC RECOVERED] session %s: %v\n%s\n", s.ID, r, buf[:n])
-			emitTurnFinished(&EventTurnFinishedPayload{
+			res = &EventTurnFinishedPayload{
 				SessionID: s.ID,
 				Status:    "error",
+				Turns:     turnCount,
 				Error:     fmt.Sprintf("internal engine panic: %v", r),
-			})
+			}
+			err = fmt.Errorf("internal engine panic: %v", r)
+			emitTurnFinished(res)
 		}
 	}()
 
@@ -170,23 +189,24 @@ func (s *SessionState) Prompt(ctx context.Context, prompt string, emit func(Noti
 		}
 	}
 
-	s.appendUserMessage(prompt)
+	s.Session.AppendUserMessage(prompt)
 
 	consecutiveNoAction := 0
 	lastSig := ""
 	repeatCount := 0
 	isConversational := catalog.IsConversationalFeedback(prompt)
-	turnCount := 0
 
 	for turn := 0; turn < s.MaxTurns; turn++ {
 		turnCount++
 		if turnCtx.Err() != nil {
-			return &EventTurnFinishedPayload{
+			abortPayload := &EventTurnFinishedPayload{
 				SessionID: s.ID,
 				Status:    "aborted",
 				Turns:     turnCount,
 				Error:     turnCtx.Err().Error(),
-			}, nil
+			}
+			emitTurnFinished(abortPayload)
+			return abortPayload, nil
 		}
 
 		tokenChan := make(chan string, 100)
@@ -216,17 +236,37 @@ func (s *SessionState) Prompt(ctx context.Context, prompt string, emit func(Noti
 			pendingTokens.WriteString(token)
 			str := pendingTokens.String()
 
-			if strings.Contains(str, "<action") {
+			// Check for parseable action start tag: <action name=
+			if idx := strings.Index(str, "<action name="); idx != -1 {
+				if idx > 0 {
+					emit(Notification{
+						JSONRPC: "2.0",
+						Method:  EventToken,
+						Params: EventTokenPayload{
+							SessionID: s.ID,
+							Token:     str[:idx],
+						},
+					})
+				}
+				suppressTokens = true
+				continue
+			}
+			if idx := strings.Index(str, "<action name ="); idx != -1 {
+				if idx > 0 {
+					emit(Notification{
+						JSONRPC: "2.0",
+						Method:  EventToken,
+						Params: EventTokenPayload{
+							SessionID: s.ID,
+							Token:     str[:idx],
+						},
+					})
+				}
 				suppressTokens = true
 				continue
 			}
 
-			if strings.HasSuffix(str, "<") ||
-				strings.HasSuffix(str, "<a") ||
-				strings.HasSuffix(str, "<ac") ||
-				strings.HasSuffix(str, "<act") ||
-				strings.HasSuffix(str, "<acti") ||
-				strings.HasSuffix(str, "<actio") {
+			if hasActionTagPrefix(str) {
 				continue
 			}
 
@@ -277,7 +317,7 @@ func (s *SessionState) Prompt(ctx context.Context, prompt string, emit func(Noti
 		}
 
 		replyText := assistantReply.String()
-		s.appendAssistantMessage(replyText)
+		s.Session.AppendAssistantMessage(replyText)
 
 		act := agent.ParseAction(replyText)
 		if act == nil {
@@ -302,7 +342,7 @@ func (s *SessionState) Prompt(ctx context.Context, prompt string, emit func(Noti
 				emitTurnFinished(res)
 				return res, nil
 			}
-			s.appendUserMessage("Please execute your next action using an <action name=\"...\"> tag, or call <action name=\"task_finish\"> if your task is complete.")
+			s.Session.AppendUserMessage("Please execute your next action using an <action name=\"...\"> tag, or call <action name=\"task_finish\"> if your task is complete.")
 			continue
 		}
 
@@ -323,7 +363,7 @@ func (s *SessionState) Prompt(ctx context.Context, prompt string, emit func(Noti
 				}
 				if !verRes.Passed {
 					failMsg := fmt.Sprintf("<action_result>\n[VERIFICATION GATE FAILED]: Verification command '%s' failed with exit code %d:\n%s\n\nYou cannot complete the task until all verification checks pass with exit 0. Inspect the failure, edit the code, and re-run tests.\n</action_result>", verRes.Command, verRes.ExitCode, verRes.Output)
-					s.appendUserMessage(failMsg)
+					s.Session.AppendUserMessage(failMsg)
 					continue
 				}
 			}
@@ -365,13 +405,13 @@ func (s *SessionState) Prompt(ctx context.Context, prompt string, emit func(Noti
 			if act.Name == "replace_file" || act.Name == "write_file" {
 				if err := s.SpecMachine.CheckTargetConstraint(targetSummary); err != nil {
 					msg := fmt.Sprintf("<action_result>\n[PERMISSION DENIED: TARGET CONSTRAINT VIOLATION]: %v\n</action_result>", err)
-					s.appendUserMessage(msg)
+					s.Session.AppendUserMessage(msg)
 					continue
 				}
 			} else if act.Name == "exec_bash" {
 				if err := s.SpecMachine.CheckBashTargetConstraint(act.Command); err != nil {
 					msg := fmt.Sprintf("<action_result>\n[PERMISSION DENIED: TARGET CONSTRAINT VIOLATION]: %v\n</action_result>", err)
-					s.appendUserMessage(msg)
+					s.Session.AppendUserMessage(msg)
 					continue
 				}
 			}
@@ -390,8 +430,11 @@ func (s *SessionState) Prompt(ctx context.Context, prompt string, emit func(Noti
 
 		actionID := fmt.Sprintf("act_%d", atomic.AddUint64(&s.actionCounter, 1))
 
-		// Check if interactive client approval is required
-		requiresApproval := !s.YOLO && (perm.RiskLevel != regulator.RiskLevelNone || perm.Status == regulator.StatusWarning)
+		// In interactive mode (!s.YOLO), all mutating actions (exec_bash, write_file, replace_file)
+		// and any action flagged with elevated risk or StatusWarning require operator approval.
+		isMutating := act.Name == "exec_bash" || act.Name == "write_file" || act.Name == "replace_file"
+		isElevatedRisk := perm.RiskLevel == regulator.RiskLevelMedium || perm.RiskLevel == regulator.RiskLevelHigh || perm.RiskLevel == regulator.RiskLevelCritical
+		requiresApproval := !s.YOLO && (isMutating || isElevatedRisk || perm.Status == regulator.StatusWarning)
 		var decisionChan chan actionDecision
 		if requiresApproval {
 			decisionChan = make(chan actionDecision, 1)
@@ -430,7 +473,7 @@ func (s *SessionState) Prompt(ctx context.Context, prompt string, emit func(Noti
 				msg += fmt.Sprintf("\n[REMEDIATION]: %s", perm.Remediation)
 			}
 			toolResult := fmt.Sprintf("<action_result>\n%s\n</action_result>", msg)
-			s.appendUserMessage(toolResult)
+			s.Session.AppendUserMessage(toolResult)
 			continue
 		}
 
@@ -449,7 +492,7 @@ func (s *SessionState) Prompt(ctx context.Context, prompt string, emit func(Noti
 						Command: act.Command,
 						Path:    actionPath,
 					})
-					s.appendUserMessage(fmt.Sprintf("<action_result>\n[ACTION REJECTED BY OPERATOR]: %s\n</action_result>", rejectReason))
+					s.Session.AppendUserMessage(fmt.Sprintf("<action_result>\n[ACTION REJECTED BY OPERATOR]: %s\n</action_result>", rejectReason))
 					continue
 				}
 			case <-turnCtx.Done():
@@ -468,8 +511,9 @@ func (s *SessionState) Prompt(ctx context.Context, prompt string, emit func(Noti
 
 		if s.SpecMachine != nil {
 			if act.Name == "run_test" {
+				passed := strings.HasPrefix(out, "✓ ")
 				exitCode := 0
-				if err != nil {
+				if !passed {
 					exitCode = 1
 				}
 				s.SpecMachine.LatestVerification = &spec.VerificationResult{
@@ -477,19 +521,12 @@ func (s *SessionState) Prompt(ctx context.Context, prompt string, emit func(Noti
 					Command:   "run_test " + act.Command,
 					ExitCode:  exitCode,
 					Output:    out,
-					Passed:    exitCode == 0,
+					Passed:    passed,
 				}
 			} else if act.Name == "exec_bash" && s.SpecMachine.Spec != nil && s.SpecMachine.Spec.VerifyCmd != "" && strings.TrimSpace(act.Command) == strings.TrimSpace(s.SpecMachine.Spec.VerifyCmd) {
-				exitCode := 0
-				if err != nil {
-					exitCode = 1
-				}
-				s.SpecMachine.LatestVerification = &spec.VerificationResult{
-					Timestamp: time.Now(),
-					Command:   act.Command,
-					ExitCode:  exitCode,
-					Output:    out,
-					Passed:    exitCode == 0,
+				verRes, _ := s.SpecMachine.Verify(turnCtx)
+				if verRes != nil {
+					s.SpecMachine.LatestVerification = verRes
 				}
 			}
 		}
@@ -517,10 +554,10 @@ func (s *SessionState) Prompt(ctx context.Context, prompt string, emit func(Noti
 		} else {
 			toolResult = fmt.Sprintf("<action_result>\n%s\n</action_result>", out)
 		}
-		s.appendUserMessage(toolResult)
+		s.Session.AppendUserMessage(toolResult)
 	}
 
-	res := &EventTurnFinishedPayload{
+	res = &EventTurnFinishedPayload{
 		SessionID: s.ID,
 		Status:    "completed",
 		Turns:     turnCount,
@@ -528,18 +565,6 @@ func (s *SessionState) Prompt(ctx context.Context, prompt string, emit func(Noti
 	}
 	emitTurnFinished(res)
 	return res, nil
-}
-
-func (s *SessionState) appendUserMessage(msg string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.Session.AppendUserMessage(msg)
-}
-
-func (s *SessionState) appendAssistantMessage(msg string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.Session.AppendAssistantMessage(msg)
 }
 
 // DecideAction resolves a pending action approval gate.
@@ -581,8 +606,6 @@ func (s *SessionState) Reset() {
 		<-done
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.Session.Reset()
 }
 
@@ -603,10 +626,11 @@ func (s *SessionState) Close() {
 // Status returns a snapshot of session metrics and configuration.
 func (s *SessionState) Status(ctx context.Context) (map[string]any, error) {
 	s.mu.Lock()
-	historyLen := len(s.Session.History)
 	isBusy := s.isBusy
-	agentName, operatorName := s.Session.GetPersona()
 	s.mu.Unlock()
+
+	historyLen := s.Session.HistoryLen()
+	agentName, operatorName := s.Session.GetPersona()
 
 	metrics, err := s.Session.GetSlotMetrics(ctx)
 	var slotData any

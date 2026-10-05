@@ -182,8 +182,10 @@ func (c *Client) CreateSession(ctx context.Context, params SessionCreateParams) 
 // Prompt sends a prompt to the daemon session.
 func (c *Client) Prompt(ctx context.Context, params SessionPromptParams) (*EventTurnFinishedPayload, error) {
 	var result EventTurnFinishedPayload
-	err := c.Call(ctx, MethodSessionPrompt, params, &result)
-	return &result, err
+	if err := c.Call(ctx, MethodSessionPrompt, params, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
 }
 
 // ApproveAction sends approval for a pending action.

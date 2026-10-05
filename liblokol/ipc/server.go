@@ -14,6 +14,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -120,12 +121,11 @@ func (s *Server) Serve(ctx context.Context) error {
 				return nil
 			default:
 			}
-			var netErr net.Error
-			if errors.As(err, &netErr) && netErr.Temporary() {
-				time.Sleep(10 * time.Millisecond)
-				continue
+			if errors.Is(err, net.ErrClosed) {
+				return nil
 			}
-			return err
+			time.Sleep(10 * time.Millisecond)
+			continue
 		}
 
 		s.mu.Lock()
@@ -186,11 +186,16 @@ func (s *Server) handleConn(serverCtx context.Context, conn net.Conn) {
 		defer writeMu.Unlock()
 		_ = conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 		_, err = conn.Write(append(bytes, '\n'))
+		if err != nil {
+			_ = conn.Close()
+		}
 		return err
 	}
 
 	emitNotification := func(n Notification) {
-		_ = writeMsg(n)
+		if err := writeMsg(n); err != nil {
+			cancelConn()
+		}
 	}
 
 	reader := bufio.NewReader(conn)
@@ -262,7 +267,9 @@ func (s *Server) handleConn(serverCtx context.Context, conn net.Conn) {
 			resp := s.dispatch(connCtx, r, emitNotification)
 			// JSON-RPC 2.0 notifications (requests with no ID or null ID) must not receive a response
 			if len(r.ID) > 0 && string(r.ID) != "null" {
-				_ = writeMsg(resp)
+				if err := writeMsg(resp); err != nil {
+					cancelConn()
+				}
 			}
 		}(req)
 	}
@@ -505,7 +512,20 @@ func (s *Server) dispatch(ctx context.Context, req Request, emit func(Notificati
 	case MethodSessionReset:
 		var params SessionResetParams
 		if len(req.Params) > 0 {
-			_ = json.Unmarshal(req.Params, &params)
+			if err := json.Unmarshal(req.Params, &params); err != nil {
+				return Response{
+					JSONRPC: "2.0",
+					ID:      req.ID,
+					Error:   &RPCError{Code: ErrCodeInvalidParams, Message: err.Error()},
+				}
+			}
+		}
+		if strings.TrimSpace(params.SessionID) == "" {
+			return Response{
+				JSONRPC: "2.0",
+				ID:      req.ID,
+				Error:   &RPCError{Code: ErrCodeInvalidParams, Message: "session_id is required for session.reset"},
+			}
 		}
 
 		sess, err := s.resolveSession(params.SessionID, false)
@@ -527,7 +547,20 @@ func (s *Server) dispatch(ctx context.Context, req Request, emit func(Notificati
 	case MethodSessionClose:
 		var params SessionCloseParams
 		if len(req.Params) > 0 {
-			_ = json.Unmarshal(req.Params, &params)
+			if err := json.Unmarshal(req.Params, &params); err != nil {
+				return Response{
+					JSONRPC: "2.0",
+					ID:      req.ID,
+					Error:   &RPCError{Code: ErrCodeInvalidParams, Message: err.Error()},
+				}
+			}
+		}
+		if strings.TrimSpace(params.SessionID) == "" {
+			return Response{
+				JSONRPC: "2.0",
+				ID:      req.ID,
+				Error:   &RPCError{Code: ErrCodeInvalidParams, Message: "session_id is required for session.close"},
+			}
 		}
 
 		sess, err := s.resolveSession(params.SessionID, false)
@@ -633,3 +666,9 @@ func (s *Server) resolveSession(id string, createIfDefault bool) (*SessionState,
 
 	return nil, fmt.Errorf("no active session found")
 }
+
+// ResolveSession returns the active session state for the given session ID.
+func (s *Server) ResolveSession(id string) (*SessionState, error) {
+	return s.resolveSession(id, false)
+}
+

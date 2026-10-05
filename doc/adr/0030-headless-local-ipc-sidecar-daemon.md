@@ -75,12 +75,13 @@ The agent engine executes as an independent headless sidecar process. Desktop GU
 The daemon implements a bidirectional streaming protocol supporting:
 - **Request / Response RPC**: Standardized lifecycle commands for session creation, prompt submission, status inspection, turn interruption, and history resets.
 - **Asynchronous Notification Streams**: High-cadence real-time events for incremental token streaming, tool action proposals, tool execution results, context compaction notifications, and turn completion.
-- **Interactive Action Approval Gates**: In non-autonomous mode, risky tool proposals suspend execution on an approval channel, emitting action proposal events and awaiting explicit operator approval or rejection from the client.
+- **Interactive Action Approval Gates**: In interactive mode, all mutating actions (command execution, file writes, file replacements) and any actions flagged with elevated risk or warnings suspend execution, emitting action proposal events and awaiting explicit operator approval or rejection from the client.
 
 ### 3. Fail-Safe Session & Connection Concurrency
 - **Multiplexed Connection Contexts**: Client socket disconnections immediately cancel in-flight agent turns associated with that connection, preventing orphaned background execution or wedged session states.
 - **Fault-Isolated Execution**: Engine panics during streaming turns or tool execution are captured with defer-recover harnesses, emitting sanitized failure notifications while preserving server socket availability for subsequent requests.
-- **Fail-Safe Defaults**: Sessions default to interactive approval gating (`yolo: false`) unless explicitly configured otherwise by the connecting operator.
+- **Fail-Safe Defaults**: Sessions default to interactive approval gating unless explicitly configured into autonomous execution mode by the connecting operator.
+- **Explicit Session Scoping**: Destructive lifecycle operations, including session termination and context reset, mandate explicit target session identifiers to prevent inadvertent teardown of concurrent or background sessions.
 
 ### 4. Zero-Dependency Pure Static Binary Policy
 In accordance with ADR 0021, the daemon operates exclusively on deterministic native guardrail rules, eliminating runtime dynamic interpreter dependencies and compiling into a fully self-contained static binary.
@@ -96,3 +97,4 @@ In accordance with ADR 0021, the daemon operates exclusively on deterministic na
 ### Negative / Trade-offs
 - **Transport Serialization Overhead**: Inter-process communication requires JSON serialization and socket buffering, introducing marginal latency compared to direct in-memory function calls.
 - **Socket Lifecycle Governance**: Requires managing socket filesystem paths, permissions, stale socket cleanup, and platform-specific IPC transports.
+- **Shared Single-Slot Inference Assumption**: Sessions currently share a single local inference engine slot; session preemption or cancellation can invalidate KV-cache state across concurrent turns until dedicated multi-slot isolation and idle session eviction are introduced.
