@@ -1,6 +1,6 @@
 .PHONY: all build test integration-test clean lint sbom probe run test-probe test-core-driver
 
-SUBPROJECTS = liblokol cmd/lk cmd/lokol cmd/lokol-mcp cmd/lokol-memory
+SUBPROJECTS = liblokol cmd/lk cmd/lokol cmd/lokol-mcp cmd/lokol-memory cmd/lokol-daemon
 BIN_DIR = bin
 
 # Enforce XDG Base Directory specification and prevent GOROOT pollution

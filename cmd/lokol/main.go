@@ -14,11 +14,13 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 
 	"github.com/boggycreek/lokol/liblokol/agent"
 	"github.com/boggycreek/lokol/liblokol/config"
+	"github.com/boggycreek/lokol/liblokol/ipc"
 	"github.com/boggycreek/lokol/liblokol/model"
 	"github.com/boggycreek/lokol/liblokol/probe"
 	"github.com/boggycreek/lokol/liblokol/setup"
@@ -87,6 +89,17 @@ func run(args []string, stdout, stderr io.Writer) int {
 	updateCmd.BoolVar(updatePre, "prerelease", false, "Allow updating to unstable pre-release versions (alias)")
 	updateTargetVer := updateCmd.String("version", "", "Target specific semver version to install (e.g. v0.1.0-alpha.1)")
 	updateList := updateCmd.Bool("list", false, "List available releases from GitHub without installing")
+
+	serveCmd := flag.NewFlagSet("serve", flag.ContinueOnError)
+	serveCmd.SetOutput(stderr)
+	serveIPC := serveCmd.String("ipc", "", "Path to UNIX domain socket (default: /tmp/lokol.sock)")
+	serveListen := serveCmd.String("listen", "", "TCP listen address (e.g. 127.0.0.1:4444)")
+	serveEngine := serveCmd.String("engine", "http://127.0.0.1:8080", "URL of local llama-server engine")
+	serveWorkDir := serveCmd.String("work-dir", ".", "Default working directory for sessions")
+	serveMode := serveCmd.String("mode", "coding", "Default operational mode: coding (default), general, or moe (alias: -m)")
+	serveCmd.StringVar(serveMode, "m", "coding", "Operational mode (shorthand)")
+	serveYOLO := serveCmd.Bool("yolo", false, "Autonomous mode (bypass interactive action approval gates)")
+	serveMaxTurns := serveCmd.Int("max-turns", 20, "Default max turns per prompt")
 
 	if len(args) < 2 {
 		printUsage(stderr)
@@ -157,6 +170,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 					opArg = *topOperator
 				}
 				return runExec(*execEngine, *execMaxTurns, prompt, *execVerbose || *topVerbose, m, specPath, stdout, stderr, nameArg, opArg)
+			case "serve":
+				if err := serveCmd.Parse(topFlags.Args()[1:]); err != nil {
+					if errors.Is(err, flag.ErrHelp) {
+						return 0
+					}
+					return 1
+				}
+				return runServe(*serveIPC, *serveListen, *serveEngine, *serveWorkDir, *serveMode, *serveYOLO, *serveMaxTurns, stdout, stderr)
 			case "update":
 				if err := updateCmd.Parse(topFlags.Args()[1:]); err != nil {
 					if errors.Is(err, flag.ErrHelp) {
@@ -208,6 +229,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 		m, _ := agent.ParseMode(*execMode)
 		return runExec(*execEngine, *execMaxTurns, prompt, *execVerbose, m, *execSpec, stdout, stderr, *execName, *execOperator)
+	case "serve":
+		if err := serveCmd.Parse(args[2:]); err != nil {
+			if errors.Is(err, flag.ErrHelp) {
+				return 0
+			}
+			return 1
+		}
+		return runServe(*serveIPC, *serveListen, *serveEngine, *serveWorkDir, *serveMode, *serveYOLO, *serveMaxTurns, stdout, stderr)
 	case "update":
 		if err := updateCmd.Parse(args[2:]); err != nil {
 			if errors.Is(err, flag.ErrHelp) {
@@ -230,6 +259,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Usage:")
 	fmt.Fprintln(w, "  lokol exec   [--spec=SPEC.md] [--engine=...] [-m general|coding|moe] [--name=...] [--operator=...] [-v] [prompt]  Run autonomous agent in headless mode")
+	fmt.Fprintln(w, "  lokol serve  [--ipc=/tmp/lokol.sock] [--listen=127.0.0.1:4444] [--engine=...] [--yolo] [-m mode]            Launch headless IPC daemon sidecar")
 	fmt.Fprintln(w, "  lokol setup  [--download-model] [--install-llama]                  Bootstrap environment, probe hardware & check dependencies")
 	fmt.Fprintln(w, "  lokol probe  [--simulate-vram-gib=X] [-m general|coding|moe]       Probe host capabilities and compute optimal model tier")
 	fmt.Fprintln(w, "  lokol config [show | set-name <name> | set-operator <name>]        Inspect or update persistent agent persona configuration")
@@ -503,3 +533,47 @@ func runProbe(simVRAM float64, mode agent.Mode, stdout, stderr io.Writer) int {
 	fmt.Fprintln(stdout, "==================================================")
 	return 0
 }
+
+func runServe(ipcSocket, listenAddr, engineURL, workDir, mode string, yolo bool, maxTurns int, stdout, stderr io.Writer) int {
+	network := "unix"
+	address := ipcSocket
+	if listenAddr != "" {
+		network = "tcp"
+		address = listenAddr
+	} else if address == "" {
+		address = filepath.Join(os.TempDir(), "lokol.sock")
+	}
+
+	srv := ipc.NewServer(ipc.ServerConfig{
+		EngineURL:       engineURL,
+		DefaultWorkDir:  workDir,
+		DefaultYOLO:     yolo,
+		DefaultMode:     mode,
+		DefaultMaxTurns: maxTurns,
+	})
+
+	if err := srv.Listen(network, address); err != nil {
+		fmt.Fprintf(stderr, "Error listening on %s (%s): %v\n", address, network, err)
+		return 1
+	}
+	defer srv.Close()
+
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
+	fmt.Fprintf(stdout, "lokol serve %s listening on %s (%s)...\n", version.Version, srv.Addr().String(), network)
+	if yolo {
+		fmt.Fprintln(stdout, "⚡ Running in YOLO autonomous mode (approval gates disabled)")
+	} else {
+		fmt.Fprintln(stdout, "🛡️ Running in interactive mode (approval gates enabled)")
+	}
+
+	if err := srv.Serve(ctx); err != nil && !strings.Contains(err.Error(), "use of closed network connection") {
+		fmt.Fprintf(stderr, "Server error: %v\n", err)
+		return 1
+	}
+
+	fmt.Fprintln(stdout, "lokol serve stopped gracefully.")
+	return 0
+}
+
