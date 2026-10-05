@@ -59,6 +59,7 @@ const (
 	MethodSessionRejectAction  = "session.reject_action"
 	MethodSessionAbort         = "session.abort"
 	MethodSessionReset         = "session.reset"
+	MethodSessionClose         = "session.close"
 	MethodSessionGetStatus     = "session.get_status"
 	MethodDaemonPing           = "daemon.ping"
 )
@@ -105,6 +106,11 @@ type SessionAbortParams struct {
 
 // SessionResetParams defines parameters for session.reset
 type SessionResetParams struct {
+	SessionID string `json:"session_id,omitempty"`
+}
+
+// SessionCloseParams defines parameters for session.close
+type SessionCloseParams struct {
 	SessionID string `json:"session_id,omitempty"`
 }
 

@@ -2,7 +2,7 @@
 
 This directory documents the foundational architectural decisions governing the **lokol** local agentic coding ecosystem for the **v0.1.0-alpha** release.
 
-Records are numbered serially (`0001` through `0029`) and organized by topic domain to reflect the current **as-built** architecture. Each decision record includes machine-readable YAML front matter (with standardized thematic markers, tags, and executive summaries) for consumption by automated agents and tooling.
+Records are numbered serially (`0001` through `0030`) and organized by topic domain to reflect the current **as-built** architecture. Each decision record includes machine-readable YAML front matter (with standardized thematic markers, tags, and executive summaries) for consumption by automated agents and tooling.
 
 ---
 
@@ -10,7 +10,7 @@ Records are numbered serially (`0001` through `0029`) and organized by topic dom
 
 | Theme Code | Topic Domain | Scope |
 | :--- | :--- | :--- |
-| **`THEME-CORE`** | Foundations & Architecture | Pure Go systems architecture, managed `llama-server` process isolation, XDG specification, presentation decoupling, monorepo workspace isolation, zero-Python production runtime policy. |
+| **`THEME-CORE`** | Foundations & Architecture | Pure Go systems architecture, managed `llama-server` process isolation, XDG specification, presentation decoupling, monorepo workspace isolation, zero-Python production runtime policy, headless IPC sidecar daemon. |
 | **`THEME-INFERENCE`** | Hardware, Models & VRAM | Hardware tiering (12GB down to 4GB), single-slot 100% VRAM allocation, baseline general-purpose persona, dynamic MoE sparse expert offloading, CPU AVX2 decision model offload, explicit context clearing & slot purge. |
 | **`THEME-AGENT`** | Protocols, Catalog & Governance | Strict XML deterministic action protocol, in-repo MCP server facades, `AGENTS.md` context ingestion, functional regulator action-gating pipeline, progressive tool disclosure catalog. |
 | **`THEME-MEMORY`** | Memory & Retrieval | Structured persistent memory across XDG state/data, local embedded vector database for semantic indexing. |
@@ -32,6 +32,8 @@ Records are numbered serially (`0001` through `0029`) and organized by topic dom
   *Executive Summary:* Establishes a multi-module Go workspace (`go.work`) isolating `liblokol`, `cmd/lk`, `cmd/lokol`, and `cmd/lokol-mcp` with dedicated Makefiles and parallel CI matrix jobs.
 - **[ADR 0021 — Zero-Python Production Runtime Dependency Policy](0021-zero-python-production-runtime-dependency-policy.md)**  
   *Executive Summary:* Mandates that all production runtime components (`liblokol`, `cmd/lk`, `cmd/lokol`, `cmd/lokol-mcp`) are written in 100% pure Go with zero runtime Python or dynamic interpreter dependencies.
+- **[ADR 0030 — Headless Local IPC Sidecar Daemon Architecture](0030-headless-local-ipc-sidecar-daemon.md)**  
+  *Executive Summary:* Establishes a headless, out-of-process IPC sidecar daemon exposing the core agent engine via streaming line-delimited JSON-RPC over local domain sockets to isolate GUI/SDL presentation clients from runtime faults.
 
 ### Hardware, Models & VRAM (`THEME-INFERENCE`)
 - **[ADR 0002 — Hardware Probing and Tiering Matrix (12GB to 4GB GTX 1650)](0002-hardware-tiering-and-constrained-vram.md)**  

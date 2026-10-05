@@ -9,8 +9,8 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -42,6 +42,7 @@ type Server struct {
 	sessions       map[string]*SessionState
 	activeConns    map[net.Conn]struct{}
 	sessionCounter uint64
+	closeOnce      sync.Once
 
 	client *agent.Client
 }
@@ -118,8 +119,13 @@ func (s *Server) Serve(ctx context.Context) error {
 			case <-ctx.Done():
 				return nil
 			default:
-				return err
 			}
+			var netErr net.Error
+			if errors.As(err, &netErr) && netErr.Temporary() {
+				time.Sleep(10 * time.Millisecond)
+				continue
+			}
+			return err
 		}
 
 		s.mu.Lock()
@@ -132,30 +138,38 @@ func (s *Server) Serve(ctx context.Context) error {
 
 // Close gracefully closes the listener and active connections, cleaning up UNIX sockets.
 func (s *Server) Close() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	var firstErr error
-	if s.listener != nil {
-		if err := s.listener.Close(); err != nil && firstErr == nil {
-			firstErr = err
+	s.closeOnce.Do(func() {
+		if s.listener != nil {
+			if err := s.listener.Close(); err != nil {
+				firstErr = err
+			}
 		}
-	}
 
-	for conn := range s.activeConns {
-		_ = conn.Close()
-		delete(s.activeConns, conn)
-	}
+		s.mu.Lock()
+		conns := make([]net.Conn, 0, len(s.activeConns))
+		for conn := range s.activeConns {
+			conns = append(conns, conn)
+		}
+		s.activeConns = make(map[net.Conn]struct{})
+		s.mu.Unlock()
 
-	if s.network == "unix" && s.address != "" {
-		_ = os.Remove(s.address)
-	}
+		for _, conn := range conns {
+			_ = conn.Close()
+		}
+
+		if s.network == "unix" && s.address != "" {
+			_ = os.Remove(s.address)
+		}
+	})
 
 	return firstErr
 }
 
-func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
+func (s *Server) handleConn(serverCtx context.Context, conn net.Conn) {
+	connCtx, cancelConn := context.WithCancel(serverCtx)
 	defer func() {
+		cancelConn()
 		s.mu.Lock()
 		delete(s.activeConns, conn)
 		s.mu.Unlock()
@@ -170,6 +184,7 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
 		}
 		writeMu.Lock()
 		defer writeMu.Unlock()
+		_ = conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 		_, err = conn.Write(append(bytes, '\n'))
 		return err
 	}
@@ -179,16 +194,41 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
 	}
 
 	reader := bufio.NewReader(conn)
+	const maxLineBytes = 2 * 1024 * 1024 // 2MB safety bound
+
 	for {
-		line, err := reader.ReadBytes('\n')
-		if err != nil {
-			if err != io.EOF && ctx.Err() == nil {
-				// connection dropped or closed
+		var line []byte
+		var readErr error
+		for {
+			chunk, isPrefix, err := reader.ReadLine()
+			if err != nil {
+				readErr = err
+				break
+			}
+			line = append(line, chunk...)
+			if len(line) > maxLineBytes {
+				readErr = fmt.Errorf("line exceeded maximum limit of %d bytes", maxLineBytes)
+				break
+			}
+			if !isPrefix {
+				break
+			}
+		}
+
+		if readErr != nil {
+			if len(line) > maxLineBytes {
+				_ = writeMsg(Response{
+					JSONRPC: "2.0",
+					Error: &RPCError{
+						Code:    ErrCodeParseError,
+						Message: readErr.Error(),
+					},
+				})
 			}
 			return
 		}
 
-		if len(line) == 0 || (len(line) == 1 && line[0] == '\n') {
+		if len(line) == 0 {
 			continue
 		}
 
@@ -205,20 +245,25 @@ func (s *Server) handleConn(ctx context.Context, conn net.Conn) {
 		}
 
 		if req.JSONRPC != "2.0" || req.Method == "" {
-			_ = writeMsg(Response{
-				JSONRPC: "2.0",
-				ID:      req.ID,
-				Error: &RPCError{
-					Code:    ErrCodeInvalidRequest,
-					Message: "missing or invalid jsonrpc version or method",
-				},
-			})
+			if len(req.ID) > 0 && string(req.ID) != "null" {
+				_ = writeMsg(Response{
+					JSONRPC: "2.0",
+					ID:      req.ID,
+					Error: &RPCError{
+						Code:    ErrCodeInvalidRequest,
+						Message: "missing or invalid jsonrpc version or method",
+					},
+				})
+			}
 			continue
 		}
 
 		go func(r Request) {
-			resp := s.dispatch(ctx, r, emitNotification)
-			_ = writeMsg(resp)
+			resp := s.dispatch(connCtx, r, emitNotification)
+			// JSON-RPC 2.0 notifications (requests with no ID or null ID) must not receive a response
+			if len(r.ID) > 0 && string(r.ID) != "null" {
+				_ = writeMsg(resp)
+			}
 		}(req)
 	}
 }
@@ -252,7 +297,19 @@ func (s *Server) dispatch(ctx context.Context, req Request, emit func(Notificati
 
 		s.mu.Lock()
 		sessID := params.SessionID
-		if sessID == "" {
+		if sessID != "" {
+			if _, exists := s.sessions[sessID]; exists {
+				s.mu.Unlock()
+				return Response{
+					JSONRPC: "2.0",
+					ID:      req.ID,
+					Error: &RPCError{
+						Code:    ErrCodeInvalidParams,
+						Message: fmt.Sprintf("session %q already exists", sessID),
+					},
+				}
+			}
+		} else {
 			s.sessionCounter++
 			sessID = fmt.Sprintf("sess_%d", s.sessionCounter)
 		}
@@ -296,6 +353,13 @@ func (s *Server) dispatch(ctx context.Context, req Request, emit func(Notificati
 		}
 
 	case MethodSessionPrompt:
+		if len(req.Params) == 0 {
+			return Response{
+				JSONRPC: "2.0",
+				ID:      req.ID,
+				Error:   &RPCError{Code: ErrCodeInvalidParams, Message: "missing prompt params"},
+			}
+		}
 		var params SessionPromptParams
 		if err := json.Unmarshal(req.Params, &params); err != nil {
 			return Response{
@@ -305,7 +369,7 @@ func (s *Server) dispatch(ctx context.Context, req Request, emit func(Notificati
 			}
 		}
 
-		sess, err := s.resolveSession(params.SessionID)
+		sess, err := s.resolveSession(params.SessionID, true)
 		if err != nil {
 			return Response{
 				JSONRPC: "2.0",
@@ -330,6 +394,13 @@ func (s *Server) dispatch(ctx context.Context, req Request, emit func(Notificati
 		}
 
 	case MethodSessionApproveAction:
+		if len(req.Params) == 0 {
+			return Response{
+				JSONRPC: "2.0",
+				ID:      req.ID,
+				Error:   &RPCError{Code: ErrCodeInvalidParams, Message: "missing action approval params"},
+			}
+		}
 		var params ActionDecisionParams
 		if err := json.Unmarshal(req.Params, &params); err != nil {
 			return Response{
@@ -339,7 +410,7 @@ func (s *Server) dispatch(ctx context.Context, req Request, emit func(Notificati
 			}
 		}
 
-		sess, err := s.resolveSession(params.SessionID)
+		sess, err := s.resolveSession(params.SessionID, false)
 		if err != nil {
 			return Response{
 				JSONRPC: "2.0",
@@ -363,6 +434,13 @@ func (s *Server) dispatch(ctx context.Context, req Request, emit func(Notificati
 		}
 
 	case MethodSessionRejectAction:
+		if len(req.Params) == 0 {
+			return Response{
+				JSONRPC: "2.0",
+				ID:      req.ID,
+				Error:   &RPCError{Code: ErrCodeInvalidParams, Message: "missing action rejection params"},
+			}
+		}
 		var params ActionDecisionParams
 		if err := json.Unmarshal(req.Params, &params); err != nil {
 			return Response{
@@ -372,7 +450,7 @@ func (s *Server) dispatch(ctx context.Context, req Request, emit func(Notificati
 			}
 		}
 
-		sess, err := s.resolveSession(params.SessionID)
+		sess, err := s.resolveSession(params.SessionID, false)
 		if err != nil {
 			return Response{
 				JSONRPC: "2.0",
@@ -401,7 +479,7 @@ func (s *Server) dispatch(ctx context.Context, req Request, emit func(Notificati
 			_ = json.Unmarshal(req.Params, &params)
 		}
 
-		sess, err := s.resolveSession(params.SessionID)
+		sess, err := s.resolveSession(params.SessionID, false)
 		if err != nil {
 			return Response{
 				JSONRPC: "2.0",
@@ -430,7 +508,7 @@ func (s *Server) dispatch(ctx context.Context, req Request, emit func(Notificati
 			_ = json.Unmarshal(req.Params, &params)
 		}
 
-		sess, err := s.resolveSession(params.SessionID)
+		sess, err := s.resolveSession(params.SessionID, false)
 		if err != nil {
 			return Response{
 				JSONRPC: "2.0",
@@ -446,13 +524,39 @@ func (s *Server) dispatch(ctx context.Context, req Request, emit func(Notificati
 			Result:  map[string]any{"status": "reset", "session_id": sess.ID},
 		}
 
+	case MethodSessionClose:
+		var params SessionCloseParams
+		if len(req.Params) > 0 {
+			_ = json.Unmarshal(req.Params, &params)
+		}
+
+		sess, err := s.resolveSession(params.SessionID, false)
+		if err != nil {
+			return Response{
+				JSONRPC: "2.0",
+				ID:      req.ID,
+				Error:   &RPCError{Code: ErrCodeSessionNotFound, Message: err.Error()},
+			}
+		}
+
+		s.mu.Lock()
+		delete(s.sessions, sess.ID)
+		s.mu.Unlock()
+
+		sess.Close()
+		return Response{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Result:  map[string]any{"status": "closed", "session_id": sess.ID},
+		}
+
 	case MethodSessionGetStatus:
 		var params SessionStatusParams
 		if len(req.Params) > 0 {
 			_ = json.Unmarshal(req.Params, &params)
 		}
 
-		sess, err := s.resolveSession(params.SessionID)
+		sess, err := s.resolveSession(params.SessionID, false)
 		if err != nil {
 			return Response{
 				JSONRPC: "2.0",
@@ -488,7 +592,7 @@ func (s *Server) dispatch(ctx context.Context, req Request, emit func(Notificati
 	}
 }
 
-func (s *Server) resolveSession(id string) (*SessionState, error) {
+func (s *Server) resolveSession(id string, createIfDefault bool) (*SessionState, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -507,20 +611,25 @@ func (s *Server) resolveSession(id string) (*SessionState, error) {
 		}
 	}
 
-	// Default fallback: create a default session on the fly
+	// Default fallback: if a default session exists, use it
 	if sess, ok := s.sessions["default"]; ok {
 		return sess, nil
 	}
 
-	def, err := NewSessionState("default", s.client, SessionCreateParams{
-		WorkDir:  s.cfg.DefaultWorkDir,
-		Mode:     s.cfg.DefaultMode,
-		YOLO:     &s.cfg.DefaultYOLO,
-		MaxTurns: s.cfg.DefaultMaxTurns,
-	})
-	if err != nil {
-		return nil, err
+	// Only create default session on-the-fly for prompt execution if requested
+	if createIfDefault {
+		def, err := NewSessionState("default", s.client, SessionCreateParams{
+			WorkDir:  s.cfg.DefaultWorkDir,
+			Mode:     s.cfg.DefaultMode,
+			YOLO:     &s.cfg.DefaultYOLO,
+			MaxTurns: s.cfg.DefaultMaxTurns,
+		})
+		if err != nil {
+			return nil, err
+		}
+		s.sessions["default"] = def
+		return def, nil
 	}
-	s.sessions["default"] = def
-	return def, nil
+
+	return nil, fmt.Errorf("no active session found")
 }

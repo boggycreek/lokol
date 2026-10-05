@@ -8,6 +8,7 @@ package ipc
 import (
 	"context"
 	"fmt"
+	"os"
 	"runtime"
 	"strings"
 	"sync"
@@ -41,6 +42,7 @@ type SessionState struct {
 	mu         sync.Mutex
 	isBusy     bool
 	cancelTurn context.CancelFunc
+	turnDone   chan struct{}
 
 	actionCounter   uint64
 	pendingActionID string
@@ -79,7 +81,7 @@ func NewSessionState(id string, client *agent.Client, params SessionCreateParams
 		sm = spec.NewStateMachine(loadedSpec, workDir)
 	}
 
-	yolo := true
+	yolo := false
 	if params.YOLO != nil {
 		yolo = *params.YOLO
 	}
@@ -113,6 +115,7 @@ func (s *SessionState) Prompt(ctx context.Context, prompt string, emit func(Noti
 	s.isBusy = true
 	turnCtx, cancel := context.WithCancel(ctx)
 	s.cancelTurn = cancel
+	s.turnDone = make(chan struct{})
 	s.mu.Unlock()
 
 	defer func() {
@@ -121,23 +124,35 @@ func (s *SessionState) Prompt(ctx context.Context, prompt string, emit func(Noti
 		s.cancelTurn = nil
 		s.pendingActionID = ""
 		s.decisionChan = nil
+		if s.turnDone != nil {
+			close(s.turnDone)
+			s.turnDone = nil
+		}
 		s.mu.Unlock()
 	}()
+
+	var emittedFinished bool
+	emitTurnFinished := func(payload *EventTurnFinishedPayload) {
+		if !emittedFinished {
+			emittedFinished = true
+			emit(Notification{
+				JSONRPC: "2.0",
+				Method:  EventTurnFinished,
+				Params:  *payload,
+			})
+		}
+	}
 
 	// Complete process and memory fault isolation: catch engine panics
 	defer func() {
 		if r := recover(); r != nil {
 			buf := make([]byte, 2048)
 			n := runtime.Stack(buf, false)
-			errDetails := fmt.Sprintf("panic recovered in session %s: %v\n%s", s.ID, r, buf[:n])
-			emit(Notification{
-				JSONRPC: "2.0",
-				Method:  EventTurnFinished,
-				Params: EventTurnFinishedPayload{
-					SessionID: s.ID,
-					Status:    "error",
-					Error:     errDetails,
-				},
+			fmt.Fprintf(os.Stderr, "[PANIC RECOVERED] session %s: %v\n%s\n", s.ID, r, buf[:n])
+			emitTurnFinished(&EventTurnFinishedPayload{
+				SessionID: s.ID,
+				Status:    "error",
+				Error:     fmt.Sprintf("internal engine panic: %v", r),
 			})
 		}
 	}()
@@ -145,11 +160,17 @@ func (s *SessionState) Prompt(ctx context.Context, prompt string, emit func(Noti
 	// Execute preflight check if bounded spec machine is configured
 	if s.SpecMachine != nil && s.SpecMachine.State == spec.StatePending {
 		if err := s.SpecMachine.RunPreflight(turnCtx); err != nil {
-			return nil, fmt.Errorf("spec preflight check failed: %w", err)
+			errPayload := &EventTurnFinishedPayload{
+				SessionID: s.ID,
+				Status:    "error",
+				Error:     fmt.Sprintf("spec preflight check failed: %v", err),
+			}
+			emitTurnFinished(errPayload)
+			return errPayload, fmt.Errorf("spec preflight check failed: %w", err)
 		}
 	}
 
-	s.Session.AppendUserMessage(prompt)
+	s.appendUserMessage(prompt)
 
 	consecutiveNoAction := 0
 	lastSig := ""
@@ -220,41 +241,68 @@ func (s *SessionState) Prompt(ctx context.Context, prompt string, emit func(Noti
 			pendingTokens.Reset()
 		}
 
+		// Flush any remaining buffered tokens that were held back as potential action tag prefixes
+		if !suppressTokens && pendingTokens.Len() > 0 {
+			emit(Notification{
+				JSONRPC: "2.0",
+				Method:  EventToken,
+				Params: EventTokenPayload{
+					SessionID: s.ID,
+					Token:     pendingTokens.String(),
+				},
+			})
+			pendingTokens.Reset()
+		}
+
 		if err := <-errChan; err != nil {
 			if turnCtx.Err() != nil {
-				return &EventTurnFinishedPayload{
+				res := &EventTurnFinishedPayload{
 					SessionID: s.ID,
 					Status:    "aborted",
 					Turns:     turnCount,
 					Error:     turnCtx.Err().Error(),
-				}, nil
+				}
+				emitTurnFinished(res)
+				return res, nil
 			}
-			return nil, fmt.Errorf("turn %d execution error: %w", turn+1, err)
+			turnErr := fmt.Errorf("turn %d execution error: %w", turn+1, err)
+			errPayload := &EventTurnFinishedPayload{
+				SessionID: s.ID,
+				Status:    "error",
+				Turns:     turnCount,
+				Error:     turnErr.Error(),
+			}
+			emitTurnFinished(errPayload)
+			return errPayload, turnErr
 		}
 
 		replyText := assistantReply.String()
-		s.Session.AppendAssistantMessage(replyText)
+		s.appendAssistantMessage(replyText)
 
 		act := agent.ParseAction(replyText)
 		if act == nil {
 			if isConversational {
-				return &EventTurnFinishedPayload{
+				res := &EventTurnFinishedPayload{
 					SessionID: s.ID,
 					Status:    "completed",
 					Reply:     replyText,
 					Turns:     turnCount,
-				}, nil
+				}
+				emitTurnFinished(res)
+				return res, nil
 			}
 			consecutiveNoAction++
 			if consecutiveNoAction >= 2 || turn == s.MaxTurns-1 {
-				return &EventTurnFinishedPayload{
+				res := &EventTurnFinishedPayload{
 					SessionID: s.ID,
 					Status:    "completed",
 					Reply:     replyText,
 					Turns:     turnCount,
-				}, nil
+				}
+				emitTurnFinished(res)
+				return res, nil
 			}
-			s.Session.AppendUserMessage("Please execute your next action using an <action name=\"...\"> tag, or call <action name=\"task_finish\"> if your task is complete.")
+			s.appendUserMessage("Please execute your next action using an <action name=\"...\"> tag, or call <action name=\"task_finish\"> if your task is complete.")
 			continue
 		}
 
@@ -264,21 +312,30 @@ func (s *SessionState) Prompt(ctx context.Context, prompt string, emit func(Noti
 			if s.SpecMachine != nil {
 				verRes, err := s.SpecMachine.Verify(turnCtx)
 				if err != nil {
-					return nil, fmt.Errorf("spec verification error: %w", err)
+					errPayload := &EventTurnFinishedPayload{
+						SessionID: s.ID,
+						Status:    "error",
+						Turns:     turnCount,
+						Error:     fmt.Sprintf("spec verification error: %v", err),
+					}
+					emitTurnFinished(errPayload)
+					return errPayload, fmt.Errorf("spec verification error: %w", err)
 				}
 				if !verRes.Passed {
 					failMsg := fmt.Sprintf("<action_result>\n[VERIFICATION GATE FAILED]: Verification command '%s' failed with exit code %d:\n%s\n\nYou cannot complete the task until all verification checks pass with exit 0. Inspect the failure, edit the code, and re-run tests.\n</action_result>", verRes.Command, verRes.ExitCode, verRes.Output)
-					s.Session.AppendUserMessage(failMsg)
+					s.appendUserMessage(failMsg)
 					continue
 				}
 			}
 
-			return &EventTurnFinishedPayload{
+			res := &EventTurnFinishedPayload{
 				SessionID: s.ID,
 				Status:    "completed",
 				Reply:     act.Command,
 				Turns:     turnCount,
-			}, nil
+			}
+			emitTurnFinished(res)
+			return res, nil
 		}
 
 		currentSig := act.Name + ":" + strings.TrimSpace(act.Command)
@@ -290,7 +347,15 @@ func (s *SessionState) Prompt(ctx context.Context, prompt string, emit func(Noti
 		}
 
 		if repeatCount >= 4 {
-			return nil, fmt.Errorf("loop detected: action %s repeated %d times without progress", act.Name, repeatCount)
+			loopErr := fmt.Errorf("loop detected: action %s repeated %d times without progress", act.Name, repeatCount)
+			errPayload := &EventTurnFinishedPayload{
+				SessionID: s.ID,
+				Status:    "error",
+				Turns:     turnCount,
+				Error:     loopErr.Error(),
+			}
+			emitTurnFinished(errPayload)
+			return errPayload, loopErr
 		}
 
 		targetSummary := act.TargetSummary()
@@ -300,13 +365,13 @@ func (s *SessionState) Prompt(ctx context.Context, prompt string, emit func(Noti
 			if act.Name == "replace_file" || act.Name == "write_file" {
 				if err := s.SpecMachine.CheckTargetConstraint(targetSummary); err != nil {
 					msg := fmt.Sprintf("<action_result>\n[PERMISSION DENIED: TARGET CONSTRAINT VIOLATION]: %v\n</action_result>", err)
-					s.Session.AppendUserMessage(msg)
+					s.appendUserMessage(msg)
 					continue
 				}
 			} else if act.Name == "exec_bash" {
 				if err := s.SpecMachine.CheckBashTargetConstraint(act.Command); err != nil {
 					msg := fmt.Sprintf("<action_result>\n[PERMISSION DENIED: TARGET CONSTRAINT VIOLATION]: %v\n</action_result>", err)
-					s.Session.AppendUserMessage(msg)
+					s.appendUserMessage(msg)
 					continue
 				}
 			}
@@ -365,7 +430,7 @@ func (s *SessionState) Prompt(ctx context.Context, prompt string, emit func(Noti
 				msg += fmt.Sprintf("\n[REMEDIATION]: %s", perm.Remediation)
 			}
 			toolResult := fmt.Sprintf("<action_result>\n%s\n</action_result>", msg)
-			s.Session.AppendUserMessage(toolResult)
+			s.appendUserMessage(toolResult)
 			continue
 		}
 
@@ -384,16 +449,18 @@ func (s *SessionState) Prompt(ctx context.Context, prompt string, emit func(Noti
 						Command: act.Command,
 						Path:    actionPath,
 					})
-					s.Session.AppendUserMessage(fmt.Sprintf("<action_result>\n[ACTION REJECTED BY OPERATOR]: %s\n</action_result>", rejectReason))
+					s.appendUserMessage(fmt.Sprintf("<action_result>\n[ACTION REJECTED BY OPERATOR]: %s\n</action_result>", rejectReason))
 					continue
 				}
 			case <-turnCtx.Done():
-				return &EventTurnFinishedPayload{
+				res := &EventTurnFinishedPayload{
 					SessionID: s.ID,
 					Status:    "aborted",
 					Turns:     turnCount,
 					Error:     turnCtx.Err().Error(),
-				}, nil
+				}
+				emitTurnFinished(res)
+				return res, nil
 			}
 		}
 
@@ -402,7 +469,7 @@ func (s *SessionState) Prompt(ctx context.Context, prompt string, emit func(Noti
 		if s.SpecMachine != nil {
 			if act.Name == "run_test" {
 				exitCode := 0
-				if err != nil || strings.Contains(out, "✗ Tests failed") || strings.Contains(out, "Failures:") || strings.Contains(out, "FAIL") {
+				if err != nil {
 					exitCode = 1
 				}
 				s.SpecMachine.LatestVerification = &spec.VerificationResult{
@@ -450,15 +517,29 @@ func (s *SessionState) Prompt(ctx context.Context, prompt string, emit func(Noti
 		} else {
 			toolResult = fmt.Sprintf("<action_result>\n%s\n</action_result>", out)
 		}
-		s.Session.AppendUserMessage(toolResult)
+		s.appendUserMessage(toolResult)
 	}
 
-	return &EventTurnFinishedPayload{
+	res := &EventTurnFinishedPayload{
 		SessionID: s.ID,
 		Status:    "completed",
 		Turns:     turnCount,
 		Error:     fmt.Sprintf("reached max turns (%d)", s.MaxTurns),
-	}, nil
+	}
+	emitTurnFinished(res)
+	return res, nil
+}
+
+func (s *SessionState) appendUserMessage(msg string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Session.AppendUserMessage(msg)
+}
+
+func (s *SessionState) appendAssistantMessage(msg string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.Session.AppendAssistantMessage(msg)
 }
 
 // DecideAction resolves a pending action approval gate.
@@ -487,29 +568,51 @@ func (s *SessionState) Abort(ctx context.Context) error {
 	return s.Session.Abort(ctx)
 }
 
-// Reset clears conversational history back to initial system prompt invariants.
+// Reset clears conversational history back to initial system prompt invariants, waiting for active turns to finish.
 func (s *SessionState) Reset() {
 	s.mu.Lock()
 	if s.cancelTurn != nil {
 		s.cancelTurn()
 	}
+	done := s.turnDone
 	s.mu.Unlock()
 
+	if done != nil {
+		<-done
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.Session.Reset()
+}
+
+// Close gracefully cancels active turns and frees session resources.
+func (s *SessionState) Close() {
+	s.mu.Lock()
+	if s.cancelTurn != nil {
+		s.cancelTurn()
+	}
+	done := s.turnDone
+	s.mu.Unlock()
+
+	if done != nil {
+		<-done
+	}
 }
 
 // Status returns a snapshot of session metrics and configuration.
 func (s *SessionState) Status(ctx context.Context) (map[string]any, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	historyLen := len(s.Session.History)
+	isBusy := s.isBusy
+	agentName, operatorName := s.Session.GetPersona()
+	s.mu.Unlock()
 
 	metrics, err := s.Session.GetSlotMetrics(ctx)
 	var slotData any
 	if err == nil && metrics != nil {
 		slotData = metrics
 	}
-
-	agentName, operatorName := s.Session.GetPersona()
 
 	return map[string]any{
 		"session_id":    s.ID,
@@ -518,8 +621,8 @@ func (s *SessionState) Status(ctx context.Context) (map[string]any, error) {
 		"agent_name":    agentName,
 		"operator_name": operatorName,
 		"yolo":          s.YOLO,
-		"is_busy":       s.isBusy,
-		"history_len":   len(s.Session.History),
+		"is_busy":       isBusy,
+		"history_len":   historyLen,
 		"slot_metrics":  slotData,
 		"timestamp":     time.Now().UTC().Format(time.RFC3339),
 	}, nil

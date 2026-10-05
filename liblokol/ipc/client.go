@@ -215,6 +215,11 @@ func (c *Client) Reset(ctx context.Context, sessionID string) error {
 	return c.Call(ctx, MethodSessionReset, SessionResetParams{SessionID: sessionID}, nil)
 }
 
+// CloseSession gracefully terminates and deletes an active session.
+func (c *Client) CloseSession(ctx context.Context, sessionID string) error {
+	return c.Call(ctx, MethodSessionClose, SessionCloseParams{SessionID: sessionID}, nil)
+}
+
 // GetStatus queries current session and slot metrics.
 func (c *Client) GetStatus(ctx context.Context, sessionID string) (map[string]any, error) {
 	var result map[string]any
