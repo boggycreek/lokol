@@ -187,4 +187,13 @@ func (m *MockSession) Compact(ctx context.Context, metrics *regulator.SlotMetric
 	return nil
 }
 
+func (m *MockSession) HistoryLen() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.UserMessages) + len(m.AssistantMessages)
+}
+
+func (m *MockSession) GetHistory() []agent.Message {
+	return nil
+}
 

@@ -25,6 +25,7 @@ description: >-
   - `liblokol/`: Core engine library and SDK with zero external runtime dependencies.
   - `cmd/lk/`: Interactive Bubble Tea terminal user interface (`bin/lk`) ([ADR 0004](../adr/0004-terminal-interface-strategy.md)).
   - `cmd/lokol/`: Administrative operator CLI (`bin/lokol`).
+  - `cmd/lokol-daemon/`: Headless local IPC sidecar daemon (`bin/lokol-daemon`) ([ADR 0030](../adr/0030-headless-local-ipc-sidecar-daemon.md)).
   - `cmd/lokol-mcp/`: Standalone stdio JSON-RPC Model Context Protocol server ([ADR 0012](../adr/0012-in-repo-mcp-facades.md)).
   - `tools/core_driver/`: Headless in-process session harness for diagnostic evaluation.
 
@@ -35,3 +36,4 @@ Further reading:
 - [ADR 0017 — Decoupled Core Agent Engine from Presentation Layers](../adr/0017-decoupled-core-agent-engine-from-presentation.md)
 - [ADR 0018 — Monorepo Workspace Architecture with Subproject Isolation](../adr/0018-monorepo-workspace-architecture-with-subproject-isolation.md)
 - [ADR 0021 — Zero-Python Production Runtime Dependency Policy](../adr/0021-zero-python-production-runtime-dependency-policy.md)
+- [ADR 0030 — Headless Local IPC Sidecar Daemon](../adr/0030-headless-local-ipc-sidecar-daemon.md)

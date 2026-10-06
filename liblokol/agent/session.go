@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/boggycreek/lokol/liblokol/catalog"
 	"github.com/boggycreek/lokol/liblokol/config"
@@ -40,12 +41,15 @@ type SessionCore interface {
 	CompactHistory(summaryLedger string, preserveRecent int)
 	SetLedgerProvider(provider func() string)
 	Compact(ctx context.Context, metrics *regulator.SlotMetrics) error
+	HistoryLen() int
+	GetHistory() []Message
 }
 
 // Session represents a stateful conversational agent session.
 // It encapsulates conversation history, prompt hierarchy, tool execution,
 // slot lifecycle, and token streaming independently of any UI or presentation layer.
 type Session struct {
+	mu               sync.RWMutex
 	Client           *Client
 	WorkDir          string
 	Mode             Mode
@@ -108,6 +112,12 @@ func NewSessionWithMode(client *Client, workDir string, mode Mode, codebaseCtxOp
 
 // GetMode returns the current operational mode of the session.
 func (s *Session) GetMode() Mode {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.getModeUnsafe()
+}
+
+func (s *Session) getModeUnsafe() Mode {
 	if s.Mode == "" {
 		return ModeGeneral
 	}
@@ -116,6 +126,12 @@ func (s *Session) GetMode() Mode {
 
 // GetPersona returns the configured or active agent persona name and operator name.
 func (s *Session) GetPersona() (string, string) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.getPersonaUnsafe()
+}
+
+func (s *Session) getPersonaUnsafe() (string, string) {
 	agentName := s.AgentName
 	if agentName == "" {
 		agentName = config.DefaultAgentName
@@ -129,6 +145,8 @@ func (s *Session) GetPersona() (string, string) {
 
 // SetPersona dynamically changes the persona name and operator name and recalculates the system prompt.
 func (s *Session) SetPersona(agentName, operatorName string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if strings.TrimSpace(agentName) != "" {
 		s.AgentName = strings.TrimSpace(agentName)
 	}
@@ -142,7 +160,7 @@ func (s *Session) SetPersona(agentName, operatorName string) {
 	if s.OperatorName != "" {
 		env.OperatorName = s.OperatorName
 	}
-	systemPrompt := BuildSystemPromptForMode(s.GetMode(), env, s.CodebaseContext)
+	systemPrompt := BuildSystemPromptForMode(s.getModeUnsafe(), env, s.CodebaseContext)
 
 	if len(s.History) > 0 && s.History[0].Role == "system" {
 		s.History[0].Content = systemPrompt
@@ -153,6 +171,8 @@ func (s *Session) SetPersona(agentName, operatorName string) {
 
 // SetMode dynamically changes the operational mode of the session and recalculates the system prompt.
 func (s *Session) SetMode(mode Mode) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if mode == "" {
 		mode = ModeGeneral
 	}
@@ -184,6 +204,8 @@ func (s *Session) SetMode(mode Mode) {
 // AppendUserMessage appends a user message to the session's conversation history,
 // dynamically injecting specialized tools matching the user's intent per ADR-0024.
 func (s *Session) AppendUserMessage(content string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if catalog.IsConversationalFeedback(content) {
 		s.History = append(s.History, Message{Role: "user", Content: content})
 		return
@@ -191,8 +213,8 @@ func (s *Session) AppendUserMessage(content string) {
 
 	fullContent := content
 	if catalog.IsContextMetaQuery(content) {
-		agentName, operatorName := s.GetPersona()
-		fullContent = content + fmt.Sprintf("\n[Context Introspection: The operator is inquiring about your context window, system prompt, or session state. DO NOT search the filesystem or call find_files. Your active mode is %q (%s), agent name is %q, operator name is %q. There are %d messages in conversation history. Answer directly by describing your active mode, instructions, and conversation state.]", s.GetMode(), ModeDescription(s.GetMode()), agentName, operatorName, len(s.History))
+		agentName, operatorName := s.getPersonaUnsafe()
+		fullContent = content + fmt.Sprintf("\n[Context Introspection: The operator is inquiring about your context window, system prompt, or session state. DO NOT search the filesystem or call find_files. Your active mode is %q (%s), agent name is %q, operator name is %q. There are %d messages in conversation history. Answer directly by describing your active mode, instructions, and conversation state.]", s.getModeUnsafe(), ModeDescription(s.getModeUnsafe()), agentName, operatorName, len(s.History))
 	} else if catalog.IsProjectSummaryQuery(content) {
 		fullContent = content + "\n[System Guidance: Ground your answer in actual repository files. Inspect README.md, go.mod, package.json, or primary docs with read_window before synthesizing your project summary.]"
 	}
@@ -206,11 +228,15 @@ func (s *Session) AppendUserMessage(content string) {
 
 // AppendAssistantMessage appends an assistant message to the session's conversation history.
 func (s *Session) AppendAssistantMessage(content string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.History = append(s.History, Message{Role: "assistant", Content: content})
 }
 
 // AppendActionResult appends an action execution result to the conversation history.
 func (s *Session) AppendActionResult(output string, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	var toolResult string
 	if err != nil {
 		toolResult = fmt.Sprintf("<action_result>\n[Error: %v]\n%s\n</action_result>\n[Observation: The tool failed with the error above. Proceed with your next step.]", err, output)
@@ -269,7 +295,11 @@ func (s *Session) StreamTurn(ctx context.Context, tokenChan chan<- string) (stri
 	if s.Client == nil {
 		return "", fmt.Errorf("session client is nil")
 	}
-	return s.Client.StreamResponse(ctx, s.History, tokenChan)
+	s.mu.RLock()
+	hist := make([]Message, len(s.History))
+	copy(hist, s.History)
+	s.mu.RUnlock()
+	return s.Client.StreamResponse(ctx, hist, tokenChan)
 }
 
 // Abort cancels any active slots running on the local inference engine.
@@ -310,6 +340,8 @@ func (s *Session) Reset() {
 		_ = s.Client.AbortActiveSlots(context.Background())
 	}
 	env := DetectHostEnvironment(s.WorkDir)
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.AgentName != "" {
 		env.AgentName = s.AgentName
 	}
@@ -317,7 +349,7 @@ func (s *Session) Reset() {
 		env.OperatorName = s.OperatorName
 	}
 	s.History = []Message{
-		{Role: "system", Content: BuildSystemPromptForMode(s.GetMode(), env, s.CodebaseContext)},
+		{Role: "system", Content: BuildSystemPromptForMode(s.getModeUnsafe(), env, s.CodebaseContext)},
 	}
 }
 
@@ -329,9 +361,27 @@ func (s *Session) GetWorkDir() string {
 	return s.WorkDir
 }
 
+// HistoryLen returns the count of messages in conversation history under read lock.
+func (s *Session) HistoryLen() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.History)
+}
+
+// GetHistory returns a copy of conversation history under read lock.
+func (s *Session) GetHistory() []Message {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	res := make([]Message, len(s.History))
+	copy(res, s.History)
+	return res
+}
+
 // PruneToolOutputs triggers micro-compaction on older conversation turns, stripping verbose observation outputs
 // while preserving recent turns intact. It returns the number of characters reclaimed.
 func (s *Session) PruneToolOutputs(preserveRecent int) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	pruned, reclaimed := PruneStaleToolOutputs(s.History, preserveRecent)
 	s.History = pruned
 	return reclaimed
@@ -340,6 +390,8 @@ func (s *Session) PruneToolOutputs(preserveRecent int) int {
 // CompactHistory triggers macro-compaction, compressing older turns into a structured summary ledger
 // while preserving the system prompt, initial user objective, and recent turns intact.
 func (s *Session) CompactHistory(summaryLedger string, preserveRecent int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.History = CompactHistory(s.History, summaryLedger, preserveRecent)
 }
 
@@ -348,6 +400,8 @@ var ErrNoCompactionPossible = errors.New("no compaction possible: context alread
 
 // SetLedgerProvider registers a callback that generates a compaction ledger (e.g. from spec.StateMachine).
 func (s *Session) SetLedgerProvider(provider func() string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.LedgerProvider = provider
 }
 
@@ -376,29 +430,33 @@ func (s *Session) Compact(ctx context.Context, metrics *regulator.SlotMetrics) e
 		return ErrNoCompactionPossible
 	}
 
-	beforeLen := len(s.History)
+	beforeLen := s.HistoryLen()
 	beforeChars := 0
-	for _, m := range s.History {
+	for _, m := range s.GetHistory() {
 		beforeChars += len(m.Content)
 	}
 
 	summary := "Older interaction turns summarized due to slot capacity constraints."
-	if s.LedgerProvider != nil {
-		if ledger := s.LedgerProvider(); ledger != "" {
+	s.mu.RLock()
+	provider := s.LedgerProvider
+	s.mu.RUnlock()
+	if provider != nil {
+		if ledger := provider(); ledger != "" {
 			summary = fmt.Sprintf("SPECIFICATION & TEST ASSERTION LEDGER:\n%s\n\nIntermediate turns compacted to preserve context budget.", ledger)
 		}
 	}
 	s.CompactHistory(summary, 2)
 
 	afterChars := 0
-	for _, m := range s.History {
+	for _, m := range s.GetHistory() {
 		afterChars += len(m.Content)
 	}
 
-	if len(s.History) < beforeLen || afterChars < beforeChars || reclaimed > 0 {
+	if s.HistoryLen() < beforeLen || afterChars < beforeChars || reclaimed > 0 {
 		return nil
 	}
 	return ErrNoCompactionPossible
 }
+
 
 

@@ -339,7 +339,7 @@ func (r *Runner) Run(ctx context.Context, initialPrompt string) (string, error) 
 			}
 		}
 
-		session.History = append(session.History, Message{Role: "user", Content: toolResult})
+		session.AppendUserMessage(toolResult)
 	}
 
 	return "", fmt.Errorf("exceeded max turns (%d) without completing task", r.MaxTurns)
