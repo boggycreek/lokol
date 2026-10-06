@@ -163,7 +163,11 @@ func TestIPC_SessionLifecycle(t *testing.T) {
 	tmpDir := t.TempDir()
 	sockPath := filepath.Join(tmpDir, "session.sock")
 
+	mockLLM, _ := startMockLLMServer(t, nil)
+	defer mockLLM.Close()
+
 	srv := ipc.NewServer(ipc.ServerConfig{
+		EngineURL:      mockLLM.URL,
 		DefaultWorkDir: tmpDir,
 	})
 	if err := srv.Listen("unix", sockPath); err != nil {
