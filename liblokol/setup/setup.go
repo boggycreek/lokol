@@ -40,10 +40,9 @@ type Result struct {
 
 // Run performs environment verification, hardware probing, and optional dependency setup.
 func Run(opts Options) (*Result, error) {
-	fmt.Println("==================================================")
-	fmt.Println("             lokol Environment Setup              ")
-	fmt.Println("==================================================")
-	fmt.Println()
+	fmt.Print("==================================================\n" +
+		"             lokol Environment Setup              \n" +
+		"==================================================\n\n")
 
 	// 1. Hardware Probe
 	fmt.Println("[1/4] Probing host hardware capabilities...")
