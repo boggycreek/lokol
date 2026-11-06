@@ -111,3 +111,148 @@ func TestRegulator_PipelineRejectionIntegration(t *testing.T) {
 		t.Fatalf("expected unblocked after ClearRejections, got %s", res.Status)
 	}
 }
+
+func TestUserRejectionStage_RecordRejection(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("record with direct action.Path", func(t *testing.T) {
+		stage := regulator.NewUserRejectionStage()
+		candidate := regulator.ActionCandidate{
+			Name: "write_file",
+			Path: "  sub/../config.json  ",
+		}
+
+		stage.RecordRejection(candidate)
+
+		// Target should be normalized
+		normalizedCandidate := regulator.ActionCandidate{
+			Name: "write_file",
+			Path: "config.json",
+		}
+		if !stage.HasRejection(normalizedCandidate) {
+			t.Errorf("expected stage to match rejection for normalized path")
+		}
+
+		res := stage.Evaluate(ctx, normalizedCandidate, ".")
+		if res.Status != regulator.StatusBlocked {
+			t.Errorf("expected candidate to be blocked, got %s", res.Status)
+		}
+		if res.Target != "config.json" {
+			t.Errorf("expected target 'config.json', got %q", res.Target)
+		}
+	})
+
+	t.Run("record with empty action.Path and command containing path XML tag", func(t *testing.T) {
+		stage := regulator.NewUserRejectionStage()
+		candidate := regulator.ActionCandidate{
+			Name:    "replace_file",
+			Path:    "",
+			Command: "<path>src/index.ts</path><target>old</target><replacement>new</replacement>",
+		}
+
+		stage.RecordRejection(candidate)
+
+		// Should match candidate with extracted path
+		queryCandidate := regulator.ActionCandidate{
+			Name: "read_window",
+			Path: "src/index.ts",
+		}
+		if !stage.HasRejection(queryCandidate) {
+			t.Errorf("expected stage to have rejection for target extracted from command XML")
+		}
+
+		res := stage.Evaluate(ctx, queryCandidate, ".")
+		if res.Status != regulator.StatusBlocked {
+			t.Errorf("expected queryCandidate to be blocked, got %s", res.Status)
+		}
+		if res.Target != "src/index.ts" {
+			t.Errorf("expected target 'src/index.ts', got %q", res.Target)
+		}
+	})
+
+	t.Run("record with empty action.Path and command without path tag", func(t *testing.T) {
+		stage := regulator.NewUserRejectionStage()
+		candidate := regulator.ActionCandidate{
+			Name:    "exec_bash",
+			Path:    "",
+			Command: "rm -rf /tmp/scratch",
+		}
+
+		stage.RecordRejection(candidate)
+
+		if !stage.HasRejection(candidate) {
+			t.Errorf("expected stage to have rejection for command-only action")
+		}
+
+		// Different command should not match
+		diffCandidate := regulator.ActionCandidate{
+			Name:    "exec_bash",
+			Path:    "",
+			Command: "ls -la /tmp/scratch",
+		}
+		if stage.HasRejection(diffCandidate) {
+			t.Errorf("expected different command to not be rejected")
+		}
+
+		// Exactly identical command should be blocked
+		res := stage.Evaluate(ctx, candidate, ".")
+		if res.Status != regulator.StatusBlocked {
+			t.Errorf("expected exact command to be blocked, got %s", res.Status)
+		}
+		// Target defaults to action.Name when target is empty
+		if res.Target != "exec_bash" {
+			t.Errorf("expected display target to fallback to action name 'exec_bash', got %q", res.Target)
+		}
+	})
+
+	t.Run("record with completely empty candidate", func(t *testing.T) {
+		stage := regulator.NewUserRejectionStage()
+		candidate := regulator.ActionCandidate{
+			Name:    "custom_tool",
+			Path:    "",
+			Command: "",
+		}
+
+		stage.RecordRejection(candidate)
+		if !stage.HasRejection(candidate) {
+			t.Errorf("expected empty candidate to be recorded and match")
+		}
+
+		res := stage.Evaluate(ctx, candidate, ".")
+		if res.Status != regulator.StatusBlocked {
+			t.Errorf("expected empty candidate to be blocked, got %s", res.Status)
+		}
+	})
+
+	t.Run("concurrency safety across multiple goroutines", func(t *testing.T) {
+		stage := regulator.NewUserRejectionStage()
+		const goroutines = 20
+		const iterations = 50
+
+		done := make(chan bool)
+		for i := 0; i < goroutines; i++ {
+			go func(id int) {
+				for j := 0; j < iterations; j++ {
+					act := regulator.ActionCandidate{
+						Name:    "write_file",
+						Path:    "file.go",
+						Command: "<path>file.go</path>",
+					}
+					stage.RecordRejection(act)
+					_ = stage.HasRejection(act)
+					_ = stage.Evaluate(ctx, act, ".")
+				}
+				done <- true
+			}(i)
+		}
+
+		for i := 0; i < goroutines; i++ {
+			<-done
+		}
+
+		query := regulator.ActionCandidate{Name: "write_file", Path: "file.go"}
+		if !stage.HasRejection(query) {
+			t.Errorf("expected stage to have rejection after concurrent writes")
+		}
+	})
+}
