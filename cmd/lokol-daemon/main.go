@@ -21,10 +21,12 @@ import (
 )
 
 func main() {
-	os.Exit(run(os.Args, os.Stdout, os.Stderr))
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	os.Exit(run(ctx, os.Args, os.Stdout, os.Stderr))
 }
 
-func run(args []string, stdout, stderr io.Writer) int {
+func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("lokol-daemon", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 
@@ -68,9 +70,6 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	defer srv.Close()
-
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer cancel()
 
 	fmt.Fprintf(stdout, "lokol-daemon %s listening on %s (%s)...\n", version.Version, srv.Addr().String(), network)
 	if *yolo {

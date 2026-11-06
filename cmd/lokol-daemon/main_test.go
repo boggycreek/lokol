@@ -12,7 +12,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -21,7 +20,7 @@ import (
 
 func TestDaemon_Run_UnknownFlag(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	code := run([]string{"lokol-daemon", "-unknown-flag-xyz"}, &stdout, &stderr)
+	code := run(context.Background(), []string{"lokol-daemon", "-unknown-flag-xyz"}, &stdout, &stderr)
 	if code != 1 {
 		t.Fatalf("expected exit code 1 for unknown flag, got %d", code)
 	}
@@ -34,7 +33,7 @@ func TestDaemon_Run_UnknownFlag(t *testing.T) {
 func TestDaemon_Run_Help(t *testing.T) {
 	for _, flag := range []string{"-h", "--help"} {
 		var stdout, stderr bytes.Buffer
-		code := run([]string{"lokol-daemon", flag}, &stdout, &stderr)
+		code := run(context.Background(), []string{"lokol-daemon", flag}, &stdout, &stderr)
 		if code != 1 { // flag.ContinueOnError returns ErrHelp which causes Parse to return error
 			t.Fatalf("expected exit code 1 for %s, got %d", flag, code)
 		}
@@ -55,11 +54,14 @@ func TestDaemon_Run_TCPListenAndInteractiveMode(t *testing.T) {
 	ln.Close() // Release so daemon can bind
 
 	tmpDir := t.TempDir()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	var stdout, stderr bytes.Buffer
 	done := make(chan int, 1)
 
 	go func() {
-		code := run([]string{
+		code := run(ctx, []string{
 			"lokol-daemon",
 			"--listen", addr,
 			"--work-dir", tmpDir,
@@ -109,11 +111,8 @@ func TestDaemon_Run_TCPListenAndInteractiveMode(t *testing.T) {
 	}
 	client.Close()
 
-	// Terminate daemon via SIGTERM
-	p, err := os.FindProcess(os.Getpid())
-	if err == nil {
-		_ = p.Signal(syscall.SIGTERM)
-	}
+	// Trigger graceful daemon shutdown via context cancellation
+	cancel()
 
 	select {
 	case code := <-done:
@@ -144,7 +143,7 @@ func TestDaemon_Run_ListenFailure(t *testing.T) {
 	addr := ln.Addr().String()
 
 	var stdout, stderr bytes.Buffer
-	code := run([]string{
+	code := run(context.Background(), []string{
 		"lokol-daemon",
 		"--listen", addr,
 	}, &stdout, &stderr)
@@ -159,15 +158,20 @@ func TestDaemon_Run_ListenFailure(t *testing.T) {
 }
 
 func TestDaemon_Run_DefaultSocketFallback(t *testing.T) {
-	// When neither --socket nor --listen is provided, it defaults to filepath.Join(os.TempDir(), "lokol.sock")
+	// Isolate TMPDIR so default socket fallback uses a safe temporary directory
+	isolatedTemp := t.TempDir()
+	t.Setenv("TMPDIR", isolatedTemp)
+
 	defaultSock := filepath.Join(os.TempDir(), "lokol.sock")
-	_ = os.Remove(defaultSock)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	var stdout, stderr bytes.Buffer
 	done := make(chan int, 1)
 
 	go func() {
-		code := run([]string{"lokol-daemon"}, &stdout, &stderr)
+		code := run(ctx, []string{"lokol-daemon"}, &stdout, &stderr)
 		done <- code
 	}()
 
@@ -185,11 +189,8 @@ func TestDaemon_Run_DefaultSocketFallback(t *testing.T) {
 	}
 	client.Close()
 
-	// Send SIGTERM to stop
-	p, err := os.FindProcess(os.Getpid())
-	if err == nil {
-		_ = p.Signal(syscall.SIGTERM)
-	}
+	// Trigger graceful shutdown via context cancellation
+	cancel()
 
 	select {
 	case code := <-done:
