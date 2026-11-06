@@ -16,6 +16,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/boggycreek/lokol/liblokol/regulator"
 )
 
 func TestSession_LifecycleAndHistory(t *testing.T) {
@@ -446,4 +448,175 @@ func TestSession_Reset_RetentionInvariantsAndSlotPurge(t *testing.T) {
 	}
 }
 
+func TestSession_CompactionLedger_FileTracking(t *testing.T) {
+	tmpDir := t.TempDir()
+	client := NewClient("http://127.0.0.1:8080")
+	s := NewSession(client, tmpDir)
+	ctx := context.Background()
+
+	fileA := filepath.Join(tmpDir, "pkg", "a.go")
+	_ = os.MkdirAll(filepath.Dir(fileA), 0755)
+	_ = os.WriteFile(fileA, []byte("package pkg\nfunc A() {}\n"), 0644)
+
+	fileB := filepath.Join(tmpDir, "pkg", "b.go")
+	_ = os.WriteFile(fileB, []byte("package pkg\nfunc B() {}\n"), 0644)
+
+	// Initially empty
+	if files := s.GetInspectedFiles(); len(files) != 0 {
+		t.Fatalf("expected 0 inspected files initially, got %v", files)
+	}
+	if files := s.GetModifiedFiles(); len(files) != 0 {
+		t.Fatalf("expected 0 modified files initially, got %v", files)
+	}
+	if summary := s.FormatWorkspaceFrontierSummary(); summary != "" {
+		t.Fatalf("expected empty summary initially, got %q", summary)
+	}
+
+	// 1. Inspect fileA via read_window
+	readAct := &Action{
+		Name:    "read_window",
+		Command: fmt.Sprintf("<path>%s</path><start>1</start><end>2</end>", fileA),
+	}
+	if _, err := s.ExecuteAction(ctx, readAct); err != nil {
+		t.Fatalf("ExecuteAction(read_window) failed: %v", err)
+	}
+
+	// 2. Inspect fileB via read_outline
+	outlineAct := &Action{
+		Name:    "read_outline",
+		Command: fmt.Sprintf("<path>%s</path>", fileB),
+	}
+	if _, err := s.ExecuteAction(ctx, outlineAct); err != nil {
+		t.Fatalf("ExecuteAction(read_outline) failed: %v", err)
+	}
+
+	// Verify inspected files
+	inspected := s.GetInspectedFiles()
+	expectedInspected := []string{filepath.Join("pkg", "a.go"), filepath.Join("pkg", "b.go")}
+	if len(inspected) != 2 || inspected[0] != expectedInspected[0] || inspected[1] != expectedInspected[1] {
+		t.Fatalf("inspected files mismatch: got %v, want %v", inspected, expectedInspected)
+	}
+
+	// 3. Modify fileA via replace_file
+	replaceAct := &Action{
+		Name:    "replace_file",
+		Command: fmt.Sprintf("<path>%s</path><target>func A() {}</target><replacement>func A() { return }</replacement>", fileA),
+	}
+	if _, err := s.ExecuteAction(ctx, replaceAct); err != nil {
+		t.Fatalf("ExecuteAction(replace_file) failed: %v", err)
+	}
+
+	// 4. Modify fileC via write_file
+	fileC := filepath.Join(tmpDir, "pkg", "c.go")
+	writeAct := &Action{
+		Name:    "write_file",
+		Command: fmt.Sprintf("<path>%s</path><content>package pkg\nfunc C() {}\n</content>", fileC),
+	}
+	if _, err := s.ExecuteAction(ctx, writeAct); err != nil {
+		t.Fatalf("ExecuteAction(write_file) failed: %v", err)
+	}
+
+	// Verify modified files
+	modified := s.GetModifiedFiles()
+	expectedModified := []string{filepath.Join("pkg", "a.go"), filepath.Join("pkg", "c.go")}
+	if len(modified) != 2 || modified[0] != expectedModified[0] || modified[1] != expectedModified[1] {
+		t.Fatalf("modified files mismatch: got %v, want %v", modified, expectedModified)
+	}
+
+	// Format workspace frontier
+	frontier := s.FormatWorkspaceFrontierSummary()
+	if !strings.Contains(frontier, "<workspace_frontier>") || !strings.Contains(frontier, "</workspace_frontier>") {
+		t.Fatalf("expected <workspace_frontier> XML tags, got: %s", frontier)
+	}
+	if !strings.Contains(frontier, "<inspected_files>pkg/a.go, pkg/b.go</inspected_files>") {
+		t.Errorf("expected inspected_files in frontier, got: %s", frontier)
+	}
+	if !strings.Contains(frontier, "<modified_files>pkg/a.go, pkg/c.go</modified_files>") {
+		t.Errorf("expected modified_files in frontier, got: %s", frontier)
+	}
+
+	// Test persistence across micro-pruning
+	reclaimed := s.PruneToolOutputs(1)
+	_ = reclaimed
+	if len(s.GetInspectedFiles()) != 2 || len(s.GetModifiedFiles()) != 2 {
+		t.Fatalf("file lists must persist across micro-compaction")
+	}
+
+	// Test persistence across macro-compaction
+	// Setup history turns so compaction has work to do
+	s.AppendUserMessage("Start work")
+	s.AppendAssistantMessage("Working...")
+	s.AppendActionResult("result 1", nil)
+	s.AppendAssistantMessage("Still working...")
+	s.AppendActionResult("result 2", nil)
+	s.AppendAssistantMessage("Finishing...")
+	s.AppendActionResult("result 3", nil)
+
+	s.CompactHistory("custom summary", 1)
+	if len(s.GetInspectedFiles()) != 2 || len(s.GetModifiedFiles()) != 2 {
+		t.Fatalf("file lists must persist across macro-compaction")
+	}
+
+	// Test Compact() incorporates frontier into conversation summary
+	metrics := &regulator.SlotMetrics{
+		NCtx:          1000,
+		NPromptTokens: 900,
+	}
+	// Append more messages so macro compaction triggers
+	s.AppendAssistantMessage("Turn 4")
+	s.AppendActionResult("result 4", nil)
+	s.AppendAssistantMessage("Turn 5")
+	s.AppendActionResult("result 5", nil)
+
+	if err := s.Compact(ctx, metrics); err != nil {
+		t.Fatalf("Compact failed: %v", err)
+	}
+
+	hist := s.GetHistory()
+	foundFrontierInLedger := false
+	for _, m := range hist {
+		if strings.Contains(m.Content, "<workspace_frontier>") {
+			foundFrontierInLedger = true
+			if !strings.Contains(m.Content, "ACCESSED & MODIFIED FILES LEDGER:") {
+				t.Errorf("expected frontier header in conversation summary: %s", m.Content)
+			}
+			break
+		}
+	}
+	if !foundFrontierInLedger {
+		t.Fatalf("expected <workspace_frontier> inside compacted conversation history")
+	}
+
+	// Test Reset clears file tracking
+	s.Reset()
+	if len(s.GetInspectedFiles()) != 0 {
+		t.Errorf("expected inspected files cleared after reset, got %v", s.GetInspectedFiles())
+	}
+	if len(s.GetModifiedFiles()) != 0 {
+		t.Errorf("expected modified files cleared after reset, got %v", s.GetModifiedFiles())
+	}
+
+	// Edge cases in canonicalizePath and recording:
+	// Empty path, dot, outside workspace path, empty session ledger
+	s.RecordInspectedFile("")
+	s.RecordInspectedFile(".")
+	s.RecordModifiedFile("")
+	s.RecordModifiedFile(".")
+	if len(s.GetInspectedFiles()) != 0 || len(s.GetModifiedFiles()) != 0 {
+		t.Errorf("expected empty / dot paths to be ignored")
+	}
+
+	// Absolute path outside workspace
+	outsidePath := filepath.Join(os.TempDir(), "outside_workspace.txt")
+	s.RecordInspectedFile(outsidePath)
+	if inspected := s.GetInspectedFiles(); len(inspected) != 1 || inspected[0] != outsidePath {
+		t.Errorf("expected absolute outside path preserved, got: %v", inspected)
+	}
+
+	// BuildCompactionLedger with empty inputs
+	emptySession := NewSession(nil, tmpDir)
+	if ledger := emptySession.BuildCompactionLedger(""); !strings.Contains(ledger, "Intermediate turns compacted") {
+		t.Errorf("expected fallback compaction summary for empty inputs, got: %q", ledger)
+	}
+}
 
