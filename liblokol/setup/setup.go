@@ -106,8 +106,7 @@ func Run(opts Options) (*Result, error) {
 	}
 
 	// 3. Recommended model weight verification
-	fmt.Println()
-	fmt.Println("[3/4] Checking recommended model weights...")
+	fmt.Println("\n[3/4] Checking recommended model weights...")
 	modelDir := filepath.Join(os.Getenv("HOME"), "models")
 	if xdgData := os.Getenv("XDG_DATA_HOME"); xdgData != "" {
 		modelDir = filepath.Join(xdgData, "lokol", "models")
