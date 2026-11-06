@@ -1,0 +1,24 @@
+{
+  "name": "security-audit",
+  "description": "Read-only security assessment and static vulnerability audit",
+  "mode": "general",
+  "tools": [
+    "find_files",
+    "read_window",
+    "read_outline",
+    "search_code",
+    "git_diff_summary",
+    "task_finish",
+    "tool_help"
+  ],
+  "system_prompt_overlay": "You are acting as a Security Auditor. Focus strictly on identifying vulnerabilities, unsafe input flows, secret exposure, and privilege escalation risks. Do not modify files.",
+  "regulator": {
+    "read_only": true,
+    "blocked_actions": [
+      "write_file",
+      "replace_file",
+      "exec_bash"
+    ],
+    "max_risk_level": "low"
+  }
+}

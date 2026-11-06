@@ -29,6 +29,7 @@ type ServerConfig struct {
 	DefaultYOLO     bool
 	DefaultMode     string
 	DefaultMaxTurns int
+	DefaultProfile  string
 }
 
 // Server coordinates the headless IPC daemon service over UNIX domain sockets or TCP.
@@ -323,6 +324,9 @@ func (s *Server) dispatch(ctx context.Context, req Request, emit func(Notificati
 
 		if params.WorkDir == "" {
 			params.WorkDir = s.cfg.DefaultWorkDir
+		}
+		if params.Profile == "" {
+			params.Profile = s.cfg.DefaultProfile
 		}
 		if params.Mode == "" {
 			params.Mode = s.cfg.DefaultMode
@@ -654,6 +658,7 @@ func (s *Server) resolveSession(id string, createIfDefault bool) (*SessionState,
 		def, err := NewSessionState("default", s.client, SessionCreateParams{
 			WorkDir:  s.cfg.DefaultWorkDir,
 			Mode:     s.cfg.DefaultMode,
+			Profile:  s.cfg.DefaultProfile,
 			YOLO:     &s.cfg.DefaultYOLO,
 			MaxTurns: s.cfg.DefaultMaxTurns,
 		})

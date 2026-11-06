@@ -42,6 +42,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	topFlags.StringVar(promptFlag, "p", "", "Run prompt directly in headless mode (shorthand)")
 	topMode := topFlags.String("mode", "general", "Operational mode: general (default), coding, or moe (alias: -m)")
 	topFlags.StringVar(topMode, "m", "general", "Operational mode (shorthand)")
+	topProfile := topFlags.String("profile", "", "Declarative workload profile (e.g. security-audit, refactor, doc-gen)")
 	topName := topFlags.String("name", "", "Agent persona name (overrides persistent config)")
 	topOperator := topFlags.String("operator", "", "Operator name (overrides persistent config)")
 	topEngine := topFlags.String("engine", "http://127.0.0.1:8080", "URL of local llama-server engine")
@@ -69,6 +70,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	execEngine := execCmd.String("engine", "http://127.0.0.1:8080", "URL of local llama-server engine")
 	execMode := execCmd.String("mode", "coding", "Operational mode: coding (default for exec), general, or moe (alias: -m)")
 	execCmd.StringVar(execMode, "m", "coding", "Operational mode (shorthand)")
+	execProfile := execCmd.String("profile", "", "Declarative workload profile (e.g. security-audit, refactor, doc-gen)")
 	execName := execCmd.String("name", "", "Agent persona name (overrides persistent config)")
 	execOperator := execCmd.String("operator", "", "Operator name (overrides persistent config)")
 	execMaxTurns := execCmd.Int("max-turns", 15, "Max turns for agent loop")
@@ -98,6 +100,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	serveWorkDir := serveCmd.String("work-dir", ".", "Default working directory for sessions")
 	serveMode := serveCmd.String("mode", "coding", "Default operational mode: coding (default), general, or moe (alias: -m)")
 	serveCmd.StringVar(serveMode, "m", "coding", "Operational mode (shorthand)")
+	serveProfile := serveCmd.String("profile", "", "Declarative workload profile (e.g. security-audit, refactor, doc-gen)")
 	serveYOLO := serveCmd.Bool("yolo", false, "Autonomous mode (bypass interactive action approval gates)")
 	serveMaxTurns := serveCmd.Int("max-turns", 20, "Default max turns per prompt")
 
@@ -118,9 +121,18 @@ func run(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stdout, "lokol %s (commit: %s, built: %s)\n", version.Version, version.GitCommit, version.BuildDate)
 			return 0
 		}
-		if *promptFlag != "" || *topSpec != "" {
+		if *promptFlag != "" || *topSpec != "" || topFlags.NArg() > 0 && topFlags.Arg(0) != "exec" && topFlags.Arg(0) != "serve" && topFlags.Arg(0) != "setup" && topFlags.Arg(0) != "probe" && topFlags.Arg(0) != "config" && topFlags.Arg(0) != "update" && topFlags.Arg(0) != "version" {
 			m, _ := agent.ParseMode(*topMode)
-			return runExec(*topEngine, *topMaxTurns, *promptFlag, *topVerbose, m, *topSpec, stdout, stderr, *topName, *topOperator)
+			prof, err := config.LoadProfile(*topProfile)
+			if err != nil {
+				fmt.Fprintf(stderr, "Error loading profile %s: %v\n", *topProfile, err)
+				return 1
+			}
+			promptArg := *promptFlag
+			if promptArg == "" && topFlags.NArg() > 0 {
+				promptArg = strings.Join(topFlags.Args(), " ")
+			}
+			return runExecWithProfile(*topEngine, *topMaxTurns, promptArg, *topVerbose, m, prof, *topSpec, stdout, stderr, *topName, *topOperator)
 		}
 		// If remaining arguments exist after parsing flags
 		if topFlags.NArg() > 0 {
@@ -160,6 +172,15 @@ func run(args []string, stdout, stderr io.Writer) int {
 					fmt.Fprintln(stderr, "Error: prompt required for exec (or specify --spec)")
 					return 1
 				}
+				profileName := *execProfile
+				if profileName == "" {
+					profileName = *topProfile
+				}
+				prof, err := config.LoadProfile(profileName)
+				if err != nil {
+					fmt.Fprintf(stderr, "Error loading profile %s: %v\n", profileName, err)
+					return 1
+				}
 				m, _ := agent.ParseMode(*execMode)
 				nameArg := *execName
 				if nameArg == "" {
@@ -169,7 +190,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 				if opArg == "" {
 					opArg = *topOperator
 				}
-				return runExec(*execEngine, *execMaxTurns, prompt, *execVerbose || *topVerbose, m, specPath, stdout, stderr, nameArg, opArg)
+				return runExecWithProfile(*execEngine, *execMaxTurns, prompt, *execVerbose || *topVerbose, m, prof, specPath, stdout, stderr, nameArg, opArg)
 			case "serve":
 				if err := serveCmd.Parse(topFlags.Args()[1:]); err != nil {
 					if errors.Is(err, flag.ErrHelp) {
@@ -177,7 +198,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 					}
 					return 1
 				}
-				return runServe(*serveIPC, *serveListen, *serveEngine, *serveWorkDir, *serveMode, *serveYOLO, *serveMaxTurns, stdout, stderr)
+				profileName := *serveProfile
+				if profileName == "" {
+					profileName = *topProfile
+				}
+				return runServeWithProfile(*serveIPC, *serveListen, *serveEngine, *serveWorkDir, *serveMode, profileName, *serveYOLO, *serveMaxTurns, stdout, stderr)
 			case "update":
 				if err := updateCmd.Parse(topFlags.Args()[1:]); err != nil {
 					if errors.Is(err, flag.ErrHelp) {
@@ -227,8 +252,13 @@ func run(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, "Error: prompt required for exec (or specify --spec)")
 			return 1
 		}
+		prof, err := config.LoadProfile(*execProfile)
+		if err != nil {
+			fmt.Fprintf(stderr, "Error loading profile %s: %v\n", *execProfile, err)
+			return 1
+		}
 		m, _ := agent.ParseMode(*execMode)
-		return runExec(*execEngine, *execMaxTurns, prompt, *execVerbose, m, *execSpec, stdout, stderr, *execName, *execOperator)
+		return runExecWithProfile(*execEngine, *execMaxTurns, prompt, *execVerbose, m, prof, *execSpec, stdout, stderr, *execName, *execOperator)
 	case "serve":
 		if err := serveCmd.Parse(args[2:]); err != nil {
 			if errors.Is(err, flag.ErrHelp) {
@@ -236,7 +266,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 			}
 			return 1
 		}
-		return runServe(*serveIPC, *serveListen, *serveEngine, *serveWorkDir, *serveMode, *serveYOLO, *serveMaxTurns, stdout, stderr)
+		return runServeWithProfile(*serveIPC, *serveListen, *serveEngine, *serveWorkDir, *serveMode, *serveProfile, *serveYOLO, *serveMaxTurns, stdout, stderr)
 	case "update":
 		if err := updateCmd.Parse(args[2:]); err != nil {
 			if errors.Is(err, flag.ErrHelp) {
@@ -352,6 +382,10 @@ func runSetup(downloadModel bool, simVRAM float64, installLlama bool, stdout, st
 }
 
 func runExec(engineURL string, maxTurns int, prompt string, verbose bool, mode agent.Mode, specPath string, stdout, stderr io.Writer, persona ...string) int {
+	return runExecWithProfile(engineURL, maxTurns, prompt, verbose, mode, nil, specPath, stdout, stderr, persona...)
+}
+
+func runExecWithProfile(engineURL string, maxTurns int, prompt string, verbose bool, mode agent.Mode, prof *config.Profile, specPath string, stdout, stderr io.Writer, persona ...string) int {
 	workDir, _ := os.Getwd()
 	client := agent.NewClient(engineURL)
 	stepCount := 0
@@ -389,6 +423,7 @@ func runExec(engineURL string, maxTurns int, prompt string, verbose bool, mode a
 		YOLO:         true,
 		WorkDir:      workDir,
 		Mode:         mode,
+		Profile:      prof,
 		AgentName:    agentName,
 		OperatorName: operatorName,
 		SpecMachine:  specMachine,
@@ -535,6 +570,10 @@ func runProbe(simVRAM float64, mode agent.Mode, stdout, stderr io.Writer) int {
 }
 
 func runServe(ipcSocket, listenAddr, engineURL, workDir, mode string, yolo bool, maxTurns int, stdout, stderr io.Writer) int {
+	return runServeWithProfile(ipcSocket, listenAddr, engineURL, workDir, mode, "", yolo, maxTurns, stdout, stderr)
+}
+
+func runServeWithProfile(ipcSocket, listenAddr, engineURL, workDir, mode, profile string, yolo bool, maxTurns int, stdout, stderr io.Writer) int {
 	network := "unix"
 	address := ipcSocket
 	if listenAddr != "" {
@@ -549,6 +588,7 @@ func runServe(ipcSocket, listenAddr, engineURL, workDir, mode string, yolo bool,
 		DefaultWorkDir:  workDir,
 		DefaultYOLO:     yolo,
 		DefaultMode:     mode,
+		DefaultProfile:  profile,
 		DefaultMaxTurns: maxTurns,
 	})
 

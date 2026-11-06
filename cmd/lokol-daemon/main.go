@@ -35,6 +35,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	engineURL := flags.String("engine", "http://127.0.0.1:8080", "URL of local llama-server engine")
 	workDir := flags.String("work-dir", ".", "Default working directory for sessions")
 	mode := flags.String("mode", "coding", "Default operational mode (coding, general, moe)")
+	profile := flags.String("profile", "", "Declarative workload profile (e.g. security-audit, refactor, doc-gen)")
 	yolo := flags.Bool("yolo", false, "Autonomous mode (bypass interactive action approval gates)")
 	maxTurns := flags.Int("max-turns", 20, "Default max turns per prompt")
 	showVersion := flags.Bool("version", false, "Display version and exit")
@@ -63,6 +64,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		DefaultYOLO:     *yolo,
 		DefaultMode:     *mode,
 		DefaultMaxTurns: *maxTurns,
+		DefaultProfile:  *profile,
 	})
 
 	if err := srv.Listen(network, address); err != nil {

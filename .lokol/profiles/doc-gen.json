@@ -1,0 +1,30 @@
+{
+  "name": "doc-gen",
+  "description": "Documentation and architectural overview generation",
+  "mode": "general",
+  "tools": [
+    "find_files",
+    "read_window",
+    "read_outline",
+    "search_code",
+    "write_file",
+    "replace_file",
+    "task_finish",
+    "tool_help"
+  ],
+  "system_prompt_overlay": "You are in Documentation Generation mode. Generate comprehensive, precise, and well-structured markdown documentation based on actual source inspection.",
+  "regulator": {
+    "blocked_actions": [
+      "exec_bash"
+    ],
+    "disallowed_paths": [
+      "*.go",
+      "*.c",
+      "*.cpp",
+      "*.rs",
+      "*.py",
+      "*.js",
+      "*.ts"
+    ]
+  }
+}

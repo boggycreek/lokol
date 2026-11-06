@@ -17,6 +17,7 @@ import (
 
 	"github.com/boggycreek/lokol/liblokol/agent"
 	"github.com/boggycreek/lokol/liblokol/catalog"
+	"github.com/boggycreek/lokol/liblokol/config"
 	"github.com/boggycreek/lokol/liblokol/regulator"
 	"github.com/boggycreek/lokol/liblokol/spec"
 )
@@ -31,6 +32,7 @@ type SessionState struct {
 	ID           string
 	WorkDir      string
 	Mode         agent.Mode
+	Profile      *config.Profile
 	AgentName    string
 	OperatorName string
 	YOLO         bool
@@ -56,17 +58,37 @@ func NewSessionState(id string, client *agent.Client, params SessionCreateParams
 		workDir = "."
 	}
 
-	mode := agent.Mode(params.Mode)
+	var prof *config.Profile
+	if params.Profile != "" {
+		loadedProf, err := config.LoadProfile(params.Profile, workDir)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load profile %q: %w", params.Profile, err)
+		}
+		prof = loadedProf
+	}
+
+	modeStr := params.Mode
+	if modeStr == "" && prof != nil && prof.Mode != "" {
+		modeStr = prof.Mode
+	}
+	mode := agent.Mode(modeStr)
 	if mode == "" {
 		mode = agent.ModeCoding
 	}
 
 	sess := agent.NewSessionWithMode(client, workDir, mode)
+	if prof != nil && prof.SystemPromptOverlay != "" {
+		currentPrompt := sess.GetSystemPrompt()
+		sess.SetSystemPrompt(currentPrompt + "\n\n" + prof.SystemPromptOverlay)
+	}
 	if params.AgentName != "" || params.OperatorName != "" {
 		sess.SetPersona(params.AgentName, params.OperatorName)
 	}
 
 	reg := regulator.New(workDir)
+	if prof != nil {
+		reg.Pipeline().AddStage(regulator.NewProfileRulesStage(prof.Regulator))
+	}
 	if client != nil {
 		reg.SetSlotStatusProvider(client)
 	}
@@ -95,6 +117,7 @@ func NewSessionState(id string, client *agent.Client, params SessionCreateParams
 		ID:           id,
 		WorkDir:      workDir,
 		Mode:         mode,
+		Profile:      prof,
 		AgentName:    params.AgentName,
 		OperatorName: params.OperatorName,
 		YOLO:         yolo,

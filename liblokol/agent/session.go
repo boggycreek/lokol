@@ -110,6 +110,27 @@ func NewSessionWithMode(client *Client, workDir string, mode Mode, codebaseCtxOp
 	}
 }
 
+// GetSystemPrompt returns the current system prompt from conversation history.
+func (s *Session) GetSystemPrompt() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if len(s.History) > 0 && s.History[0].Role == "system" {
+		return s.History[0].Content
+	}
+	return ""
+}
+
+// SetSystemPrompt updates the system prompt in conversation history.
+func (s *Session) SetSystemPrompt(prompt string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.History) > 0 && s.History[0].Role == "system" {
+		s.History[0].Content = prompt
+	} else {
+		s.History = append([]Message{{Role: "system", Content: prompt}}, s.History...)
+	}
+}
+
 // GetMode returns the current operational mode of the session.
 func (s *Session) GetMode() Mode {
 	s.mu.RLock()

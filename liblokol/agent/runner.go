@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/boggycreek/lokol/liblokol/catalog"
+	"github.com/boggycreek/lokol/liblokol/config"
 	"github.com/boggycreek/lokol/liblokol/regulator"
 	"github.com/boggycreek/lokol/liblokol/spec"
 )
@@ -20,11 +21,12 @@ type Runner struct {
 	Client          *Client
 	MaxTurns        int
 	YOLO            bool
-	WorkDir         string // Current working directory for host environment and prompt context
-	Mode            Mode   // Operational mode (defaults to ModeCoding for autonomous execution)
-	CodebaseContext string // Optional pre-loaded codebase context
-	AgentName       string // Optional persona name override
-	OperatorName    string // Optional operator name override
+	WorkDir         string          // Current working directory for host environment and prompt context
+	Mode            Mode            // Operational mode (defaults to ModeCoding for autonomous execution)
+	Profile         *config.Profile // Optional declarative workload profile preset
+	CodebaseContext string          // Optional pre-loaded codebase context
+	AgentName       string          // Optional persona name override
+	OperatorName    string          // Optional operator name override
 	Session         *Session
 	Regulator       *regulator.Regulator // Persistent regulator instance across turns (lokol-gml.9)
 	SpecMachine     *spec.StateMachine   // Optional spec-driven bounded state machine (lokol-jkx)
@@ -44,6 +46,9 @@ func (r *Runner) Run(ctx context.Context, initialPrompt string) (string, error) 
 
 	if r.Regulator == nil {
 		r.Regulator = regulator.New(workDir)
+		if r.Profile != nil {
+			r.Regulator.Pipeline().AddStage(regulator.NewProfileRulesStage(r.Profile.Regulator))
+		}
 	}
 	if r.Client != nil && r.Regulator.SlotStatusProvider == nil {
 		r.Regulator.SetSlotStatusProvider(r.Client)
@@ -52,10 +57,17 @@ func (r *Runner) Run(ctx context.Context, initialPrompt string) (string, error) 
 	session := r.Session
 	if session == nil {
 		mode := r.Mode
+		if mode == "" && r.Profile != nil && r.Profile.Mode != "" {
+			mode = Mode(r.Profile.Mode)
+		}
 		if mode == "" {
 			mode = ModeCoding
 		}
 		session = NewSessionWithMode(r.Client, workDir, mode, r.CodebaseContext)
+		if r.Profile != nil && r.Profile.SystemPromptOverlay != "" {
+			curr := session.GetSystemPrompt()
+			session.SetSystemPrompt(curr + "\n\n" + r.Profile.SystemPromptOverlay)
+		}
 		if r.AgentName != "" || r.OperatorName != "" {
 			session.SetPersona(r.AgentName, r.OperatorName)
 		}
