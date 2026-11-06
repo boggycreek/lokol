@@ -158,6 +158,38 @@ func (s *Service) Login(user, pass string) (string, error) {
 	}
 }
 
+func BenchmarkReadOutline(b *testing.B) {
+	tmpDir := b.TempDir()
+	f := filepath.Join(tmpDir, "service.go")
+	content := `package auth
+
+type User struct {
+	ID   string
+	Name string
+}
+
+func NewService() *Service {
+	return &Service{}
+}
+
+func (s *Service) Login(user, pass string) (string, error) {
+	return "token", nil
+}
+`
+	if err := os.WriteFile(f, []byte(content), 0644); err != nil {
+		b.Fatalf("failed to write test file: %v", err)
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_, err := refinery.ReadOutline(f)
+		if err != nil {
+			b.Fatalf("ReadOutline failed: %v", err)
+		}
+	}
+}
+
 func TestParseReadWindowPayload_Fallbacks(t *testing.T) {
 	// Standard <path>, <start>, <end>
 	p1, err := refinery.ParseReadWindowPayload("<path>main.go</path><start>5</start><end>25</end>")
