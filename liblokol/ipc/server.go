@@ -617,6 +617,50 @@ func (s *Server) dispatch(ctx context.Context, req Request, emit func(Notificati
 			Result:  status,
 		}
 
+	case MethodSessionSubscribe:
+		var params SessionSubscribeParams
+		if len(req.Params) > 0 {
+			if err := json.Unmarshal(req.Params, &params); err != nil {
+				return Response{
+					JSONRPC: "2.0",
+					ID:      req.ID,
+					Error:   &RPCError{Code: ErrCodeInvalidParams, Message: err.Error()},
+				}
+			}
+		}
+
+		sess, err := s.resolveSession(params.SessionID, false)
+		if err != nil {
+			return Response{
+				JSONRPC: "2.0",
+				ID:      req.ID,
+				Error:   &RPCError{Code: ErrCodeSessionNotFound, Message: err.Error()},
+			}
+		}
+
+		// Replay missed events prior to streaming live events
+		replayedEvents := sess.ReplaySince(params.SinceSeq)
+		for _, event := range replayedEvents {
+			emit(event)
+		}
+
+		// Register subscriber on session to stream live events as they occur
+		unhook := sess.Subscribe(emit)
+		go func() {
+			<-ctx.Done()
+			unhook()
+		}()
+
+		return Response{
+			JSONRPC: "2.0",
+			ID:      req.ID,
+			Result: SessionSubscribeResult{
+				SessionID:  sess.ID,
+				CurrentSeq: sess.CurrentSeq(),
+				Replayed:   len(replayedEvents),
+			},
+		}
+
 	default:
 		return Response{
 			JSONRPC: "2.0",
@@ -651,6 +695,10 @@ func (s *Server) resolveSession(id string, createIfDefault bool) (*SessionState,
 	// Default fallback: if a default session exists, use it
 	if sess, ok := s.sessions["default"]; ok {
 		return sess, nil
+	}
+
+	if len(s.sessions) > 1 {
+		return nil, fmt.Errorf("ambiguous session: multiple sessions active, explicit session_id required")
 	}
 
 	// Only create default session on-the-fly for prompt execution if requested
