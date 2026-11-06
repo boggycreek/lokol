@@ -18,7 +18,7 @@ import (
 
 func TestDaemonCLI_Version(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	code := run([]string{"lokol-daemon", "--version"}, &stdout, &stderr)
+	code := run(context.Background(), []string{"lokol-daemon", "--version"}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("expected code 0, got %d. stderr: %s", code, stderr.String())
 	}
@@ -31,12 +31,15 @@ func TestDaemonCLI_StartAndConnect(t *testing.T) {
 	tmpDir := t.TempDir()
 	sockPath := filepath.Join(tmpDir, "cli-test.sock")
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	var stdout, stderr bytes.Buffer
 	done := make(chan int, 1)
 
 	// Run daemon in goroutine
 	go func() {
-		code := run([]string{
+		code := run(ctx, []string{
 			"lokol-daemon",
 			"--socket", sockPath,
 			"--work-dir", tmpDir,
@@ -77,5 +80,15 @@ func TestDaemonCLI_StartAndConnect(t *testing.T) {
 	}
 	if sessRes["session_id"] != "cli_sess" {
 		t.Errorf("expected session_id=cli_sess, got %v", sessRes["session_id"])
+	}
+
+	cancel()
+	select {
+	case code := <-done:
+		if code != 0 {
+			t.Fatalf("expected exit code 0, got %d, stderr: %s", code, stderr.String())
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for daemon to terminate")
 	}
 }
