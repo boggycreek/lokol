@@ -54,6 +54,55 @@ func TestConfig_SaveAndLoad(t *testing.T) {
 	if loaded.GetOperatorName() != "Alice" {
 		t.Errorf("expected operator name 'Alice', got %q", loaded.GetOperatorName())
 	}
+
+	// Test standard Load and Save using XDG_CONFIG_HOME
+	t.Setenv("XDG_CONFIG_HOME", tmpDir)
+	if err := config.Save(initial); err != nil {
+		t.Fatalf("failed to save default config: %v", err)
+	}
+	stdLoaded, err := config.Load()
+	if err != nil {
+		t.Fatalf("failed to load default config: %v", err)
+	}
+	if stdLoaded.GetAgentName() != "Aria" {
+		t.Errorf("expected Aria, got %s", stdLoaded.GetAgentName())
+	}
+
+	// Test nil receiver or empty fields on methods
+	var nilCfg *config.Config
+	if nilCfg.GetAgentName() != config.DefaultAgentName {
+		t.Errorf("expected default agent name on nil config")
+	}
+	if nilCfg.GetOperatorName() != config.DefaultOperatorName {
+		t.Errorf("expected default operator name on nil config")
+	}
+
+	// Test SaveTo nil error
+	if err := config.SaveTo(cfgPath, nil); err == nil {
+		t.Errorf("expected error saving nil config")
+	}
+
+	// Test DataDir & MemoryDir
+	t.Setenv("XDG_DATA_HOME", tmpDir)
+	if config.DataDir() != filepath.Join(tmpDir, "lokol") {
+		t.Errorf("unexpected DataDir: %s", config.DataDir())
+	}
+	if config.MemoryDir() != filepath.Join(tmpDir, "lokol", "memory") {
+		t.Errorf("unexpected MemoryDir: %s", config.MemoryDir())
+	}
+
+	// Test DataDir fallback when XDG_DATA_HOME is empty
+	t.Setenv("XDG_DATA_HOME", "")
+	if config.DataDir() == "" {
+		t.Errorf("expected non-empty DataDir fallback")
+	}
+
+	// Test invalid JSON on LoadFrom
+	corruptPath := filepath.Join(tmpDir, "corrupt.json")
+	_ = os.WriteFile(corruptPath, []byte("invalid json"), 0644)
+	if _, err := config.LoadFrom(corruptPath); err == nil {
+		t.Errorf("expected error loading corrupt config")
+	}
 }
 
 func TestConfig_EmptyFieldsFallBackToDefaults(t *testing.T) {
@@ -89,5 +138,11 @@ func TestConfig_XDGEnvironmentOverride(t *testing.T) {
 	expectedPath := filepath.Join(expectedDir, "config.json")
 	if config.ConfigPath() != expectedPath {
 		t.Errorf("expected ConfigPath %q, got %q", expectedPath, config.ConfigPath())
+	}
+
+	// When XDG_CONFIG_HOME is empty, ConfigDir uses user home dir
+	t.Setenv("XDG_CONFIG_HOME", "")
+	if config.ConfigDir() == "" {
+		t.Errorf("expected fallback ConfigDir when XDG_CONFIG_HOME empty")
 	}
 }

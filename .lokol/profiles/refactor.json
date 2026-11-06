@@ -1,0 +1,22 @@
+{
+  "name": "refactor",
+  "description": "Targeted code refactoring with AST outline inspection and test verification",
+  "mode": "coding",
+  "tools": [
+    "find_files",
+    "read_window",
+    "read_outline",
+    "search_code",
+    "replace_file",
+    "run_test",
+    "git_diff_summary",
+    "task_finish",
+    "tool_help"
+  ],
+  "system_prompt_overlay": "You are in Refactoring mode. Improve code structure, readability, and performance without altering observable behavior. Always run test verifications to confirm zero regression.",
+  "regulator": {
+    "blocked_actions": [
+      "exec_bash"
+    ]
+  }
+}

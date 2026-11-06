@@ -79,6 +79,7 @@ type SessionCreateParams struct {
 	SessionID    string `json:"session_id,omitempty"`
 	WorkDir      string `json:"work_dir,omitempty"`
 	Mode         string `json:"mode,omitempty"`
+	Profile      string `json:"profile,omitempty"`
 	AgentName    string `json:"agent_name,omitempty"`
 	OperatorName string `json:"operator_name,omitempty"`
 	YOLO         *bool  `json:"yolo,omitempty"`
