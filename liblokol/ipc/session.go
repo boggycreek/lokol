@@ -27,6 +27,71 @@ type actionDecision struct {
 	Reason   string
 }
 
+// DefaultRingBufferSize defines the maximum number of recent events preserved in the session ring buffer.
+const DefaultRingBufferSize = 1024
+
+// EventRingBuffer provides thread-safe ring buffer storage for recent session notifications.
+type EventRingBuffer struct {
+	mu       sync.RWMutex
+	capacity int
+	events   []Notification
+	start    int
+	count    int
+}
+
+// NewEventRingBuffer creates a new EventRingBuffer with the given capacity.
+func NewEventRingBuffer(capacity int) *EventRingBuffer {
+	if capacity <= 0 {
+		capacity = DefaultRingBufferSize
+	}
+	return &EventRingBuffer{
+		capacity: capacity,
+		events:   make([]Notification, capacity),
+	}
+}
+
+// Append adds a notification to the ring buffer, overwriting the oldest if at capacity.
+func (rb *EventRingBuffer) Append(n Notification) {
+	rb.mu.Lock()
+	defer rb.mu.Unlock()
+
+	if rb.count < rb.capacity {
+		idx := (rb.start + rb.count) % rb.capacity
+		rb.events[idx] = n
+		rb.count++
+	} else {
+		rb.events[rb.start] = n
+		rb.start = (rb.start + 1) % rb.capacity
+	}
+}
+
+// EventsSince returns a slice of buffered events with Seq > sinceSeq in chronological order.
+func (rb *EventRingBuffer) EventsSince(sinceSeq uint64) []Notification {
+	rb.mu.RLock()
+	defer rb.mu.RUnlock()
+
+	var result []Notification
+	for i := 0; i < rb.count; i++ {
+		idx := (rb.start + i) % rb.capacity
+		if rb.events[idx].Seq > sinceSeq {
+			result = append(result, rb.events[idx])
+		}
+	}
+	return result
+}
+
+// All returns all currently buffered events in chronological order.
+func (rb *EventRingBuffer) All() []Notification {
+	return rb.EventsSince(0)
+}
+
+// Count returns the number of events stored in the buffer.
+func (rb *EventRingBuffer) Count() int {
+	rb.mu.RLock()
+	defer rb.mu.RUnlock()
+	return rb.count
+}
+
 // SessionState encapsulates state and execution control for an active IPC session.
 type SessionState struct {
 	ID           string
@@ -49,6 +114,12 @@ type SessionState struct {
 	actionCounter   uint64
 	pendingActionID string
 	decisionChan    chan actionDecision
+
+	seqMu       sync.Mutex
+	eventSeq    uint64
+	ringBuffer  *EventRingBuffer
+	subscribers map[uint64]func(Notification)
+	subCounter  uint64
 }
 
 // NewSessionState creates an initialized session state.
@@ -125,7 +196,59 @@ func NewSessionState(id string, client *agent.Client, params SessionCreateParams
 		Session:      sess,
 		Regulator:    reg,
 		SpecMachine:  sm,
+		ringBuffer:   NewEventRingBuffer(DefaultRingBufferSize),
+		subscribers:  make(map[uint64]func(Notification)),
 	}, nil
+}
+
+// Emit sequences an event, stores it in the ring buffer, and broadcasts it to all registered subscribers.
+func (s *SessionState) Emit(n Notification) Notification {
+	s.seqMu.Lock()
+	s.eventSeq++
+	n.Seq = s.eventSeq
+	if n.JSONRPC == "" {
+		n.JSONRPC = "2.0"
+	}
+	s.ringBuffer.Append(n)
+
+	subs := make([]func(Notification), 0, len(s.subscribers))
+	for _, sub := range s.subscribers {
+		subs = append(subs, sub)
+	}
+	s.seqMu.Unlock()
+
+	for _, sub := range subs {
+		sub(n)
+	}
+	return n
+}
+
+// CurrentSeq returns the latest event sequence number for the session.
+func (s *SessionState) CurrentSeq() uint64 {
+	s.seqMu.Lock()
+	defer s.seqMu.Unlock()
+	return s.eventSeq
+}
+
+// ReplaySince returns all buffered events with Seq > sinceSeq in order.
+func (s *SessionState) ReplaySince(sinceSeq uint64) []Notification {
+	return s.ringBuffer.EventsSince(sinceSeq)
+}
+
+// Subscribe registers a subscriber callback to receive live events.
+// It returns an unsubscribe function to remove the listener.
+func (s *SessionState) Subscribe(handler func(Notification)) (unsubscribe func()) {
+	s.seqMu.Lock()
+	s.subCounter++
+	id := s.subCounter
+	s.subscribers[id] = handler
+	s.seqMu.Unlock()
+
+	return func() {
+		s.seqMu.Lock()
+		delete(s.subscribers, id)
+		s.seqMu.Unlock()
+	}
 }
 
 func hasActionTagPrefix(s string) bool {
@@ -155,7 +278,16 @@ func (s *SessionState) Prompt(ctx context.Context, prompt string, emit func(Noti
 	s.turnDone = make(chan struct{})
 	s.mu.Unlock()
 
+	// If a connection-specific emit function was provided, subscribe it for this turn if not already listening
+	var unhook func()
+	if emit != nil {
+		unhook = s.Subscribe(emit)
+	}
+
 	defer func() {
+		if unhook != nil {
+			unhook()
+		}
 		s.mu.Lock()
 		s.isBusy = false
 		s.cancelTurn = nil
@@ -168,11 +300,15 @@ func (s *SessionState) Prompt(ctx context.Context, prompt string, emit func(Noti
 		s.mu.Unlock()
 	}()
 
+	emitNotification := func(n Notification) {
+		s.Emit(n)
+	}
+
 	var emittedFinished bool
 	emitTurnFinished := func(payload *EventTurnFinishedPayload) {
 		if !emittedFinished {
 			emittedFinished = true
-			emit(Notification{
+			emitNotification(Notification{
 				JSONRPC: "2.0",
 				Method:  EventTurnFinished,
 				Params:  *payload,
@@ -262,7 +398,7 @@ func (s *SessionState) Prompt(ctx context.Context, prompt string, emit func(Noti
 			// Check for parseable action start tag: <action name=
 			if idx := strings.Index(str, "<action name="); idx != -1 {
 				if idx > 0 {
-					emit(Notification{
+					emitNotification(Notification{
 						JSONRPC: "2.0",
 						Method:  EventToken,
 						Params: EventTokenPayload{
@@ -276,7 +412,7 @@ func (s *SessionState) Prompt(ctx context.Context, prompt string, emit func(Noti
 			}
 			if idx := strings.Index(str, "<action name ="); idx != -1 {
 				if idx > 0 {
-					emit(Notification{
+					emitNotification(Notification{
 						JSONRPC: "2.0",
 						Method:  EventToken,
 						Params: EventTokenPayload{
@@ -293,7 +429,7 @@ func (s *SessionState) Prompt(ctx context.Context, prompt string, emit func(Noti
 				continue
 			}
 
-			emit(Notification{
+			emitNotification(Notification{
 				JSONRPC: "2.0",
 				Method:  EventToken,
 				Params: EventTokenPayload{
@@ -306,7 +442,7 @@ func (s *SessionState) Prompt(ctx context.Context, prompt string, emit func(Noti
 
 		// Flush any remaining buffered tokens that were held back as potential action tag prefixes
 		if !suppressTokens && pendingTokens.Len() > 0 {
-			emit(Notification{
+			emitNotification(Notification{
 				JSONRPC: "2.0",
 				Method:  EventToken,
 				Params: EventTokenPayload{
@@ -467,7 +603,7 @@ func (s *SessionState) Prompt(ctx context.Context, prompt string, emit func(Noti
 			s.mu.Unlock()
 		}
 
-		emit(Notification{
+		emitNotification(Notification{
 			JSONRPC: "2.0",
 			Method:  EventActionProposed,
 			Params: EventActionProposedPayload{
@@ -559,7 +695,7 @@ func (s *SessionState) Prompt(ctx context.Context, prompt string, emit func(Noti
 			errStr = err.Error()
 		}
 
-		emit(Notification{
+		emitNotification(Notification{
 			JSONRPC: "2.0",
 			Method:  EventActionResult,
 			Params: EventActionResultPayload{

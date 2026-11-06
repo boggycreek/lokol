@@ -24,10 +24,11 @@ type Client struct {
 	pendingMu sync.Mutex
 	pending   map[string]chan Response
 
-	eventMu   sync.RWMutex
-	onEvent   func(Notification)
-	closeOnce sync.Once
-	closed    chan struct{}
+	eventMu     sync.RWMutex
+	onEvent     func(Notification)
+	lastSeenSeq uint64
+	closeOnce   sync.Once
+	closed      chan struct{}
 }
 
 // Dial connects to a lokol-daemon over a UNIX domain socket or TCP address.
@@ -88,9 +89,19 @@ func (c *Client) readLoop() {
 		// Try unmarshaling as Notification (event)
 		var notif Notification
 		if jsonErr := json.Unmarshal(line, &notif); jsonErr == nil && notif.Method != "" {
-			c.eventMu.RLock()
+			c.eventMu.Lock()
+			// Monotonic sequence out-of-order & duplicate protection:
+			// If an event has a sequence number assigned (> 0) and is <= lastSeenSeq,
+			// drop it to prevent duplicates or regression during reconnection replay.
+			if notif.Seq > 0 {
+				if notif.Seq <= c.lastSeenSeq {
+					c.eventMu.Unlock()
+					continue
+				}
+				c.lastSeenSeq = notif.Seq
+			}
 			handler := c.onEvent
-			c.eventMu.RUnlock()
+			c.eventMu.Unlock()
 			if handler != nil {
 				handler(notif)
 			}
@@ -227,6 +238,39 @@ func (c *Client) GetStatus(ctx context.Context, sessionID string) (map[string]an
 	var result map[string]any
 	err := c.Call(ctx, MethodSessionGetStatus, SessionStatusParams{SessionID: sessionID}, &result)
 	return result, err
+}
+
+// Subscribe subscribes to events for the given session with a replay cursor sinceSeq.
+func (c *Client) Subscribe(ctx context.Context, sessionID string, sinceSeq uint64) (*SessionSubscribeResult, error) {
+	c.eventMu.Lock()
+	if sinceSeq > 0 && c.lastSeenSeq < sinceSeq {
+		c.lastSeenSeq = sinceSeq
+	}
+	c.eventMu.Unlock()
+
+	var result SessionSubscribeResult
+	params := SessionSubscribeParams{
+		SessionID: sessionID,
+		SinceSeq:  sinceSeq,
+	}
+	if err := c.Call(ctx, MethodSessionSubscribe, params, &result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// LastSeenSeq returns the highest event sequence number processed by the client.
+func (c *Client) LastSeenSeq() uint64 {
+	c.eventMu.RLock()
+	defer c.eventMu.RUnlock()
+	return c.lastSeenSeq
+}
+
+// SetLastSeenSeq explicitly sets the client's last seen sequence number.
+func (c *Client) SetLastSeenSeq(seq uint64) {
+	c.eventMu.Lock()
+	defer c.eventMu.Unlock()
+	c.lastSeenSeq = seq
 }
 
 // Close closes the client socket connection.

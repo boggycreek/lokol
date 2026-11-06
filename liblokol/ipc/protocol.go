@@ -42,6 +42,7 @@ type Notification struct {
 	JSONRPC string `json:"jsonrpc"`
 	Method  string `json:"method"`
 	Params  any    `json:"params"`
+	Seq     uint64 `json:"seq"`
 }
 
 // RPCError details a JSON-RPC error.
@@ -62,7 +63,21 @@ const (
 	MethodSessionClose         = "session.close"
 	MethodSessionGetStatus     = "session.get_status"
 	MethodDaemonPing           = "daemon.ping"
+	MethodSessionSubscribe     = "session.subscribe"
 )
+
+// SessionSubscribeParams defines parameters for session.subscribe
+type SessionSubscribeParams struct {
+	SessionID string `json:"session_id,omitempty"`
+	SinceSeq  uint64 `json:"since_seq,omitempty"`
+}
+
+// SessionSubscribeResult defines the result returned by session.subscribe
+type SessionSubscribeResult struct {
+	SessionID  string `json:"session_id"`
+	CurrentSeq uint64 `json:"current_seq"`
+	Replayed   int    `json:"replayed"`
+}
 
 // Streaming events dispatched by the IPC daemon
 const (
