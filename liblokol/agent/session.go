@@ -60,6 +60,8 @@ type Session struct {
 	consecutiveReads int
 	windowCache      *WindowReadCache
 	LedgerProvider   func() string
+	inspectedFiles   map[string]struct{}
+	modifiedFiles    map[string]struct{}
 }
 
 var _ SessionCore = (*Session)(nil)
@@ -104,6 +106,8 @@ func NewSessionWithMode(client *Client, workDir string, mode Mode, codebaseCtxOp
 		AgentName:       env.AgentName,
 		OperatorName:    env.OperatorName,
 		windowCache:     NewWindowReadCache(),
+		inspectedFiles:  make(map[string]struct{}),
+		modifiedFiles:   make(map[string]struct{}),
 		History: []Message{
 			{Role: "system", Content: systemPrompt},
 		},
@@ -269,13 +273,27 @@ func (s *Session) ExecuteAction(ctx context.Context, act *Action) (string, error
 
 	out, err := DispatchAction(ctx, act, s.WorkDir)
 	if err == nil {
-		if act.Name == "read_window" && s.windowCache != nil {
-			if input, parseErr := refinery.ParseReadWindowPayload(act.Command); parseErr == nil {
-				s.windowCache.RecordRead(input.Path, input.StartLine, input.EndLine, s.WorkDir)
+		if act.Name == "read_window" {
+			if input, parseErr := refinery.ParseReadWindowPayload(act.Command); parseErr == nil && input.Path != "" {
+				s.RecordInspectedFile(input.Path)
+				if s.windowCache != nil {
+					s.windowCache.RecordRead(input.Path, input.StartLine, input.EndLine, s.WorkDir)
+				}
+			} else if target := act.TargetSummary(); target != "" && target != "file" {
+				s.RecordInspectedFile(target)
 			}
-		} else if (act.Name == "replace_file" || act.Name == "write_file") && s.windowCache != nil {
+		} else if act.Name == "read_outline" {
+			if target := act.TargetSummary(); target != "" && target != "file" {
+				s.RecordInspectedFile(target)
+			}
+		} else if act.Name == "replace_file" || act.Name == "write_file" {
 			target := act.TargetSummary()
-			s.windowCache.Invalidate(target, s.WorkDir)
+			if target != "" && target != "file" {
+				s.RecordModifiedFile(target)
+			}
+			if s.windowCache != nil {
+				s.windowCache.Invalidate(target, s.WorkDir)
+			}
 		} else if act.Name == "exec_bash" && s.windowCache != nil {
 			// External bash execution may modify files; clear cache
 			s.windowCache.Clear()
@@ -342,6 +360,8 @@ func (s *Session) Reset() {
 	env := DetectHostEnvironment(s.WorkDir)
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.inspectedFiles = make(map[string]struct{})
+	s.modifiedFiles = make(map[string]struct{})
 	if s.AgentName != "" {
 		env.AgentName = s.AgentName
 	}
@@ -436,15 +456,14 @@ func (s *Session) Compact(ctx context.Context, metrics *regulator.SlotMetrics) e
 		beforeChars += len(m.Content)
 	}
 
-	summary := "Older interaction turns summarized due to slot capacity constraints."
 	s.mu.RLock()
 	provider := s.LedgerProvider
 	s.mu.RUnlock()
+	var specLedger string
 	if provider != nil {
-		if ledger := provider(); ledger != "" {
-			summary = fmt.Sprintf("SPECIFICATION & TEST ASSERTION LEDGER:\n%s\n\nIntermediate turns compacted to preserve context budget.", ledger)
-		}
+		specLedger = provider()
 	}
+	summary := s.BuildCompactionLedger(specLedger)
 	s.CompactHistory(summary, 2)
 
 	afterChars := 0
