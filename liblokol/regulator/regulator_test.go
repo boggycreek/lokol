@@ -495,6 +495,18 @@ func TestBoundary_ExtractTagContent_Robustness(t *testing.T) {
 	}
 }
 
+func BenchmarkExtractTagContent(b *testing.B) {
+	payload := `<action name="write_file"><path id="1">pkg/module/service.go</path><content>package module</content></action>`
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		res := regulator.ExtractTagContent(payload, "path")
+		if res != "pkg/module/service.go" {
+			b.Fatalf("unexpected extracted content: %s", res)
+		}
+	}
+}
+
 func TestCircuitBreaker_LoopAndOscillation(t *testing.T) {
 	cb := regulator.NewLoopCircuitBreakerStage()
 	ctx := context.Background()

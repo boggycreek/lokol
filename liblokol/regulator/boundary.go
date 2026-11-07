@@ -10,7 +10,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 )
 
@@ -110,13 +109,55 @@ func CheckPathWithinBounds(workDir string, targetPath string) (string, error) {
 }
 
 // ExtractTagContent parses the inner text of an XML tag, supporting attributes and whitespace (lokol-gml.4).
+// Performance optimization: Uses zero-regex string searching to avoid compiling regexes on every call.
 func ExtractTagContent(payload, tag string) string {
-	tagRegex := regexp.MustCompile(`(?si)<` + regexp.QuoteMeta(tag) + `(?:\s+[^>]*)?>(.*?)</` + regexp.QuoteMeta(tag) + `>`)
-	match := tagRegex.FindStringSubmatch(payload)
-	if len(match) > 1 {
-		return strings.TrimSpace(match[1])
+	startTag := "<" + tag + ">"
+	endTag := "</" + tag + ">"
+
+	startIdx := -1
+	if idx := strings.Index(payload, startTag); idx != -1 {
+		startIdx = idx + len(startTag)
+	} else {
+		prefix := "<" + tag
+		offset := 0
+		for {
+			idx := strings.Index(payload[offset:], prefix)
+			if idx == -1 {
+				return ""
+			}
+			pos := offset + idx
+			afterTag := pos + len(prefix)
+			if afterTag < len(payload) {
+				nextChar := payload[afterTag]
+				if nextChar == '>' {
+					startIdx = afterTag + 1
+					break
+				}
+				if nextChar == ' ' || nextChar == '\t' || nextChar == '\n' || nextChar == '\r' {
+					closingBracket := strings.Index(payload[afterTag:], ">")
+					if closingBracket != -1 {
+						if closingBracket > 0 && payload[afterTag+closingBracket-1] == '/' {
+							return ""
+						}
+						startIdx = afterTag + closingBracket + 1
+						break
+					}
+				}
+			}
+			offset = pos + len(prefix)
+		}
 	}
-	return ""
+
+	if startIdx == -1 {
+		return ""
+	}
+
+	endIdx := strings.Index(payload[startIdx:], endTag)
+	if endIdx == -1 {
+		return ""
+	}
+
+	return strings.TrimSpace(payload[startIdx : startIdx+endIdx])
 }
 
 // ResolveActionPath returns the canonical target path for an action candidate,
