@@ -92,14 +92,14 @@ var defaultDangerPatterns = []dangerPattern{
 		reason: "Interactive reverse shell or network socket redirection via /dev/tcp or /dev/udp",
 	},
 	{
-		regex:  regexp.MustCompile(`(?i)\b(?:nc|netcat|ncat)\b.*\s+(?:-[a-z0-9]*[ec]\b|--(?:sh-)?exec\b)`),
+		regex:  regexp.MustCompile(`(?i)\b(?:nc|netcat|ncat|socat)\b.*\s+(?:-[a-z0-9]*[ec]\b|--(?:sh-)?exec\b|exec:)`),
 		level:  RiskLevelCritical,
-		reason: "Interactive reverse shell execution using netcat execution flags",
+		reason: "Interactive reverse shell execution using network relay execution flags",
 	},
 	{
-		regex:  regexp.MustCompile(`(?i)(?:\b(?:nc|netcat|ncat)\b.*\|\s*(?:/usr/bin/|/bin/)?(?:env\s+)?(?:bash|sh|zsh|dash)\b|\b(?:bash|sh|zsh|dash)\b.*\|\s*(?:/usr/bin/|/bin/)?(?:env\s+)?(?:nc|netcat|ncat)\b)`),
+		regex:  regexp.MustCompile(`(?i)(?:\b(?:nc|netcat|ncat|socat)\b.*\|\s*(?:/usr/bin/|/bin/)?(?:env\s+)?(?:bash|sh|zsh|dash)\b|\b(?:bash|sh|zsh|dash)\b.*\|\s*(?:/usr/bin/|/bin/)?(?:env\s+)?(?:nc|netcat|ncat|socat)\b)`),
 		level:  RiskLevelCritical,
-		reason: "Piping netcat network socket to or from shell interpreter",
+		reason: "Piping network relay socket to or from shell interpreter",
 	},
 
 	// High: Remote execution or encoded decode pipelines (lokol-gml.3)
@@ -121,12 +121,12 @@ var defaultDangerPatterns = []dangerPattern{
 
 	// High: Credential access and exfiltration (lokol-gml.3: generalized across tools)
 	{
-		regex:  regexp.MustCompile(`(?i)\b(?:cat|head|tail|less|more|cp|mv|tar|zip|xxd|hexdump|strings|base64|grep|awk|sed|scp|rsync|python|ruby|perl|node)\s+.*(?:~|\$HOME|\/home\/[^\/]+|\/root)\/\.(?:ssh|aws|gnupg|docker\/config\.json|config\/gh)\b`),
+		regex:  regexp.MustCompile(`(?i)\b(?:cat|head|tail|less|more|cp|mv|tar|zip|xxd|hexdump|strings|base64|grep|awk|sed|scp|rsync|python|ruby|perl|node)\s+.*(?:~|\$HOME|\/home\/[^\/]+|\/root)\/\.(?:ssh|aws|gnupg|docker\/config\.json|config\/gh|kube|netrc)\b`),
 		level:  RiskLevelHigh,
 		reason: "Attempt to access host authentication credentials or private keys",
 	},
 	{
-		regex:  regexp.MustCompile(`(?i)\b.*(?:~|\$HOME|\/home\/[^\/]+|\/root)\/\.(?:ssh\/id_|aws\/credentials|gnupg\/secring)\b`),
+		regex:  regexp.MustCompile(`(?i)\b.*(?:~|\$HOME|\/home\/[^\/]+|\/root)\/\.(?:ssh\/id_|aws\/credentials|gnupg\/secring|kube\/config|netrc)\b`),
 		level:  RiskLevelHigh,
 		reason: "Direct access targeting sensitive private keys or authentication tokens",
 	},
