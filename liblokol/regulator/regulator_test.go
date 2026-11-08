@@ -463,6 +463,14 @@ func TestInspectShellRisk_RegexEvasions(t *testing.T) {
 	}
 }
 
+func BenchmarkExtractTagContent(b *testing.B) {
+	payload := `<action name="write_file"><path>pkg/sub/module.go</path><content>hello world</content></action>`
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = regulator.ExtractTagContent(payload, "path")
+	}
+}
+
 func TestBoundary_ExtractTagContent_Robustness(t *testing.T) {
 	workDir := t.TempDir()
 
