@@ -672,5 +672,23 @@ func TestStructuredRemediation_AllStages(t *testing.T) {
 	}
 }
 
+func BenchmarkExtractTagContent(b *testing.B) {
+	testPayloads := []string{
+		`<path id="1">pkg/module.go</path>`,
+		`<path  class="primary" >pkg/sub/file.go</path>`,
+		"<path>\n  pkg/nested.go  \n</path>",
+		`<target>hello world</target>`,
+		`<path/>`,
+		`<other>irrelevant</other>`,
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		for _, p := range testPayloads {
+			_ = regulator.ExtractTagContent(p, "path")
+		}
+	}
+}
 
 
