@@ -233,6 +233,12 @@ func TestInspectShellRisk(t *testing.T) {
 	criticalCmds := []string{
 		"rm -rf /",
 		"rm -rf /*",
+		"rm -rf /..",
+		"rm -rf /.",
+		"rm -rf /./",
+		"rm -rf /etc/..",
+		"rm -rf /usr/../",
+		"rm -rf /var/../etc",
 		"rm -rf ~",
 		"rm -rf $HOME",
 		"mkfs.ext4 /dev/sda1",

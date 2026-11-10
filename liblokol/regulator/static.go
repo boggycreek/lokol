@@ -6,6 +6,7 @@
 package regulator
 
 import (
+	"path"
 	"regexp"
 	"strings"
 )
@@ -232,6 +233,9 @@ func inspectDestructiveRemoval(cmd string) ShellRisk {
 				cleaned := strings.TrimRight(target, "/")
 				if cleaned == "" {
 					cleaned = "/"
+				}
+				if strings.HasPrefix(cleaned, "/") {
+					cleaned = path.Clean(cleaned)
 				}
 
 				for _, root := range destructiveSystemRoots {

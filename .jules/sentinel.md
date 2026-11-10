@@ -9,3 +9,10 @@
 **Learning:** Static regex-based security controls on shell commands must account for shell interpreter context (ambient subshell execution) and enforce strict word/flag boundaries (`\s+(?:-[a-z0-9]*[ec]\b|--(?:sh-)?exec\b)`). Regex matching on virtual shell pseudo-devices like `/dev/tcp/host/port` should not assume a prefixed interpreter command because the runtime shell interpreter is already ambient.
 
 **Prevention:** Always test static regex danger rules against both adversarial bypass permutations (e.g., ambient redirects, pipe chaining) and common benign arguments (hostnames containing flag characters like `cluster` or `example`) to ensure zero false-positive disruption to developer workflows while maintaining complete risk coverage.
+
+## 2026-11-06 - Path Traversal Evasion in Shell Regulator Destructive Removal
+**Vulnerability:** In `inspectDestructiveRemoval`, commands executing recursive deletions (`rm -rf`) against root or system directories were checked using raw string prefix/equality checks against `destructiveSystemRoots`. An attacker or rogue model could bypass the detection using path traversal or directory normalization tricks such as `rm -rf /..`, `rm -rf /.`, `rm -rf /./`, `rm -rf /usr/../`, or `rm -rf /var/../etc`, which evaluate directly to `/` or system roots but failed literal string checks.
+
+**Learning:** Pure string prefix matching on filesystem targets inside command-line strings is insufficient for path safety without canonical POSIX path normalization (`path.Clean`).
+
+**Prevention:** Always normalize target path arguments with `path.Clean` before comparing against forbidden directory trees, ensuring traversal sequences like `..` and `.` cannot bypass security boundaries across platforms.
