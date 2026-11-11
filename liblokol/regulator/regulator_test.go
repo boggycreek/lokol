@@ -672,5 +672,31 @@ func TestStructuredRemediation_AllStages(t *testing.T) {
 	}
 }
 
+func TestStaticShellStage_RunTestActionInspection(t *testing.T) {
+	workDir := t.TempDir()
+	stage := regulator.NewStaticShellStage()
+	ctx := context.Background()
+
+	// Safe test execution allowed
+	safeAction := regulator.ActionCandidate{Name: "run_test", Command: "go test -v ./..."}
+	resSafe := stage.Evaluate(ctx, safeAction, workDir)
+	if resSafe.Status != regulator.StatusAllowed {
+		t.Errorf("expected safe run_test to be allowed, got status: %s", resSafe.Status)
+	}
+
+	// Critical destructive command blocked
+	critAction := regulator.ActionCandidate{Name: "run_test", Command: "rm -rf /"}
+	resCrit := stage.Evaluate(ctx, critAction, workDir)
+	if resCrit.Status != regulator.StatusBlocked || resCrit.RiskLevel != regulator.RiskLevelCritical {
+		t.Errorf("expected dangerous run_test to be StatusBlocked with Critical risk, got status: %s, risk: %s", resCrit.Status, resCrit.RiskLevel)
+	}
+
+	// High risk reverse shell blocked/warned
+	highAction := regulator.ActionCandidate{Name: "run_test", Command: "cat /etc/shadow"}
+	resHigh := stage.Evaluate(ctx, highAction, workDir)
+	if resHigh.Status != regulator.StatusWarning || resHigh.RiskLevel != regulator.RiskLevelHigh {
+		t.Errorf("expected credential access run_test to be StatusWarning with High risk, got status: %s, risk: %s", resHigh.Status, resHigh.RiskLevel)
+	}
+}
 
 

