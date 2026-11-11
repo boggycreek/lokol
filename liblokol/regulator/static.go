@@ -101,6 +101,16 @@ var defaultDangerPatterns = []dangerPattern{
 		level:  RiskLevelCritical,
 		reason: "Piping network relay socket to or from shell interpreter",
 	},
+	{
+		regex:  regexp.MustCompile(`(?i)\bsocat\b.*(?:\b(?:exec|system):|pty).*(?:tcp|udp)|(?i)\bsocat\b.*(?:tcp|udp).*(?:\b(?:exec|system):|pty)`),
+		level:  RiskLevelCritical,
+		reason: "Interactive reverse shell or network socket redirection via socat",
+	},
+	{
+		regex:  regexp.MustCompile(`(?i)\b(?:python[0-9.]*|perl|ruby)\b.*(?:socket|IO::Socket).*(?:dup2|pty\.spawn|STDIN|STDOUT|exec)`),
+		level:  RiskLevelCritical,
+		reason: "Interactive scripting language socket dup2/pty reverse shell payload",
+	},
 
 	// High: Remote execution or encoded decode pipelines (lokol-gml.3)
 	{
