@@ -500,6 +500,21 @@ func builtinExecBash(ctx context.Context, command string, workDir ...string) (st
 
 func builtinRunTest(ctx context.Context, command string, workDir ...string) (string, error) {
 	command = strings.TrimSpace(command)
+	if command == "" {
+		return "", fmt.Errorf("run_test: empty command")
+	}
+
+	wd := "."
+	if len(workDir) > 0 && workDir[0] != "" {
+		wd = workDir[0]
+	}
+
+	// Static regulator safety check
+	risk := regulator.InspectShellRisk(wd, command)
+	if risk.Level == regulator.RiskLevelHigh || risk.Level == regulator.RiskLevelCritical {
+		return "", fmt.Errorf("regulator blocked execution: %s (reason: %s)", command, risk.Reason)
+	}
+
 	res, err := refinery.RunTestVerifier(ctx, command, workDir...)
 	if err != nil {
 		return "", err

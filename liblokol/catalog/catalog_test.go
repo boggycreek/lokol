@@ -430,3 +430,35 @@ func TestExecBash_LineTruncationAndStderr(t *testing.T) {
 		t.Errorf("expected stderr diagnostic marker preserved when stdout is large, got: %s", outWithStderr)
 	}
 }
+
+func TestCatalog_RunTest_SecurityRiskGating(t *testing.T) {
+	ctx := context.Background()
+	tool, exists := DefaultRegistry.Get("run_test")
+	if !exists {
+		t.Fatalf("run_test tool missing from DefaultRegistry")
+	}
+
+	// 1. Critical risk shell command must be blocked
+	_, err := tool.Execute(ctx, "rm -rf /")
+	if err == nil {
+		t.Fatalf("expected run_test with critical shell command to be blocked, but succeeded")
+	}
+	if !strings.Contains(err.Error(), "regulator blocked execution") {
+		t.Errorf("expected error to mention regulator blocked execution, got: %v", err)
+	}
+
+	// 2. High risk shell command (e.g. privilege escalation) must be blocked
+	_, err = tool.Execute(ctx, "sudo ./run_tests.sh")
+	if err == nil {
+		t.Fatalf("expected run_test with high risk sudo command to be blocked, but succeeded")
+	}
+	if !strings.Contains(err.Error(), "regulator blocked execution") {
+		t.Errorf("expected error to mention regulator blocked execution, got: %v", err)
+	}
+
+	// 3. Empty command must return error
+	_, err = tool.Execute(ctx, "   ")
+	if err == nil {
+		t.Fatalf("expected run_test with empty command to fail, but succeeded")
+	}
+}

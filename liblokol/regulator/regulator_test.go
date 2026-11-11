@@ -324,6 +324,25 @@ func TestRegulator_CheckPermission(t *testing.T) {
 	if res.Status != regulator.StatusWarning || res.RiskLevel != regulator.RiskLevelHigh {
 		t.Errorf("expected sudo command to be flagged as warning, got: %s (level=%s)", res.Status, res.RiskLevel)
 	}
+
+	// 5. Dangerous shell commands invoked via run_test
+	critRunTest := regulator.ActionCandidate{
+		Name:    "run_test",
+		Command: "rm -rf /",
+	}
+	res = g.CheckPermission(ctx, critRunTest)
+	if res.Status != regulator.StatusBlocked || res.RiskLevel != regulator.RiskLevelCritical {
+		t.Errorf("expected run_test with rm -rf / to be blocked as critical, got: %s (level=%s)", res.Status, res.RiskLevel)
+	}
+
+	warnRunTest := regulator.ActionCandidate{
+		Name:    "run_test",
+		Command: "sudo ./run_tests.sh",
+	}
+	res = g.CheckPermission(ctx, warnRunTest)
+	if res.Status != regulator.StatusWarning || res.RiskLevel != regulator.RiskLevelHigh {
+		t.Errorf("expected run_test with sudo to be flagged as warning, got: %s (level=%s)", res.Status, res.RiskLevel)
+	}
 }
 
 func TestRegulator_SymlinkEscapes(t *testing.T) {

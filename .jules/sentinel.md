@@ -16,3 +16,8 @@
 **Learning:** Pure string prefix matching on filesystem targets inside command-line strings is insufficient for path safety without canonical POSIX path normalization (`path.Clean`).
 
 **Prevention:** Always normalize target path arguments with `path.Clean` before comparing against forbidden directory trees, ensuring traversal sequences like `..` and `.` cannot bypass security boundaries across platforms.
+
+## 2026-11-06 - Test Verifier Shell Gating & Regulator Defense-in-Depth
+**Vulnerability:** The test verifier tool (`run_test`) executes shell commands through an ambient bash subshell (`bash -c <command>`), but the regulator's `static_shell` stage only inspected commands where `action.Name == "exec_bash"`. Furthermore, `builtinRunTest` did not perform a preflight `InspectShellRisk` check, allowing dangerous shell commands (reverse shells, destructive deletions, privilege escalation) to bypass static risk inspection when invoked via `run_test`.
+**Learning:** Any tool that evaluates arbitrary user/model commands in a shell interpreter constitutes a shell execution surface. Filtering static checks strictly by the primary execution tool name (`exec_bash`) creates an architectural blind spot when auxiliary execution tools (`run_test`) share the underlying interpreter mechanism.
+**Prevention:** Unify static shell inspection across all shell-executing actions in the regulator pipeline (`exec_bash`, `run_test`) and enforce defense-in-depth preflight checks inside tool execution entrypoints.
