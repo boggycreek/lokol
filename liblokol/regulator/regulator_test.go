@@ -499,6 +499,8 @@ func TestBoundary_ExtractTagContent_Robustness(t *testing.T) {
 		{`<path id="1">pkg/module.go</path>`, "pkg/module.go"},
 		{`<path  class="primary" >pkg/sub/file.go</path>`, "pkg/sub/file.go"},
 		{"<path>\n  pkg/nested.go  \n</path>", "pkg/nested.go"},
+		{`<PATH>pkg/case.go</PATH>`, "pkg/case.go"},
+		{`<Path id="case">pkg/mixed.go</PATH>`, "pkg/mixed.go"},
 	}
 
 	for _, tc := range xmlVariations {
@@ -697,5 +699,13 @@ func TestStructuredRemediation_AllStages(t *testing.T) {
 	}
 }
 
+func BenchmarkExtractTagContent(b *testing.B) {
+	payload := `<path id="1">pkg/module.go</path>`
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = regulator.ExtractTagContent(payload, "path")
+	}
+}
 
 
