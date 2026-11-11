@@ -672,5 +672,61 @@ func TestStructuredRemediation_AllStages(t *testing.T) {
 	}
 }
 
+func BenchmarkExtractTagContent(b *testing.B) {
+	payload := `<action name="write_file">
+<path id="1">pkg/sub/module.go</path>
+<content>
+package module
+
+func Process() error {
+    return nil
+}
+</content>
+</action>`
+
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_ = regulator.ExtractTagContent(payload, "path")
+	}
+}
 
 
+
+
+func TestBoundary_ExtractTagContent_EdgeCases(t *testing.T) {
+	cases := []struct {
+		name     string
+		payload  string
+		tag      string
+		expected string
+	}{
+		{
+			name:     "mixed case tag with uppercase path preserved",
+			payload:  `<PATH id="1">/Var/Data/PreserveCase.txt</PATH>`,
+			tag:      "path",
+			expected: "/Var/Data/PreserveCase.txt",
+		},
+		{
+			name:     "multiple tags with attributes preserved order",
+			payload:  `<path id="1">first.go</path><path>second.go</path>`,
+			tag:      "path",
+			expected: "first.go",
+		},
+		{
+			name:     "empty tag content",
+			payload:  `<path></path>`,
+			tag:      "path",
+			expected: "",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := regulator.ExtractTagContent(tc.payload, tc.tag)
+			if got != tc.expected {
+				t.Errorf("ExtractTagContent(%q, %q) = %q, expected %q", tc.payload, tc.tag, got, tc.expected)
+			}
+		})
+	}
+}
