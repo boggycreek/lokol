@@ -214,7 +214,7 @@ func NewBoundaryStage() Stage {
 // Inspects bash commands for dangerous patterns, fork bombs, disk formatting, and privilege escalation.
 func NewStaticShellStage() Stage {
 	return NewNamedStage("static_shell", func(ctx context.Context, action ActionCandidate, workDir string) PermissionResult {
-		if action.Name != "exec_bash" {
+		if action.Name != "exec_bash" && action.Name != "run_test" {
 			return PermissionResult{Status: StatusAllowed, RiskLevel: RiskLevelNone}
 		}
 
